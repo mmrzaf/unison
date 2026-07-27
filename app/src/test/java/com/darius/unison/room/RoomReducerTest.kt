@@ -7,6 +7,7 @@ import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
+import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.UserCommand
@@ -114,7 +115,6 @@ class RoomReducerTest {
         assertTrue(final.playback.coordinatorTimestampNs > 5_000_000_000L)
     }
 
-
     @Test
     fun overlappingPlaybackCommandsAreRejectedUntilScheduledTime() {
         val item = QueueItem.create(track, peer)
@@ -156,5 +156,302 @@ class RoomReducerTest {
         assertTrue(result is RoomReducer.Decision.Accepted)
     }
 
+    @Test
+    fun shuffleKeepsCurrentTrackAndIsDeterministic() {
+        val queue = (0 until 8).map { index ->
+            QueueItem.create(
+                track.copy(
+                    trackId = TrackId(index.toString(16).padStart(64, '0')),
+                    title = "Track $index",
+                ),
+                peer,
+                index.toLong(),
+            )
+        }
+        val room = snapshot(queue).copy(
+            playback = CanonicalPlaybackState(queue[2].queueItemId, 0, 1, true),
+        )
+        val command = UserCommand.PlaybackModeChange(
+            requestedBy = peer,
+            shuffleEnabled = true,
+            repeatMode = RepeatMode.OFF,
+            shuffleSeed = 42L,
+        )
+        val firstResult = RoomReducer.decide(room, command, 2) as RoomReducer.Decision.Accepted
+        val secondResult = RoomReducer.decide(room, command.copy(commandId = "other"), 2) as RoomReducer.Decision.Accepted
+        val firstQueue = firstResult.mutations.single().snapshot.queue
+        val secondQueue = secondResult.mutations.single().snapshot.queue
+        assertEquals(queue.take(3).map { it.queueItemId }, firstQueue.take(3).map { it.queueItemId })
+        assertEquals(firstQueue.map { it.queueItemId }, secondQueue.map { it.queueItemId })
+        assertTrue(firstResult.mutations.single().snapshot.shuffleEnabled)
+    }
 
+    @Test
+    fun oneShotQueueShuffleReordersWithoutLeavingAModeEnabled() {
+        val queue = (0 until 8).map { index ->
+            QueueItem.create(
+                track.copy(
+                    trackId = TrackId(index.toString(16).padStart(64, '0')),
+                    title = "Track $index",
+                ),
+                peer,
+                index.toLong(),
+            )
+        }
+        val room = snapshot(queue).copy(
+            playback = CanonicalPlaybackState(queue[2].queueItemId, 0, 1, true),
+            repeatMode = RepeatMode.ALL,
+        )
+        val result = RoomReducer.decide(
+            room,
+            UserCommand.QueueShuffle(requestedBy = peer, shuffleSeed = 42L),
+            2,
+        ) as RoomReducer.Decision.Accepted
+        val shuffled = result.mutations.single().snapshot
+
+        assertEquals(queue.take(3).map { it.queueItemId }, shuffled.queue.take(3).map { it.queueItemId })
+        assertFalse(shuffled.shuffleEnabled)
+        assertEquals(RepeatMode.ALL, shuffled.repeatMode)
+        assertTrue(shuffled.queue.drop(3).map { it.queueItemId } != queue.drop(3).map { it.queueItemId })
+    }
+
+    @Test
+    fun disablingShuffleRestoresOriginalOrder() {
+        val queue = (0 until 6).map { index ->
+            QueueItem.create(
+                track.copy(trackId = TrackId(index.toString(16).padStart(64, '0')), title = "Track $index"),
+                peer,
+                index.toLong(),
+            )
+        }
+        val enabled = RoomReducer.decide(
+            snapshot(queue),
+            UserCommand.PlaybackModeChange(
+                requestedBy = peer,
+                shuffleEnabled = true,
+                repeatMode = RepeatMode.ALL,
+                shuffleSeed = 7L,
+            ),
+            2,
+        ) as RoomReducer.Decision.Accepted
+        val shuffled = enabled.mutations.single().snapshot
+        val disabled = RoomReducer.decide(
+            shuffled,
+            UserCommand.PlaybackModeChange(
+                requestedBy = peer,
+                shuffleEnabled = false,
+                repeatMode = RepeatMode.ALL,
+                shuffleSeed = 9L,
+            ),
+            3,
+        ) as RoomReducer.Decision.Accepted
+        assertEquals(queue.map { it.queueItemId }, disabled.mutations.single().snapshot.queue.map { it.queueItemId })
+    }
+
+    @Test
+    fun queueCannotBeReorderedWhileShuffleIsOn() {
+        val item = QueueItem.create(track, peer)
+        val room = snapshot(listOf(item)).copy(shuffleEnabled = true)
+        val result = RoomReducer.decide(
+            room,
+            UserCommand.QueueMove(requestedBy = peer, queueItemId = item.queueItemId, newIndex = 0),
+            0,
+        )
+        assertTrue(result is RoomReducer.Decision.Rejected)
+    }
+
+    @Test
+    fun playNextInsertsAfterCurrentWithoutChangingCurrent() {
+        val first = QueueItem.create(track, peer)
+        val second = QueueItem.create(
+            track.copy(trackId = TrackId("b".repeat(64)), title = "Second"),
+            peer,
+        )
+        val nextTrack = track.copy(trackId = TrackId("c".repeat(64)), title = "Next")
+        val room = snapshot(listOf(first, second)).copy(
+            playback = CanonicalPlaybackState(first.queueItemId, 10_000, 1, true),
+        )
+        val result = RoomReducer.decide(
+            room,
+            UserCommand.QueueAdd(
+                requestedBy = peer,
+                tracks = listOf(nextTrack),
+                insertAfterCurrent = true,
+            ),
+            2,
+        ) as RoomReducer.Decision.Accepted
+        val updated = result.mutations.single().snapshot
+        assertEquals(listOf(first.track.trackId, nextTrack.trackId, second.track.trackId), updated.queue.map { it.track.trackId })
+        assertEquals(first.queueItemId, updated.playback.queueItemId)
+    }
+
+    @Test
+    fun selectingQueueItemStartsItWithoutReorderingQueue() {
+        val queue = (0 until 3).map { index ->
+            QueueItem.create(
+                track.copy(
+                    trackId = TrackId(index.toString(16).padStart(64, '0')),
+                    title = "Track $index",
+                ),
+                peer,
+                index.toLong(),
+            )
+        }
+        val room = snapshot(queue).copy(
+            playback = CanonicalPlaybackState(queue.first().queueItemId, 8_000, 1, true),
+            preparedQueueItemIds = queue.mapTo(mutableSetOf()) { it.queueItemId },
+        )
+        val result = RoomReducer.decide(
+            room,
+            UserCommand.PlayQueueItem(requestedBy = peer, queueItemId = queue.last().queueItemId),
+            2,
+        ) as RoomReducer.Decision.Accepted
+        val mutation = result.mutations.single()
+        val body = mutation.body as ProtocolBody.CurrentItemChanged
+
+        assertEquals(queue.map { it.queueItemId }, mutation.snapshot.queue.map { it.queueItemId })
+        assertEquals(queue.last().queueItemId, body.queueItemId)
+        assertEquals(0, body.positionMs)
+        assertTrue(body.resumePlayback)
+        assertEquals(queue.last().queueItemId, mutation.snapshot.playback.queueItemId)
+    }
+
+    @Test
+    fun selectingUnpreparedQueueItemSwitchesThenWaitsForPreparation() {
+        val first = QueueItem.create(track, peer)
+        val target = QueueItem.create(
+            track.copy(trackId = TrackId("b".repeat(64)), title = "Target"),
+            peer,
+        )
+        val room = snapshot(listOf(first, target)).copy(
+            playback = CanonicalPlaybackState(first.queueItemId, 8_000, 1, true),
+            preparedQueueItemIds = setOf(first.queueItemId),
+        )
+        val result = RoomReducer.decide(
+            room,
+            UserCommand.PlayQueueItem(requestedBy = peer, queueItemId = target.queueItemId),
+            2,
+        ) as RoomReducer.Decision.Accepted
+        val body = result.mutations.single().body as ProtocolBody.CurrentItemChanged
+
+        assertEquals(target.queueItemId, body.queueItemId)
+        assertFalse(body.resumePlayback)
+        assertFalse(result.mutations.single().snapshot.playback.isPlaying)
+    }
+
+    @Test
+    fun clearPlayedRemovesOnlyHistory() {
+        val queue = (0 until 4).map { index ->
+            QueueItem.create(
+                track.copy(trackId = TrackId(index.toString(16).padStart(64, '0')), title = "Track $index"),
+                peer,
+                index.toLong(),
+            )
+        }
+        val room = snapshot(queue).copy(
+            playback = CanonicalPlaybackState(queue[2].queueItemId, 5_000, 1, true),
+        )
+        val result = RoomReducer.decide(
+            room,
+            UserCommand.QueueClearPlayed(requestedBy = peer),
+            2,
+        ) as RoomReducer.Decision.Accepted
+        assertEquals(listOf(queue[2].queueItemId, queue[3].queueItemId), result.mutations.last().snapshot.queue.map { it.queueItemId })
+        assertEquals(queue[2].queueItemId, result.mutations.last().snapshot.playback.queueItemId)
+    }
+
+    @Test
+    fun queueCapacityIsBoundedAndBulkAddsAreTrimmed() {
+        val queue = (0 until RoomReducer.MAX_QUEUE_ITEMS - 1).map { index ->
+            QueueItem.create(
+                track.copy(
+                    trackId = TrackId(index.toString(16).padStart(64, '0')),
+                    title = "Track $index",
+                ),
+                peer,
+                index.toLong(),
+            )
+        }
+        val additions = listOf('b', 'c', 'd').map { marker ->
+            track.copy(trackId = TrackId(marker.toString().repeat(64)), title = "Added $marker")
+        }
+        val result = RoomReducer.decide(
+            snapshot(queue),
+            UserCommand.QueueAdd(requestedBy = peer, tracks = additions),
+            0,
+        ) as RoomReducer.Decision.Accepted
+
+        assertEquals(1, result.mutations.size)
+        assertEquals(RoomReducer.MAX_QUEUE_ITEMS, result.mutations.single().snapshot.queue.size)
+        val full = RoomReducer.decide(
+            result.mutations.single().snapshot,
+            UserCommand.QueueAdd(requestedBy = peer, tracks = listOf(additions.first()), commandId = "full"),
+            0,
+        )
+        assertTrue(full is RoomReducer.Decision.Rejected)
+    }
+
+    @Test
+    fun addingWhileShuffledStillRestoresAStableOriginalOrder() {
+        val queue = (0 until 5).map { index ->
+            QueueItem.create(
+                track.copy(trackId = TrackId(index.toString(16).padStart(64, '0')), title = "Track $index"),
+                peer,
+                index.toLong(),
+            )
+        }
+        val shuffled = (RoomReducer.decide(
+            snapshot(queue),
+            UserCommand.PlaybackModeChange(
+                requestedBy = peer,
+                shuffleEnabled = true,
+                repeatMode = RepeatMode.OFF,
+                shuffleSeed = 11,
+            ),
+            0,
+        ) as RoomReducer.Decision.Accepted).mutations.single().snapshot
+        val addedTrack = track.copy(trackId = TrackId("f".repeat(64)), title = "Added")
+        val withAdded = (RoomReducer.decide(
+            shuffled,
+            UserCommand.QueueAdd(requestedBy = peer, tracks = listOf(addedTrack), commandId = "add-shuffled"),
+            1,
+        ) as RoomReducer.Decision.Accepted).mutations.single().snapshot
+        val restored = (RoomReducer.decide(
+            withAdded,
+            UserCommand.PlaybackModeChange(
+                requestedBy = peer,
+                shuffleEnabled = false,
+                repeatMode = RepeatMode.OFF,
+                shuffleSeed = 0,
+                commandId = "restore",
+            ),
+            2,
+        ) as RoomReducer.Decision.Accepted).mutations.single().snapshot
+
+        assertEquals(queue.map { it.track.trackId } + addedTrack.trackId, restored.queue.map { it.track.trackId })
+    }
+
+    @Test
+    fun oversizedBulkAddIsRejected() {
+        val additions = List(RoomReducer.MAX_TRACKS_PER_COMMAND + 1) { index ->
+            track.copy(trackId = TrackId(index.toString(16).padStart(64, '0')))
+        }
+        val result = RoomReducer.decide(
+            snapshot(),
+            UserCommand.QueueAdd(requestedBy = peer, tracks = additions),
+            0,
+        )
+        assertTrue(result is RoomReducer.Decision.Rejected)
+    }
+
+    @Test
+    fun malformedTrackDescriptorIsRejected() {
+        val malformed = track.copy(trackId = TrackId("not-a-sha256"))
+        val result = RoomReducer.decide(
+            snapshot(),
+            UserCommand.QueueAdd(requestedBy = peer, tracks = listOf(malformed)),
+            0,
+        )
+        assertTrue(result is RoomReducer.Decision.Rejected)
+    }
 }
