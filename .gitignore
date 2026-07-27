@@ -1,0 +1,27 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+
+.DS_Store
+.idea/
+*.iml
+
+captures/
+.externalNativeBuild/
+.cxx/
+
+*.apk
+*.ap_
+dist/
+
+# Secrets and signing material
+signing/
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.base64
+keystore.properties
+.env
+.env.*
