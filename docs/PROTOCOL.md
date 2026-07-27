@@ -1,108 +1,33 @@
-# Unison protocol v1
+# Local room protocol
 
 ## Transport
 
-- TCP only.
-- One listening port handles control and file handshakes.
-- Connections are accepted only from loopback, private, or link-local addresses.
-- Control and file data use separate TCP connections so transfers cannot head-of-line block playback commands.
+Unison uses separate TCP connections for control and file transfer. Android NSD advertises rooms on the local network; QR/direct invitations provide a fallback. Public addresses are rejected.
 
-## Discovery record
+## Handshake
 
-DNS-SD service type: `_unison._tcp.`
+A client sends its supported protocol versions, peer identity, local listening port, nonce, room ID, and PIN proof. The coordinator applies metadata, room-capacity, PIN-attempt, and private-address validation before accepting. The room secret is encrypted with a key derived from the room ID, PIN, and client nonce. Both peers derive a session key from the room secret and nonces.
 
-TXT attributes:
+## Control frames
 
-| Key | Meaning |
-|---|---|
-| `rid` | random room ID |
-| `v` | protocol version |
-| `name` | display name, capped at 80 UTF-8 bytes by the app |
-| `term` | coordinator term |
+Each control frame contains:
 
-## Control handshake
+- fixed magic and protocol version;
+- channel and payload length;
+- UUID message identifier;
+- bounded serialized envelope;
+- HMAC-SHA-256 over header and payload.
 
-1. Client sends `ClientHello` containing peer identity, room ID, supported protocol versions, listening port, nonce, and PIN proof.
-2. Coordinator validates the room, protocol, port, and proof.
-3. Coordinator encrypts the 256-bit room secret with a PBKDF2-derived PIN key using AES-GCM.
-4. Both sides derive a per-connection session key from the room secret and both nonces using HKDF-SHA256.
-5. Subsequent frames are HMAC-SHA256 authenticated.
+The envelope includes room ID, coordinator term, sequence context, sender, monotonic timestamp, and a typed body. Invalid sizes, room IDs, versions, JSON, HMACs, or message IDs fail closed.
 
-The six-digit PIN is a friend-room admission mechanism, not protection against a determined offline brute-force attacker.
+## Canonical commands
 
-## Control frame
+Peers submit user commands. The coordinator validates membership, permissions, command identifier length, queue capacity, track descriptors, and scheduling overlap. Accepted commands become ordered canonical mutations. Playback changes carry a future coordinator monotonic timestamp rather than “play now.”
 
-```text
-4 bytes   magic "UNSN"
-2 bytes   protocol version
-1 byte    channel type
-1 byte    flags
-4 bytes   JSON length
-16 bytes  message UUID
-N bytes   UTF-8 JSON envelope
-32 bytes  HMAC-SHA256(header + payload)
-```
+## File transfer
 
-Control payloads are limited to 256 KiB. The decoder validates frame magic, version, channel, bounded length, HMAC, UUID consistency, envelope version, and room ID.
-
-## Canonical envelope
-
-```text
-protocolVersion
-roomId
-term
-coordinatorPeerId
-senderPeerId
-sequence?          canonical mutations only
-messageId
-sentAtElapsedNs
-body
-```
-
-Canonical mutations include queue changes, room-option changes, scheduled playback actions, member updates, and preparation state. Only the current coordinator may issue them.
-
-## Clock synchronization
-
-Guest sends `ClockPing(pingId, guestSendNs)`. Coordinator replies with receive/send timestamps. Guest calculates network round trip and coordinator offset. Three samples make the clock usable; warm-up pings run every 250 ms, then every 5 seconds.
-
-The guest sends `ClockReady` once synchronized. This prevents a scheduled play command from arriving before the phone can map coordinator time.
-
-## Playback commands
-
-- `PlayScheduled(queueItemId, positionMs, executeAtCoordinatorNs)`
-- `PauseScheduled(positionMs, executeAtCoordinatorNs)`
-- `SeekScheduled(queueItemId, positionMs, resumePlayback, executeAtCoordinatorNs)`
-- `CurrentItemChanged(...)`
-- `PlaybackStateSync(canonicalPlayback)` every two seconds
-
-No message means “now.” The receiving phone converts coordinator time to local monotonic time and schedules the action.
-
-## Track availability and transfer
-
-1. Coordinator announces `TrackDescriptorMessage` for the preload window.
-2. Peer answers `TrackHave` or `TrackNeed`.
-3. Coordinator selects a source that is connected, holds the exact hash, and is not the destination.
-4. Coordinator sends `TrackSourceAssigned` to the source.
-5. Source installs the one-time token and answers `TrackSourceAuthorized`.
-6. Coordinator sends the assignment to the destination.
-7. Destination opens a dedicated file connection with the token and partial-file offset.
-8. Source validates token, destination peer ID, track ID, expiry, and offset.
-9. Destination resumes, fsyncs, hashes, and atomically finalizes the file.
-10. Destination sends `TrackReady`.
-
-A failed source/destination pair is retried once before that source is removed for the track.
-
-## File response header
-
-```text
-4 bytes   magic "UNSF"
-4 bytes   bounded JSON header length
-N bytes   FileResponseHeader
-raw bytes from acceptedOffset
-```
-
-Statuses: `OK`, `NOT_FOUND`, `UNAUTHORIZED`, `INVALID_OFFSET`, `BUSY`, `ERROR`.
+The coordinator assigns a source and creates a short-lived, destination-bound, single-use authorization token. The destination opens a file channel with the track ID and resume offset. The source validates authorization before consuming it, then returns a bounded header and bytes. The destination validates request ID, status, descriptor, offset, size, and final SHA-256 before registering the file.
 
 ## Compatibility
 
-Protocol version is currently `1`. Unknown JSON fields are ignored. Unsupported protocol versions are rejected during handshake. Wire changes that alter meaning or framing require a new protocol version.
+Application version is `1.0.0`. The first-release wire protocol version is `1`; it is an independent compatibility contract and is not an alternate application release.
