@@ -1,81 +1,47 @@
-# Testing strategy
+# Testing
 
-## Automated checks
+## Network-free repository checks
 
 ```bash
 ./scripts/check-static.sh
-./gradlew testDebugUnitTest lintDebug assembleDebug
+./scripts/check-core.sh
+./scripts/check-data.sh
 ```
 
-The JVM suite covers:
+The core harness compiles selected production sources with Kotlin/JVM and runs deterministic protocol, reducer, sync, storage, playlist, and policy tests without Android SDK downloads.
 
-- M3U parsing and encoding;
-- frame authentication and tamper rejection;
-- PIN-based room-secret protection;
-- pure reducer ordering and permission decisions;
-- clock-offset estimation;
-- playback correction thresholds;
-- local-address enforcement.
+## Offline Android checks
 
-## Required physical-device matrix
+After the Android SDK, Gradle distribution, and Maven dependencies have been provisioned locally:
 
-Emulators are insufficient for Wi-Fi, hotspot, vendor NSD, audio output, and sleep behavior. Test at least:
+```bash
+./scripts/verify-offline-ready.sh
+./scripts/build-debug.sh
+./scripts/build-release.sh
+```
 
-| Device | OS | Role |
-|---|---:|---|
-| Pixel or AOSP-like | Android 11 / API 30 | coordinator and guest |
-| Samsung or another heavily customized device | Android 12 / API 31–32 | coordinator and guest |
-| Pixel/Samsung | Android 13 / API 33 | coordinator and guest |
-| one later device | Android 14–16 | compatibility smoke test |
+The release path runs Android unit tests, release lint, R8/resource shrinking, signed APK generation, optional `apksigner` verification, and SHA-256 output.
 
-Use at least four physical phones for room-scale testing.
+## GitHub CI
 
-## Core scenarios
+Pushes and pull requests run the repository checks, Android unit tests, strict debug and release
+lint, and both APK assemblies on Ubuntu 24.04. Successful runs expose `Unison-debug` for 14 days
+and the unsigned, shrunk `Unison-release-unsigned` artifact for 30 days. Neither CI artifact is a
+signed release.
 
-### Connection
+## Manual device matrix
 
-- shared home Wi-Fi discovery;
-- QR direct join when NSD is unavailable;
-- LocalOnlyHotspot creation, Wi-Fi QR join, and re-advertisement;
-- wrong PIN and wrong protocol rejection;
-- screen off and Activity recreation;
-- transient Wi-Fi loss and reconnect;
-- coordinator leaves and deterministic recovery.
+Test at least two physical devices, including Android 11 and a current target device:
 
-### Library
+1. first launch and permission denial/recovery;
+2. audio import from file picker and share sheet;
+3. large and malformed M3U rejection;
+4. room creation, NSD discovery, QR join, and wrong-PIN throttling;
+5. LocalOnlyHotspot creation and teardown;
+6. queue add/remove/move, shared shuffle/repeat, seek, headset, lock-screen, and notification controls;
+7. transfer interruption/resume, source loss, insufficient space, and corrupted partial recovery;
+8. coordinator leave/recovery and transient Wi-Fi loss;
+9. background playback, process removal, low-memory artwork clearing, and temporary cleanup;
+10. signed APK upgrade over the previous locally signed build.
 
-- MP3, M4A/AAC, FLAC, WAV, OGG/Opus;
-- file-picker and share imports copied into managed storage; identical bytes deduplicated by SHA-256;
-- share-sheet import copied into managed storage;
-- duplicate-byte detection across different filenames;
-- M3U/M3U8 with BOM, comments, `EXTINF`, content URI, absolute path, relative path, folder-resolution retry, wrong-folder fallback, and unresolved entries;
-- temporary keep/remove and 24-hour cleanup.
-
-### Transfer
-
-- current, next, and preload priority;
-- peer B sourcing directly to peer C;
-- disconnect mid-transfer and resume;
-- source authorization acknowledgment race;
-- wrong token, expired token, wrong destination, wrong hash;
-- low disk space and 1 GiB limit;
-- source file removed after queueing.
-
-### Synchronization
-
-- join clock warm-up before first play;
-- play, pause, seek, previous, next;
-- rapid competing friend commands;
-- natural transition to the next Media3 item;
-- drift correction without audible repeated seeks;
-- reconnect during playback and periodic state recovery;
-- wired headphones, phone speaker, and several Bluetooth headset models.
-
-## Acceptance targets
-
-- No live audio streaming.
-- Four phones can remain in one room for at least two hours.
-- Queue commands converge to the same sequence and snapshot.
-- No interruption of the current track when future tracks finish downloading.
-- Typical same-LAN headphone timeline difference remains subjectively suitable for singing along; exact acoustic latency is hardware dependent.
-- Interrupted track transfers resume and verify successfully.
+Document device model, Android version, battery restrictions, router/hotspot topology, and observed drift for every release candidate.

@@ -1,38 +1,35 @@
-# Validation record
+# Validation status
 
-## Completed in this workspace
+Validated on 2026-07-27:
 
-- Parsed all Android XML resources and the manifest.
-- Validated workflow YAML and shell-script syntax.
-- Verified that every third-party GitHub Action major-version reference used by the workflows exists.
-- Ran repository policy checks for SDK levels, permission minimization, stale project names, and tracked signing material.
-- Aligned Kotlin 2.3 with Android Gradle Plugin 8.13.2 and Java 17 application bytecode.
-- Compiled the debug and release Android variants with JDK 21 and Android SDK 36.
-- Executed all 43 Gradle JVM tests successfully.
-- Ran Android Lint for debug and release with no errors. The remaining dependency upgrade notices
-  are deliberate API-37/AGP-9.1 migration items, not compatible in-place upgrades.
-- Built `app-debug.apk`.
-- Ran the APK-only release script end to end with a temporary one-day key, produced a signed
-  release APK, and verified its APK Signature Scheme v2 signature. The temporary key, signing
-  properties, APK, and checksum were removed after validation.
+- repository, manifest, version, local-runtime, and development-marker policy checks;
+- fresh-release Room schema version 1;
+- 65 Android/JVM unit tests with zero failures, errors, or skips;
+- strict debug and release Android Lint with zero issues (warnings are fatal);
+- debug APK assembly;
+- release Kotlin compilation, Compose mapping, R8 shrinking, resource optimization, and unsigned APK assembly;
+- GitHub Actions workflow syntax and semantics checked with actionlint 1.7.12;
+- protocol version 1 compatibility guard;
+- concurrent content-addressed import commit stress coverage;
+- session reset coverage for stale room state and independent hotspot retention.
 
-Run the reproducible non-Android checks with:
+Dependency-currency lint is intentionally excluded because Kotlin is pinned to 2.3.21 until the R8
+generation bundled with AGP 8.13 supports Kotlin 2.4 metadata cleanly. Core and Lifecycle remain on
+their last API-36-compatible releases until a deliberate API 37/AGP 9 migration. All actionable
+source, API, deprecation, accessibility, correctness, and performance checks remain enabled.
 
-```bash
-./scripts/check-static.sh
-./scripts/check-core.sh
-```
+## Remaining physical-device gates
 
-## Not completed in this workspace
+No Android device or emulator was available in the review environment. A release candidate still
+requires the device matrix in [Testing](TESTING.md), including two-device sync, discovery, hotspot,
+QR join, transfer interruption/resume, media controls, background playback, and signed installation.
 
-The permanent release signing key is intentionally unavailable, so the signed release APK and
-its final signature verification are not claimed. Emulator and physical-device results are also
-not claimed.
+The standalone `check-core.sh` harness also reports `CORE_CHECK_SKIPPED` when `kotlinc` is absent;
+the same production areas are covered by the passing Gradle unit suite in this environment.
 
-Before publication, run:
+A signed release additionally requires the private local key:
 
 ```bash
-./gradlew --no-daemon testDebugUnitTest lintRelease assembleRelease
+./scripts/verify-offline-ready.sh
+./scripts/build-release.sh
 ```
-
-Then complete `docs/TESTING.md` and `docs/PLAY_STORE_RELEASE.md` with signed release artifacts.
