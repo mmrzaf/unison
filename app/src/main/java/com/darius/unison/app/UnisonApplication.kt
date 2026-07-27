@@ -1,6 +1,7 @@
 package com.darius.unison.app
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -25,11 +26,27 @@ class UnisonApplication : Application() {
             val identity = container.settings.ensureIdentity()
             container.roomStore.update { it.copy(localIdentity = identity) }
         }
-        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "temporary-track-cleanup",
-            ExistingPeriodicWorkPolicy.UPDATE,
-            PeriodicWorkRequestBuilder<CacheCleanupWorker>(12, TimeUnit.HOURS).build(),
-        )
+        runCatching {
+            WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "temporary-track-cleanup",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                PeriodicWorkRequestBuilder<CacheCleanupWorker>(12, TimeUnit.HOURS).build(),
+            )
+        }.onFailure { error ->
+            container.diagnostics.w("UnisonApplication", "Could not schedule local cleanup", error)
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+            container.artworkStore.clearMemory()
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        container.artworkStore.clearMemory()
     }
 }
 

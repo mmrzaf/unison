@@ -15,8 +15,29 @@ class CacheCleanupWorker(
     override suspend fun doWork(): Result {
         val database = UnisonDatabase.create(applicationContext)
         val store = ManagedFileStore(applicationContext)
+        val artwork = ArtworkStore(applicationContext.cacheDir)
         return try {
             val now = System.currentTimeMillis()
+            store.cleanupAbandonedFiles(now - STALE_PARTIAL_AGE_MS)
+            artwork.cleanup(now - STALE_ARTWORK_AGE_MS)
+            database.trackSourceDao().managedSources().forEach { source ->
+                val trackId = TrackId(source.trackId)
+                if (!store.finalFile(trackId).isFile) {
+                    database.withTransaction {
+                        database.trackSourceDao().get(source.sourceId)?.let { currentSource ->
+                            database.trackSourceDao().delete(currentSource)
+                        }
+                        if (database.trackSourceDao().countForTrack(source.trackId) == 0) {
+                            database.trackDao().delete(source.trackId)
+                        }
+                    }
+                }
+            }
+            val referenced = database.trackSourceDao().managedTrackIds().toHashSet()
+            store.storedTrackFiles()
+                .filter { (trackId, file) -> trackId.value !in referenced && file.lastModified() in 1 until now - STALE_PARTIAL_AGE_MS }
+                .keys
+                .forEach(store::delete)
             database.trackSourceDao().expired(now).forEach { candidate ->
                 var deleteManagedBytes = false
                 database.withTransaction {
@@ -34,9 +55,15 @@ class CacheCleanupWorker(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            Result.retry()
+            if (runAttemptCount < MAX_RETRY_ATTEMPTS) Result.retry() else Result.failure()
         } finally {
             database.close()
         }
+    }
+
+    private companion object {
+        const val STALE_PARTIAL_AGE_MS = 48L * 60 * 60 * 1000
+        const val STALE_ARTWORK_AGE_MS = 30L * 24 * 60 * 60 * 1000
+        const val MAX_RETRY_ATTEMPTS = 3
     }
 }

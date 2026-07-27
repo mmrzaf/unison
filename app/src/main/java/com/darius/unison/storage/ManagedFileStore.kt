@@ -18,6 +18,7 @@ class ManagedFileStore(filesDir: File) {
     constructor(context: Context) : this(context.filesDir)
 
     private val root = File(filesDir, "tracks").apply { mkdirs() }
+    private val commitLocks = Array(COMMIT_LOCK_STRIPES) { Any() }
 
     fun finalFile(trackId: TrackId): File = fileFor(trackId, suffix = "")
     fun partialFile(trackId: TrackId): File = fileFor(trackId, suffix = ".part")
@@ -30,7 +31,7 @@ class ManagedFileStore(filesDir: File) {
 
     fun hasVerified(trackId: TrackId, expectedSize: Long? = null): Boolean {
         val file = finalFile(trackId)
-        return file.isFile && (expectedSize == null || expectedSize <= 0 || file.length() == expectedSize)
+        return file.isFile && (expectedSize == null || file.length() == expectedSize)
     }
 
     suspend fun hash(input: InputStream, maxBytes: Long = Long.MAX_VALUE): HashResult = withContext(Dispatchers.IO) {
@@ -38,7 +39,9 @@ class ManagedFileStore(filesDir: File) {
         var size = 0L
         val buffer = ByteArray(BUFFER_SIZE)
         while (true) {
+            currentCoroutineContext().ensureActive()
             val read = input.read(buffer)
+            currentCoroutineContext().ensureActive()
             if (read < 0) break
             if (read == 0) continue
             digest.update(buffer, 0, read)
@@ -61,7 +64,9 @@ class ManagedFileStore(filesDir: File) {
                 writeFile(staging) { output ->
                     val buffer = ByteArray(BUFFER_SIZE)
                     while (true) {
+                        currentCoroutineContext().ensureActive()
                         val read = input.read(buffer)
+                        currentCoroutineContext().ensureActive()
                         if (read < 0) break
                         if (read == 0) continue
                         size += read
@@ -81,18 +86,34 @@ class ManagedFileStore(filesDir: File) {
         }
 
     private fun commitVerifiedStaging(staging: File, target: File, expectedSize: Long) {
-        if (target.isFile && target.length() == expectedSize) {
-            staging.delete()
-            return
-        }
-        if (target.exists() && !target.delete()) error("Could not replace stored audio")
-        if (staging.renameTo(target)) return
+        synchronized(commitLocks[(target.name.hashCode() and Int.MAX_VALUE) % commitLocks.size]) {
+            if (target.isFile && target.length() == expectedSize && sha256Hex(target) == target.name) {
+                staging.delete()
+                return
+            }
+            if (target.exists() && !target.delete()) error("Could not replace stored audio")
+            if (staging.renameTo(target)) return
 
-        writeFile(target) { output ->
-            staging.inputStream().buffered(BUFFER_SIZE).use { input -> input.copyTo(output, BUFFER_SIZE) }
+            // A few filesystems reject a rename across directories even within app storage. Keep
+            // the fallback hidden beside the destination and rename only after it is complete and
+            // verified, so readers can never observe a half-written content-addressed final file.
+            val replacement = File.createTempFile("commit-", ".tmp", target.parentFile)
+            try {
+                writeFile(replacement) { output ->
+                    staging.inputStream().buffered(BUFFER_SIZE).use { input ->
+                        input.copyTo(output, BUFFER_SIZE)
+                    }
+                }
+                check(
+                    replacement.length() == expectedSize && sha256Hex(replacement) == target.name
+                ) { "Could not verify stored audio" }
+                check(replacement.renameTo(target)) { "Could not commit stored audio" }
+            } finally {
+                replacement.delete()
+                staging.delete()
+            }
+            check(target.isFile && target.length() == expectedSize) { "Could not store audio" }
         }
-        staging.delete()
-        check(target.isFile && target.length() == expectedSize) { "Could not store audio" }
     }
 
     /** The flush is mandatory. fsync is best-effort because a few Android filesystems/providers
@@ -118,7 +139,6 @@ class ManagedFileStore(filesDir: File) {
             // Bytes were flushed and the staging/rename protocol still prevents partial final files.
         }
     }
-
 
     /**
      * Appends a peer transfer into the content-addressed partial file. All persistent audio writes
@@ -168,7 +188,9 @@ class ManagedFileStore(filesDir: File) {
         partial.inputStream().buffered(BUFFER_SIZE).use { input ->
             val buffer = ByteArray(BUFFER_SIZE)
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val read = input.read(buffer)
+                currentCoroutineContext().ensureActive()
                 if (read < 0) break
                 if (read > 0) digest.update(buffer, 0, read)
             }
@@ -178,8 +200,44 @@ class ManagedFileStore(filesDir: File) {
         true
     }
 
+    fun storedTrackFiles(): Map<TrackId, File> = buildMap {
+        root.listFiles().orEmpty().filter(File::isDirectory).forEach { directory ->
+            directory.listFiles().orEmpty().forEach { file ->
+                val name = file.name
+                if (file.isFile && name.matches(Regex("[0-9a-f]{64}"))) put(TrackId(name), file)
+            }
+        }
+    }
+
+    fun cleanupAbandonedFiles(olderThanEpochMs: Long): Int {
+        var removed = 0
+        root.walkTopDown().filter(File::isFile).forEach { file ->
+            val temporary = file.name.startsWith("staging-") || file.name.endsWith(".part")
+            if (temporary && file.lastModified() in 1 until olderThanEpochMs && file.delete()) removed++
+        }
+        return removed
+    }
+
     fun discardPartial(trackId: TrackId): Boolean = partialFile(trackId).delete()
-    fun delete(trackId: TrackId): Boolean = finalFile(trackId).delete() or partialFile(trackId).delete()
+    fun delete(trackId: TrackId): Boolean {
+        val target = finalFile(trackId)
+        return synchronized(commitLocks[(target.name.hashCode() and Int.MAX_VALUE) % commitLocks.size]) {
+            target.delete() or partialFile(trackId).delete()
+        }
+    }
+
+    private fun sha256Hex(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered(BUFFER_SIZE).use { input ->
+            val buffer = ByteArray(BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read > 0) digest.update(buffer, 0, read)
+            }
+        }
+        return digest.hex()
+    }
 
     private fun MessageDigest.hex(): String = digest().joinToString("") { "%02x".format(it) }
 
@@ -188,5 +246,6 @@ class ManagedFileStore(filesDir: File) {
 
     private companion object {
         const val BUFFER_SIZE = 128 * 1024
+        const val COMMIT_LOCK_STRIPES = 32
     }
 }
