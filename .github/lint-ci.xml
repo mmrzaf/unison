@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!--
+      The production project deliberately remains on API 36 until its AGP 9 / API 37 migration.
+      GitHub's Ubuntu image also installs API 37, so OldTargetApi is runner-dependent. Keep every
+      other lint check, including warnings-as-errors, enabled.
+    -->
+    <issue id="OldTargetApi" severity="ignore" />
+</lint>

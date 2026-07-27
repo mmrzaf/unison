@@ -46,6 +46,9 @@ jobs:
           ./scripts/check-core.sh
           ./scripts/check-data.sh
 
+      - name: Apply runner-only lint compatibility policy
+        run: cp .github/lint-ci.xml app/lint.xml
+
       - name: Test, lint, and build APKs
         run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
 
