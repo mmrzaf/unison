@@ -1,49 +1,19 @@
-# Unison privacy policy
+# Privacy policy
 
-**Effective date:** July 27, 2026
+Unison operates locally and does not require an account.
 
-Unison is an offline synchronized-listening application. It does not require an account and does not operate a cloud service.
+## Data stored on the device
 
-## Data Unison handles
+Unison may store imported audio, track metadata, playlists, a generated peer identity, display name, recent room diagnostic state, temporary received tracks, artwork cache, and local diagnostic logs. Managed audio is stored in the application's private directory. Android backups are disabled.
 
-Unison may process:
+## Local communication
 
-- the display name you choose;
-- audio files and playlists you explicitly add or share to the app;
-- track metadata such as title, artist, album, duration, file type, and SHA-256 identifier;
-- temporary room information such as connected peer names, local-network addresses, queue state, and synchronization measurements;
-- local diagnostic logs used to investigate application failures.
+When a room is active, Unison advertises and discovers local services, exchanges peer names and local addresses, synchronizes room state, and transfers assigned audio directly between participating devices. This traffic stays on the private network selected by the user. Public network addresses are rejected.
 
-## Where data is stored
+## External services
 
-Music imported into Unison is stored in the app's private storage on your device. Music received from a room is temporary for 24 hours by default unless you choose to keep it. You can remove individual temporary tracks or clear temporary music from the Library screen.
+Unison contains no cloud account, remote API, analytics, advertising, telemetry, billing, store delivery, or hosted Google runtime service integration. Android's `INTERNET` permission is required for private TCP sockets; it does not grant Unison a configured remote destination.
 
-Uninstalling Unison removes its app-private database, music copies, settings, and diagnostics under normal Android behavior.
+## User control
 
-## Local sharing
-
-When you join a room, Unison communicates directly with devices on the same local Wi-Fi network or local-only hotspot. Room participants can receive audio files that are added to the shared queue. Control messages are authenticated, and transferred tracks are verified by SHA-256.
-
-Audio file transfers remain on the local network. Unison does not upload room music to an internet server.
-
-## Internet, analytics, and advertising
-
-Unison does not include advertising, behavioral analytics, third-party tracking SDKs, cloud accounts, or remote telemetry. Android's `INTERNET` permission is used for local TCP sockets; the app rejects public internet addresses for room connections.
-
-## Permissions
-
-Unison may request nearby Wi-Fi or location permission when Android requires it to discover devices or create a local-only hotspot. File access is granted only through Android's system file and folder pickers or the share sheet. Unison does not request broad access to all files on the device.
-
-## Your choices
-
-You can:
-
-- choose which music to add or share;
-- keep or remove temporary room music;
-- clear temporary music from the Library;
-- leave a room at any time;
-- clear all Unison data from Android settings or uninstall the app.
-
-## Contact
-
-Contact the developer through the support address or issue tracker published in Unison's GitHub repository.
+Users select imported files through Android's picker or share sheet, can keep or remove temporary tracks, can clear local temporary content, and can uninstall the application to remove app-private data. Files exported through Android's document UI are created only at the destination the user selects.
