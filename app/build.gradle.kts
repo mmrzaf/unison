@@ -17,16 +17,14 @@ plugins {
 
 android {
     namespace = "com.darius.unison"
-    compileSdk = 36
+    compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
         applicationId = "com.darius.unison"
-        minSdk = 30
-        targetSdk = 36
-        versionCode = 10000
-        versionName = "0.1.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        minSdk = libs.versions.minSdk.get().toInt()
+        targetSdk = libs.versions.targetSdk.get().toInt()
+        versionCode = libs.versions.appVersionCode.get().toInt()
+        versionName = libs.versions.appVersionName.get()
         vectorDrawables.useSupportLibrary = true
     }
 
@@ -44,12 +42,11 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
         }
         release {
             signingConfig = signingConfigs.findByName("release")
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -81,7 +78,10 @@ android {
     lint {
         abortOnError = true
         checkReleaseBuilds = true
-        warningsAsErrors = false
+        warningsAsErrors = true
+        // These upgrades require the deliberate API 37 / AGP 9 toolchain move documented in the
+        // version catalog. Keep actionable source, API, accessibility, and deprecation checks on.
+        disable += "GradleDependency"
     }
 }
 
@@ -100,15 +100,12 @@ ksp {
 dependencies {
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
-    androidTestImplementation(composeBom)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.navigation.compose)
-
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.foundation)
@@ -122,6 +119,9 @@ dependencies {
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.room.paging)
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
     ksp(libs.androidx.room.compiler)
 
     implementation(libs.androidx.media3.exoplayer)
@@ -137,8 +137,4 @@ dependencies {
     testImplementation(libs.kotlin.test)
     testImplementation(libs.androidx.room.testing)
 
-    androidTestImplementation(libs.androidx.test.junit)
-    androidTestImplementation(libs.espresso)
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
