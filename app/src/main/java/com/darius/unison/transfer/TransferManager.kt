@@ -30,9 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -56,7 +54,6 @@ class TransferManager(
     private data class Authorization(
         val trackId: TrackId,
         val destinationPeerId: PeerId,
-        val token: String,
         val expiresAtElapsedMs: Long,
     )
 
@@ -64,12 +61,11 @@ class TransferManager(
     private val outgoingSemaphore = Semaphore(1)
     private val incomingSemaphore = Semaphore(1)
     private val activeDownloads = ConcurrentHashMap<TrackId, Job>()
-    private val downloadLocks = ConcurrentHashMap<TrackId, Mutex>()
 
     fun authorize(trackId: TrackId, destinationPeerId: PeerId, token: String, expiresAtElapsedMs: Long) {
         val now = android.os.SystemClock.elapsedRealtime()
         authorizations.entries.removeIf { it.value.expiresAtElapsedMs <= now }
-        authorizations[token] = Authorization(trackId, destinationPeerId, token, expiresAtElapsedMs)
+        authorizations[token] = Authorization(trackId, destinationPeerId, expiresAtElapsedMs)
     }
 
     suspend fun handleIncomingFileSocket(socket: Socket, hello: HandshakeMessage.ClientHello) {
@@ -95,16 +91,21 @@ class TransferManager(
                     HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Rejected("Room mismatch"))
                     return@withPermit
                 }
-                val authorization = authorizations.remove(request.authorizationToken)
+                val authorization = authorizations[request.authorizationToken]
                 if (authorization == null || authorization.trackId != request.trackId || authorization.destinationPeerId != hello.peerId) {
                     HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Rejected("Transfer not authorized"))
                     return@withPermit
                 }
                 if (android.os.SystemClock.elapsedRealtime() > authorization.expiresAtElapsedMs) {
+                    authorizations.remove(request.authorizationToken, authorization)
                     HandshakeCodec.write(
                         socket.getOutputStream(),
                         HandshakeMessage.Rejected("Transfer authorization expired")
                     )
+                    return@withPermit
+                }
+                if (!authorizations.remove(request.authorizationToken, authorization)) {
+                    HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Rejected("Transfer authorization already used"))
                     return@withPermit
                 }
                 val file = trackRepository.requireReadableFile(request.trackId)
@@ -179,34 +180,31 @@ class TransferManager(
         source: PeerEndpoint,
         authorizationToken: String,
     ) {
-        if (fileStore.hasVerified(track.trackId)) {
+        if (fileStore.hasVerified(track.trackId, track.sizeBytes)) {
             scope.launch { onCompleted(track) }
             return
         }
         activeDownloads[track.trackId]?.cancel()
         activeDownloads[track.trackId] = scope.launch(Dispatchers.IO) {
             incomingSemaphore.withPermit {
-                val mutex = downloadLocks.computeIfAbsent(track.trackId) { Mutex() }
-                mutex.withLock {
-                    try {
-                        performDownload(roomId, track, source, authorizationToken)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (error: Throwable) {
-                        log.w(TAG, "Transfer failed track=${track.trackId.value.take(8)}", error)
-                        onProgress(
-                            TransferProgress(
-                                track.trackId,
-                                fileStore.partialFile(track.trackId).length(),
-                                track.sizeBytes,
-                                source.peerId,
-                                localIdentity.peerId,
-                                MemberTrackState.FAILED,
-                                error.message
-                            )
+                try {
+                    performDownload(roomId, track, source, authorizationToken)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    log.w(TAG, "Transfer failed track=${track.trackId.value.take(8)}", error)
+                    onProgress(
+                        TransferProgress(
+                            track.trackId,
+                            fileStore.partialFile(track.trackId).length(),
+                            track.sizeBytes,
+                            source.peerId,
+                            localIdentity.peerId,
+                            MemberTrackState.FAILED,
+                            error.message
                         )
-                        onFailed(track.trackId, source.peerId, error.message ?: "Transfer failed")
-                    }
+                    )
+                    onFailed(track.trackId, source.peerId, error.message ?: "Transfer failed")
                 }
             }
         }.also { job -> job.invokeOnCompletion { activeDownloads.remove(track.trackId, job) } }
