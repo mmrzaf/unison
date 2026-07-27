@@ -13,6 +13,7 @@ import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItemId
+import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
@@ -92,7 +93,6 @@ class RoomRuntime(
     private var coordinatorConnection: ControlConnection? = null
     private val connections = ConcurrentHashMap<PeerId, ControlConnection>()
     private val peerDirectory = ConcurrentHashMap<PeerId, PeerEndpoint>()
-    private val pendingAdmissions = ConcurrentHashMap<PeerId, MemberSnapshot>()
     private val availability = ConcurrentHashMap<TrackId, MutableSet<PeerId>>()
     private val waitingForSource = ConcurrentHashMap<TrackId, MutableSet<PeerId>>()
     private val recentCommandIds = LinkedHashSet<String>()
@@ -104,7 +104,7 @@ class RoomRuntime(
     private val pinAttempts = ConcurrentHashMap<String, PinAttemptState>()
     private val initializationMutex = Mutex()
     private val canonicalMutationMutex = Mutex()
-    private val canonicalSideEffects = Channel<Pair<ProtocolBody, RoomSnapshot>>(Channel.UNLIMITED)
+    private val canonicalSideEffects = Channel<Pair<ProtocolBody, RoomSnapshot>>(capacity = 128)
 
     private var transferManager: TransferManager? = null
     private var discoveryJob: Job? = null
@@ -115,9 +115,11 @@ class RoomRuntime(
     private var addressMonitorJob: Job? = null
     private var speedResetJob: Job? = null
     private var queueRefreshJob: Job? = null
+    private var timelineRefreshJob: Job? = null
     private var recoveryJob: Job? = null
     private var lastObservedPlayerItem: QueueItemId? = null
     private var lastHandledEndedItem: QueueItemId? = null
+    private var lastObservedRepeatTransitionRevision = 0L
     private var pendingAutoResumeQueueItemId: QueueItemId? = null
     private var pendingPlayRequestedBy: PeerId? = null
     private var closed = false
@@ -166,17 +168,27 @@ class RoomRuntime(
             }
         }
         scope.launch {
-            player.state.collectLatest { value ->
+            player.state.collect { value ->
                 container.roomStore.update {
                     it.copy(
                         localPlaybackPositionMs = value.positionMs,
+                        localPlaybackQueueItemId = value.queueItemId,
+                        localIsPlaying = value.isPlaying,
+                        localSeekRevision = value.seekRevision,
                         errorMessage = value.error ?: it.errorMessage,
                     )
                 }
                 val previous = lastObservedPlayerItem
                 lastObservedPlayerItem = value.queueItemId
+                val repeatedCurrentItem =
+                    value.repeatTransitionRevision > lastObservedRepeatTransitionRevision
+                lastObservedRepeatTransitionRevision = value.repeatTransitionRevision
                 if (previous != value.queueItemId || !value.ended) lastHandledEndedItem = null
-                if (previous != null && value.queueItemId != null && previous != value.queueItemId && value.isPlaying && isCoordinator()) {
+                if (repeatedCurrentItem && value.queueItemId != null && isCoordinator()) {
+                    recordNaturalRepeatTransition(value.queueItemId, value.positionMs)
+                } else if (previous != null && value.queueItemId != null &&
+                    previous != value.queueItemId && value.isPlaying && isCoordinator()
+                ) {
                     pendingAutoResumeQueueItemId = null
                     recordNaturalTrackTransition(value.queueItemId, value.positionMs)
                 } else if (value.ended && value.queueItemId != null && lastHandledEndedItem != value.queueItemId && isCoordinator()) {
@@ -198,12 +210,17 @@ class RoomRuntime(
             AppCommand.LeaveRoom -> leaveRoom()
             AppCommand.CreateOfflineNetwork -> hotspot.start { message -> setError(message) }
             AppCommand.StopOfflineNetwork -> hotspot.stop()
-            is AppCommand.AddTracks -> addExistingTracks(command.trackIds)
+            is AppCommand.AddTracks -> addExistingTracks(command.trackIds, command.insertAfterCurrent)
             is AppCommand.SaveDisplayName -> {
                 container.settings.saveDisplayName(command.name)
                 identity =
                     container.settings.ensureIdentity().copy(displayName = command.name.trim().ifBlank { "Friend" })
                 container.roomStore.update { it.copy(localIdentity = identity) }
+                if (isCoordinator()) {
+                    refreshLocalCoordinatorEndpoint()
+                } else if (engine != null) {
+                    sendToCoordinator(ProtocolBody.EndpointAnnouncement(localEndpoint()))
+                }
             }
 
             is AppCommand.KeepTrack -> container.trackRepository.keep(command.trackId)
@@ -234,6 +251,32 @@ class RoomRuntime(
                 submitUserCommand(UserCommand.SkipPrevious(requestedBy = identity.peerId))
             }
 
+            is AppCommand.PlayQueueItem -> {
+                pendingPlayRequestedBy = null
+                submitUserCommand(
+                    UserCommand.PlayQueueItem(
+                        requestedBy = identity.peerId,
+                        queueItemId = command.queueItemId,
+                    )
+                )
+            }
+
+            AppCommand.ShuffleQueue -> submitUserCommand(
+                UserCommand.QueueShuffle(
+                    requestedBy = identity.peerId,
+                    shuffleSeed = clock.nowNs() xor identity.peerId.value.hashCode().toLong(),
+                )
+            )
+
+            is AppCommand.SetRepeat -> submitUserCommand(
+                UserCommand.PlaybackModeChange(
+                    requestedBy = identity.peerId,
+                    shuffleEnabled = engine?.snapshot()?.shuffleEnabled == true,
+                    repeatMode = command.mode,
+                    shuffleSeed = clock.nowNs() xor identity.peerId.value.hashCode().toLong(),
+                )
+            )
+
             is AppCommand.RemoveQueueItem -> submitUserCommand(
                 UserCommand.QueueRemove(
                     requestedBy = identity.peerId,
@@ -247,6 +290,10 @@ class RoomRuntime(
                     queueItemId = command.queueItemId,
                     newIndex = command.newIndex
                 )
+            )
+
+            AppCommand.ClearPlayed -> submitUserCommand(
+                UserCommand.QueueClearPlayed(requestedBy = identity.peerId)
             )
 
             is AppCommand.UpdateRoomOptions -> submitUserCommand(
@@ -294,6 +341,8 @@ class RoomRuntime(
 
     private suspend fun createRoom(requestedName: String?) {
         resetSession(keepDiscovery = false)
+        player.setRepeatCurrentItem(false)
+        container.roomStore.reset()
         val id = UUID.randomUUID().toString()
         val name = requestedName?.trim()?.take(60)?.ifBlank { null } ?: "${identity.displayName}'s room"
         val pin = Crypto.randomSixDigitPin()
@@ -322,6 +371,7 @@ class RoomRuntime(
 
     private suspend fun joinRoom(room: DiscoveredRoom, pin: String) {
         resetSession(keepDiscovery = false)
+        container.roomStore.reset()
         container.roomStore.update {
             it.copy(
                 lifecycle = RoomLifecycleState.CONNECTING,
@@ -399,13 +449,20 @@ class RoomRuntime(
         }
     }
 
-
-    private suspend fun addExistingTracks(trackIds: List<TrackId>) {
+    private suspend fun addExistingTracks(trackIds: List<TrackId>, insertAfterCurrent: Boolean) {
         if (trackIds.isEmpty()) return
+        val remainingCapacity = (
+            RoomReducer.MAX_QUEUE_ITEMS - (engine?.snapshot()?.queue?.size ?: 0)
+        ).coerceAtLeast(0)
+        if (remainingCapacity == 0) {
+            setError("The room queue is full")
+            return
+        }
         container.roomStore.update {
             it.copy(status = UserFacingStatus.PREPARING, statusMessage = "Adding music…", errorMessage = null)
         }
-        val descriptors = container.trackRepository.getMany(trackIds)
+        val requestedTrackIds = trackIds.take(remainingCapacity)
+        val descriptors = container.trackRepository.getMany(requestedTrackIds)
         val available = withContext(Dispatchers.IO) {
             descriptors.filter { descriptor ->
                 runCatching { container.trackRepository.requireReadableFile(descriptor.trackId) != null }
@@ -417,9 +474,19 @@ class RoomRuntime(
             setError("Unison could not open this music")
             return
         }
-        submitUserCommand(UserCommand.QueueAdd(requestedBy = identity.peerId, tracks = available))
-        if (available.size < trackIds.size) {
+        available.chunked(RoomReducer.MAX_TRACKS_PER_COMMAND).forEach { tracks ->
+            submitUserCommand(
+                UserCommand.QueueAdd(
+                    requestedBy = identity.peerId,
+                    tracks = tracks,
+                    insertAfterCurrent = insertAfterCurrent,
+                )
+            )
+        }
+        if (available.size < requestedTrackIds.size) {
             setError("Some songs could not be opened")
+        } else if (requestedTrackIds.size < trackIds.size) {
+            setError("The room queue holds up to ${RoomReducer.MAX_QUEUE_ITEMS} songs")
         }
     }
 
@@ -518,10 +585,16 @@ class RoomRuntime(
                 is RoomReducer.Decision.Accepted -> {
                     log.i(TAG, "Command ${command::class.simpleName} accepted mutations=${decision.mutations.size}")
                     if (command is UserCommand.Play || command is UserCommand.Pause || command is UserCommand.Seek ||
-                        command is UserCommand.SkipNext || command is UserCommand.SkipPrevious
+                        command is UserCommand.SkipNext || command is UserCommand.SkipPrevious ||
+                        command is UserCommand.PlayQueueItem
                     ) {
                         pendingAutoResumeQueueItemId = null
                         pendingPlayRequestedBy = null
+                    }
+                    if (command is UserCommand.PlayQueueItem && current.options.waitAtTrackBoundary &&
+                        command.queueItemId !in current.preparedQueueItemIds
+                    ) {
+                        pendingAutoResumeQueueItemId = command.queueItemId
                     }
                     decision.mutations.forEach { mutation ->
                         updateSnapshot(mutation.snapshot)
@@ -544,33 +617,29 @@ class RoomRuntime(
     private suspend fun applyCanonicalSideEffects(body: ProtocolBody, snapshot: RoomSnapshot) {
         log.i(TAG, "Apply ${body::class.simpleName} sequence=${snapshot.sequence}")
         when (body) {
-            is ProtocolBody.QueueItemAdded -> {
-                refreshPlayerQueue(snapshot)
-                prepareWindow(snapshot)
-            }
+            is ProtocolBody.QueueItemAdded -> requestTimelineRefresh(snapshot)
 
             is ProtocolBody.QueueItemRemoved -> {
                 // Removing the audible item is followed by a scheduled CurrentItemChanged
                 // mutation. Keep the existing ExoPlayer timeline until that timestamp; otherwise
                 // setQueue() would select the replacement immediately and create an early skip.
                 if (player.state.value.queueItemId != body.queueItemId) {
-                    refreshPlayerQueue(snapshot)
+                    requestTimelineRefresh(snapshot)
+                } else {
+                    prepareWindow(snapshot)
                 }
-                prepareWindow(snapshot)
             }
 
             is ProtocolBody.QueueItemMoved,
-            is ProtocolBody.QueueItemPreparation -> {
-                refreshPlayerQueue(snapshot)
-                prepareWindow(snapshot)
-            }
-
-            is ProtocolBody.RoomOptionsChanged -> {
-                refreshPlayerQueue(snapshot)
-                prepareWindow(snapshot)
+            is ProtocolBody.QueueItemPreparation,
+            is ProtocolBody.RoomOptionsChanged,
+            is ProtocolBody.PlaybackModeChanged -> {
+                player.setRepeatCurrentItem(snapshot.repeatMode == RepeatMode.ONE)
+                requestTimelineRefresh(snapshot)
             }
 
             is ProtocolBody.PlayScheduled -> if (canApplyScheduledCommand()) {
+                markTrackPlayed(snapshot, body.queueItemId)
                 scheduler.schedulePlay(body.queueItemId, body.positionMs, body.executeAtCoordinatorNs)
             }
 
@@ -588,6 +657,7 @@ class RoomRuntime(
             }
 
             is ProtocolBody.CurrentItemChanged -> {
+                body.queueItemId?.let { markTrackPlayed(snapshot, it) }
                 // A canonical transition is published before its execution timestamp. Updating the
                 // player's current item immediately would make this device skip early. Keep the
                 // currently audible item selected, preload the target, execute at room time, then
@@ -677,6 +747,7 @@ class RoomRuntime(
             is ProtocolBody.QueueItemMoved -> applyCanonicalEnvelope(envelope, body)
             is ProtocolBody.QueueItemPreparation -> applyCanonicalEnvelope(envelope, body)
             is ProtocolBody.RoomOptionsChanged -> applyCanonicalEnvelope(envelope, body)
+            is ProtocolBody.PlaybackModeChanged -> applyCanonicalEnvelope(envelope, body)
             is ProtocolBody.PlayScheduled -> applyCanonicalEnvelope(envelope, body)
             is ProtocolBody.PauseScheduled -> applyCanonicalEnvelope(envelope, body)
             is ProtocolBody.SeekScheduled -> applyCanonicalEnvelope(envelope, body)
@@ -933,6 +1004,7 @@ class RoomRuntime(
     }
 
     private suspend fun reconcileSnapshotQueue(snapshot: RoomSnapshot) {
+        player.setRepeatCurrentItem(snapshot.repeatMode == RepeatMode.ONE)
         val local = player.state.value
         val canonicalItem = snapshot.playback.queueItemId
         // A full snapshot is commonly received after reconnect. If this phone is still playing a
@@ -951,8 +1023,13 @@ class RoomRuntime(
         preferredCurrentQueueItemId: QueueItemId? = null,
         preferredPositionMs: Long? = null,
     ) {
+        val windowQueue = PlaybackQueuePolicy.playerWindow(
+            snapshot = snapshot,
+            historyCount = PLAYER_HISTORY_ITEMS,
+            upcomingCount = maxOf(snapshot.options.preloadCount + 2, PLAYER_UPCOMING_ITEMS),
+        )
         val readable = withContext(Dispatchers.IO) {
-            snapshot.queue.associate { item ->
+            windowQueue.associate { item ->
                 val file = runCatching { container.trackRepository.requireReadableFile(item.track.trackId) }
                     .onFailure { error -> log.w(TAG, "Could not load ${item.track.trackId.value.take(8)}", error) }
                     .getOrNull()
@@ -960,11 +1037,30 @@ class RoomRuntime(
             }
         }
         val allowedByRoom = PlaybackQueuePolicy.playableItems(
-            snapshot = snapshot,
+            snapshot = snapshot.copy(queue = windowQueue),
             readableTrackIds = readable.filterValues { it != null }.keys,
         )
+        val artworkQueueItemId = preferredCurrentQueueItemId
+            ?: snapshot.playback.queueItemId
+            ?: allowedByRoom.firstOrNull()?.queueItemId
+        val artworkFile = allowedByRoom
+            .firstOrNull { it.queueItemId == artworkQueueItemId }
+            ?.let { item ->
+                readable[item.track.trackId]?.let { audioFile ->
+                    runCatching { container.artworkStore.fileFor(item.track.trackId, audioFile) }
+                        .onFailure { error -> log.w(TAG, "Could not load artwork", error) }
+                        .getOrNull()
+                }
+            }
         val playable = allowedByRoom.mapNotNull { item ->
-            readable[item.track.trackId]?.let { LocalPlayableItem(item.queueItemId, item.track, it) }
+            readable[item.track.trackId]?.let { audioFile ->
+                LocalPlayableItem(
+                    queueItemId = item.queueItemId,
+                    track = item.track,
+                    file = audioFile,
+                    artworkFile = artworkFile.takeIf { item.queueItemId == artworkQueueItemId },
+                )
+            }
         }
         val current = preferredCurrentQueueItemId?.takeIf { id -> playable.any { it.queueItemId == id } }
             ?: snapshot.playback.queueItemId?.takeIf { id -> playable.any { it.queueItemId == id } }
@@ -975,6 +1071,28 @@ class RoomRuntime(
             else -> snapshot.playback.projectedPositionMs(clockSync.coordinatorNowNs())
         }
         player.setQueue(playable, current, currentPosition)
+    }
+
+    private suspend fun markTrackPlayed(snapshot: RoomSnapshot, queueItemId: QueueItemId) {
+        snapshot.queue.firstOrNull { it.queueItemId == queueItemId }?.track?.trackId?.let { trackId ->
+            runCatching { container.trackRepository.markPlayed(trackId) }
+                .onFailure { error -> log.w(TAG, "Could not update recent music", error) }
+        }
+    }
+
+    /** Coalesces queue/preparation bursts so adding a large playlist does one Media3 rebuild, not
+     * one database/file pass per canonical mutation. Transport-timestamp reconciliation uses the
+     * separate [scheduleQueueRefresh] path and is never delayed by this debounce. */
+    private fun requestTimelineRefresh(fallbackSnapshot: RoomSnapshot) {
+        timelineRefreshJob?.cancel()
+        timelineRefreshJob = scope.launch {
+            delay(TIMELINE_REFRESH_DEBOUNCE_MS)
+            val snapshot = engine?.snapshot()
+                ?.takeIf { it.roomId == fallbackSnapshot.roomId }
+                ?: fallbackSnapshot
+            refreshPlayerQueue(snapshot)
+            prepareWindow(snapshot)
+        }
     }
 
     private fun scheduleQueueRefresh(executeAtCoordinatorNs: Long) {
@@ -1078,6 +1196,16 @@ class RoomRuntime(
         if (snapshot.queue.none { it.queueItemId == queueItemId }) return
         val startTime = clock.nowNs() - positionMs.coerceAtLeast(0) * 1_000_000L
         emitCanonical(ProtocolBody.CurrentItemChanged(queueItemId, 0, startTime, true))
+    }
+
+    private suspend fun recordNaturalRepeatTransition(queueItemId: QueueItemId, positionMs: Long) {
+        val mutation = PlaybackQueuePolicy.planRepeatTransition(
+            snapshot = engine?.snapshot() ?: return,
+            repeatedQueueItemId = queueItemId,
+            positionMs = positionMs,
+            coordinatorNowNs = clock.nowNs(),
+        ) ?: return
+        emitCanonical(mutation)
     }
 
     private suspend fun recordNaturalPlaybackEnded(queueItemId: QueueItemId, positionMs: Long, durationMs: Long) {
@@ -1309,8 +1437,6 @@ class RoomRuntime(
             appVersion = hello.appVersion,
             lastSeenElapsedMs = SystemClock.elapsedRealtime(),
         )
-        peerDirectory[hello.peerId] = endpoint
-        pendingAdmissions[hello.peerId] = MemberSnapshot(hello.peerId, endpoint.displayName, endpoint)
         val encryptedSecret = Crypto.encryptAesGcm(
             key = Crypto.derivePinKey(
                 snapshot.roomId,
@@ -1344,10 +1470,11 @@ class RoomRuntime(
         connections.put(connection.peerId, connection)?.close()
         lastSeenElapsedMs[connection.peerId] = SystemClock.elapsedRealtime()
         if (!isCoordinator()) return
-        val member = pendingAdmissions.remove(connection.peerId) ?: MemberSnapshot(
+        peerDirectory[connection.peerId] = connection.endpoint
+        val member = MemberSnapshot(
             connection.peerId,
             connection.endpoint.displayName,
-            connection.endpoint
+            connection.endpoint,
         )
         val updated = canonicalMutationMutex.withLock {
             val snapshot = engine?.snapshot() ?: return@withLock null
@@ -1513,6 +1640,7 @@ class RoomRuntime(
         runCatching { sendToCoordinator(ProtocolBody.LeaveRoom("left")) }
         resetSession(keepDiscovery = false)
         player.pause()
+        player.setRepeatCurrentItem(false)
         player.setQueue(emptyList(), null, 0)
         container.roomStore.reset()
     }
@@ -1525,6 +1653,7 @@ class RoomRuntime(
         persistenceJob?.cancel(); persistenceJob = null
         speedResetJob?.cancel(); speedResetJob = null
         queueRefreshJob?.cancel(); queueRefreshJob = null
+        timelineRefreshJob?.cancel(); timelineRefreshJob = null
         recoveryJob?.cancel(); recoveryJob = null
         transferManager?.cancelAll()
         connections.values.forEach { it.close() }
@@ -1534,7 +1663,6 @@ class RoomRuntime(
         peerDirectory.clear()
         availability.clear()
         waitingForSource.clear()
-        pendingAdmissions.clear()
         lastSeenElapsedMs.clear()
         announcedTrackIds.clear()
         clockReadyPeers.clear()
@@ -1544,6 +1672,7 @@ class RoomRuntime(
         recentCommandIds.clear()
         lastObservedPlayerItem = null
         lastHandledEndedItem = null
+        lastObservedRepeatTransitionRevision = player.state.value.repeatTransitionRevision
         pendingAutoResumeQueueItemId = null
         pendingPlayRequestedBy = null
         engine = null
@@ -1624,8 +1753,16 @@ class RoomRuntime(
         )
         peerDirectory[peerId] = normalized
         val member = engine?.snapshot()?.members?.firstOrNull { it.peerId == peerId } ?: return
-        if (member.endpoint != normalized || !member.connected) {
-            emitCanonical(ProtocolBody.PeerUpdated(member.copy(endpoint = normalized, connected = true)))
+        if (member.displayName != normalized.displayName || member.endpoint != normalized || !member.connected) {
+            emitCanonical(
+                ProtocolBody.PeerUpdated(
+                    member.copy(
+                        displayName = normalized.displayName,
+                        endpoint = normalized,
+                        connected = true,
+                    )
+                )
+            )
             broadcast(ProtocolBody.PeerDirectory(peerDirectory.values.toList()))
         }
     }
@@ -1636,8 +1773,16 @@ class RoomRuntime(
         val endpoint = localEndpoint()
         peerDirectory[identity.peerId] = endpoint
         val member = snapshot.members.firstOrNull { it.peerId == identity.peerId }
-        if (member != null && member.endpoint != endpoint) {
-            emitCanonical(ProtocolBody.PeerUpdated(member.copy(endpoint = endpoint, connected = true)))
+        if (member != null && (member.displayName != identity.displayName || member.endpoint != endpoint)) {
+            emitCanonical(
+                ProtocolBody.PeerUpdated(
+                    member.copy(
+                        displayName = identity.displayName,
+                        endpoint = endpoint,
+                        connected = true,
+                    )
+                )
+            )
         }
         val current = engine?.snapshot() ?: snapshot
         discovery.advertise(
@@ -1723,7 +1868,6 @@ class RoomRuntime(
         wifiLocks.close()
     }
 
-
     companion object {
         private const val TAG = "RoomRuntime"
         private const val MAX_ROOM_MEMBERS = 8
@@ -1740,6 +1884,9 @@ class RoomRuntime(
         private const val HOTSPOT_INTERFACE_SETTLE_MS = 800L
         private const val LOCAL_ADDRESS_POLL_INTERVAL_MS = 2_000L
         private const val TRANSITION_RECONCILE_DELAY_MS = 80L
+        private const val TIMELINE_REFRESH_DEBOUNCE_MS = 60L
+        private const val PLAYER_HISTORY_ITEMS = 2
+        private const val PLAYER_UPCOMING_ITEMS = 12
         private const val FUTURE_COMMAND_TOLERANCE_NS = 5_000_000L
         private const val ELECTION_DELAY_MS = 3_000L
         private const val PEER_TIMEOUT_MS = 18_000L
