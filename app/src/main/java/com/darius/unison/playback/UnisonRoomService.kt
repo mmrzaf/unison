@@ -116,7 +116,6 @@ class UnisonRoomService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession = mediaSession
 
-
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
         val roomState = unisonContainer.roomStore.state.value
         val roomRequiresForeground = roomState.active || roomState.hotspot != null
@@ -146,7 +145,6 @@ class UnisonRoomService : MediaSessionService() {
         super.onDestroy()
     }
 
-
     private fun scheduleStopWhenIdle() {
         idleStopJob?.cancel()
         idleStopJob = serviceScope.launch {
@@ -169,7 +167,6 @@ class UnisonRoomService : MediaSessionService() {
             }
         )
     }
-
 
     private fun createContentIntent(): PendingIntent = PendingIntent.getActivity(
         this,

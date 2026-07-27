@@ -14,12 +14,15 @@ data class PlayerState(
     val prepared: Boolean = false,
     val ended: Boolean = false,
     val error: String? = null,
+    val seekRevision: Long = 0,
+    val repeatTransitionRevision: Long = 0,
 )
 
 data class LocalPlayableItem(
     val queueItemId: QueueItemId,
     val track: TrackDescriptor,
     val file: File,
+    val artworkFile: File? = null,
 )
 
 interface PlayerPort {
@@ -29,5 +32,6 @@ interface PlayerPort {
     suspend fun pause()
     suspend fun seekTo(positionMs: Long)
     suspend fun seekToItem(queueItemId: QueueItemId, positionMs: Long): Boolean
+    suspend fun setRepeatCurrentItem(enabled: Boolean)
     suspend fun setPlaybackSpeed(speed: Float)
 }

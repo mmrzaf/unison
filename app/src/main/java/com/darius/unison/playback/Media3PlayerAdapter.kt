@@ -44,6 +44,8 @@ class Media3PlayerAdapter(
     private var lastLoggedPlaybackState: Int? = null
     private var lastLoggedItemId: String? = null
     private var lastLoggedIsPlaying: Boolean? = null
+    private var seekRevision = 0L
+    private var repeatTransitionRevision = 0L
 
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
@@ -59,6 +61,13 @@ class Media3PlayerAdapter(
             ) {
                 log.i(TAG, "Local audio interruption requested a room pause reason=$reason")
                 onLocalInterruption()
+            }
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                repeatTransitionRevision++
+                publish()
             }
         }
 
@@ -152,6 +161,7 @@ class Media3PlayerAdapter(
                     .setTitle(item.track.displayTitle)
                     .setArtist(item.track.artist)
                     .setAlbumTitle(item.track.album)
+                    .setArtworkUri(item.artworkFile?.let(Uri::fromFile))
                     .build()
             )
         item.track.mimeType?.takeIf { it.isNotBlank() }?.let(builder::setMimeType)
@@ -196,6 +206,7 @@ class Media3PlayerAdapter(
         }
         log.i(TAG, "Seek current positionMs=${positionMs.coerceAtLeast(0)}")
         exoPlayer.seekTo(positionMs.coerceAtLeast(0))
+        seekRevision++
         publish()
     }
 
@@ -208,6 +219,7 @@ class Media3PlayerAdapter(
         }
         log.i(TAG, "Seek item=${queueItemId.value.take(8)} index=$index positionMs=${positionMs.coerceAtLeast(0)}")
         exoPlayer.seekTo(index, positionMs.coerceAtLeast(0))
+        seekRevision++
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
         publish()
         true
@@ -215,6 +227,11 @@ class Media3PlayerAdapter(
 
     override suspend fun setPlaybackSpeed(speed: Float) = onMain {
         exoPlayer.setPlaybackSpeed(speed.coerceIn(0.95f, 1.05f))
+        publish()
+    }
+
+    override suspend fun setRepeatCurrentItem(enabled: Boolean) = onMain {
+        exoPlayer.repeatMode = if (enabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
         publish()
     }
 
@@ -234,6 +251,8 @@ class Media3PlayerAdapter(
             prepared = exoPlayer.playbackState == Player.STATE_READY,
             ended = exoPlayer.playbackState == Player.STATE_ENDED,
             error = error,
+            seekRevision = seekRevision,
+            repeatTransitionRevision = repeatTransitionRevision,
         )
     }
 
