@@ -6,15 +6,16 @@ import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackDescriptor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.StringReader
 import java.util.ArrayDeque
 import java.util.Locale
 
@@ -23,22 +24,52 @@ class ImportManager(
     private val trackRepository: TrackRepository,
     private val playlistRepository: PlaylistRepository,
 ) {
-    private val importConcurrency = Semaphore(2)
-
     suspend fun importAudio(
         uris: List<Uri>,
         retentionPolicy: RetentionPolicy = RetentionPolicy.KEEP_IN_LIBRARY,
+        onProgress: suspend (completed: Int, total: Int) -> Unit = { _, _ -> },
     ): ImportResult = coroutineScope {
-        val results = uris.distinct().map { uri ->
-            async(Dispatchers.IO) {
-                importConcurrency.withPermit {
-                    runCatching { trackRepository.importUri(uri, retentionPolicy) }
+        val uniqueUris = uris.distinct()
+        if (uniqueUris.isEmpty()) return@coroutineScope ImportResult(emptyList(), emptyList())
+        val jobs = Channel<IndexedValue<Uri>>(capacity = IMPORT_BUFFER_SIZE)
+        val progressEvents = Channel<Unit>(capacity = IMPORT_BUFFER_SIZE)
+        val results = arrayOfNulls<Result<TrackDescriptor>>(uniqueUris.size)
+        onProgress(0, uniqueUris.size)
+        val progressCollector = launch {
+            repeat(uniqueUris.size) { completed ->
+                progressEvents.receive()
+                onProgress(completed + 1, uniqueUris.size)
+            }
+        }
+        val producer = launch {
+            try {
+                uniqueUris.forEachIndexed { index, uri -> jobs.send(IndexedValue(index, uri)) }
+            } finally {
+                jobs.close()
+            }
+        }
+        val workers = List(IMPORT_WORKERS) {
+            launch(Dispatchers.IO) {
+                for ((index, uri) in jobs) {
+                    results[index] = try {
+                        Result.success(trackRepository.importUri(uri, retentionPolicy))
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        Result.failure(error)
+                    }
+                    progressEvents.send(Unit)
                 }
             }
-        }.awaitAll()
+        }
+        producer.join()
+        workers.joinAll()
+        progressCollector.join()
+        progressEvents.close()
+        val completedResults = results.filterNotNull()
         ImportResult(
-            tracks = results.mapNotNull(Result<TrackDescriptor>::getOrNull),
-            errors = results.mapNotNull { it.exceptionOrNull()?.toUserMessage() },
+            tracks = completedResults.mapNotNull(Result<TrackDescriptor>::getOrNull),
+            errors = completedResults.mapNotNull { it.exceptionOrNull()?.toUserMessage() },
         )
     }
 
@@ -52,19 +83,28 @@ class ImportManager(
         musicTreeUri: Uri? = null,
         existingPlaylistId: String? = null,
     ): M3uImportResult = withContext(Dispatchers.IO) {
-        val parsed = context.contentResolver.openInputStream(uri)
-            ?.bufferedReader(Charsets.UTF_8)
-            ?.use(M3uCodec::parse)
-            ?: error("Unable to open M3U playlist")
+        val parsed = context.contentResolver.openInputStream(uri)?.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(16 * 1024)
+            var total = 0
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read == 0) continue
+                total += read
+                require(total <= M3uCodec.MAX_FILE_BYTES) { "M3U playlist is too large" }
+                output.write(buffer, 0, read)
+            }
+            M3uCodec.parse(StringReader(output.toString(Charsets.UTF_8.name())))
+        } ?: error("Unable to open M3U playlist")
 
-        val knownTracks = trackRepository.tracks.first()
         val baseDirectory = uri.takeIf { it.scheme == "file" }?.path?.let(::File)?.parentFile
         val treeIndex = musicTreeUri?.let(::buildTreeIndex)
         val resolved = mutableListOf<TrackDescriptor>()
         val unresolved = mutableListOf<M3uEntry>()
 
         parsed.entries.forEach { entry ->
-            val descriptor = resolveEntry(entry, knownTracks, baseDirectory, treeIndex)
+            val descriptor = resolveEntry(entry, baseDirectory, treeIndex)
             if (descriptor != null) resolved += descriptor else unresolved += entry
         }
 
@@ -85,7 +125,6 @@ class ImportManager(
 
     private suspend fun resolveEntry(
         entry: M3uEntry,
-        knownTracks: List<TrackDescriptor>,
         baseDirectory: File?,
         treeIndex: TreeIndex?,
     ): TrackDescriptor? {
@@ -114,10 +153,10 @@ class ImportManager(
         }
 
         val filename = reference.replace('\\', '/').substringAfterLast('/').trim()
-        return knownTracks.firstOrNull { track ->
-            track.originalFileName.equals(filename, ignoreCase = true) ||
-                track.displayTitle.equals(filename.substringBeforeLast('.'), ignoreCase = true)
-        }
+        return trackRepository.findByReference(
+            fileName = filename,
+            title = filename.substringBeforeLast('.'),
+        )
     }
 
     private fun buildTreeIndex(treeUri: Uri): TreeIndex {
@@ -172,7 +211,6 @@ class ImportManager(
         }
     }
 
-
     private fun Throwable.toUserMessage(): String = when {
         this is SecurityException -> "Unison could not read this file"
         message?.contains("larger than", ignoreCase = true) == true -> "This audio file is too large"
@@ -188,6 +226,8 @@ class ImportManager(
         val SUPPORTED_URI_SCHEMES = setOf("content", "file")
         const val MAX_INDEXED_DOCUMENTS = 20_000
         const val MAX_TREE_DEPTH = 24
+        const val IMPORT_WORKERS = 2
+        const val IMPORT_BUFFER_SIZE = 8
 
         fun normalizePath(value: String): String = value
             .trim()
