@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.receiveAsFlow
 
 class RoomCommandBus {
-    private val commands = Channel<AppCommand>(Channel.UNLIMITED)
+    private val commands = Channel<AppCommand>(capacity = 64)
     val flow: Flow<AppCommand> = commands.receiveAsFlow()
 
     suspend fun send(command: AppCommand) = commands.send(command)

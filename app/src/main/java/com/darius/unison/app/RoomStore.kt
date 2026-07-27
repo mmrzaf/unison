@@ -15,7 +15,16 @@ class RoomStore {
     }
 
     fun update(block: (RoomUiState) -> RoomUiState) = _state.update(block)
+
+    /** Clears session state without hiding an explicitly created local-only hotspot. The hotspot
+     * is an independent user action and remains active until the user stops it. */
     fun reset() {
-        _state.value = RoomUiState(localIdentity = _state.value.localIdentity)
+        val current = _state.value
+        _state.value = RoomUiState(
+            localIdentity = current.localIdentity,
+            roomAddress = current.roomAddress,
+            roomPort = current.roomPort,
+            hotspot = current.hotspot,
+        )
     }
 }
