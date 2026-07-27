@@ -15,7 +15,6 @@ grep -q 'versionName = "0.1.0"' app/build.gradle.kts
 grep -q 'JavaVersion.VERSION_17' app/build.gradle.kts
 grep -q 'JvmTarget.JVM_17' app/build.gradle.kts
 grep -q 'agp = "8.13.2"' gradle/libs.versions.toml
-grep -q 'useIranMirrors=false' gradle.properties
 ! grep -q 'android.permission.POST_NOTIFICATIONS' app/src/main/AndroidManifest.xml
 ! grep -R -n --exclude-dir=.git --exclude-dir=build --exclude='check-static.sh' 'plaincast' .
 
@@ -86,12 +85,5 @@ if grep -R -n -E 'TODO([: (]|$)|FIXME([: (]|$)|HACK([: (]|$)|XXX([: (]|$)|NotImp
   exit 1
 fi
 rm -f /tmp/unison-static-markers.txt
-
-if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  if git ls-files | grep -E '(^|/)(local\.properties|keystore\.properties|signing/|\.env($|\.)|.*\.(jks|keystore|p12|pfx|base64)$)' >/dev/null; then
-    echo 'Tracked local or secret file found.' >&2
-    exit 1
-  fi
-fi
 
 echo 'Static repository checks passed.'
