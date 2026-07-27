@@ -1,0 +1,8 @@
+<paths>
+    <files-path
+        name="tracks"
+        path="tracks/" />
+    <cache-path
+        name="exports"
+        path="exports/" />
+</paths>
