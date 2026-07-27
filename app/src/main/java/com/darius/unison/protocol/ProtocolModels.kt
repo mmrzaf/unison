@@ -7,6 +7,7 @@ import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomOptions
+import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -15,7 +16,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 const val PROTOCOL_VERSION = 1
-const val MAX_CONTROL_PAYLOAD_BYTES = 256 * 1024
+const val MAX_CONTROL_PAYLOAD_BYTES = 1024 * 1024
 
 @Serializable
 enum class ChannelType { CONTROL, FILE }
@@ -97,7 +98,7 @@ sealed interface ProtocolBody {
 
     @Serializable
     @SerialName("queue_item_added")
-    data class QueueItemAdded(val item: QueueItem) : ProtocolBody
+    data class QueueItemAdded(val item: QueueItem, val index: Int? = null) : ProtocolBody
 
     @Serializable
     @SerialName("queue_item_removed")
@@ -114,6 +115,15 @@ sealed interface ProtocolBody {
     @Serializable
     @SerialName("room_options_changed")
     data class RoomOptionsChanged(val options: RoomOptions) : ProtocolBody
+
+    @Serializable
+    @SerialName("playback_mode_changed")
+    data class PlaybackModeChanged(
+        val shuffleEnabled: Boolean,
+        val repeatMode: RepeatMode,
+        val orderedQueueItemIds: List<QueueItemId>,
+        val unshuffledQueueItemIds: List<QueueItemId>,
+    ) : ProtocolBody
 
     @Serializable
     @SerialName("play_scheduled")
