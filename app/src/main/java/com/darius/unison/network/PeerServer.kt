@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -43,6 +44,7 @@ class PeerServer(
 
     private var serverSocket: ServerSocket? = null
     private var acceptJob: Job? = null
+    private val incomingSlots = Semaphore(MAX_CONCURRENT_INCOMING)
     val port: Int get() = serverSocket?.localPort ?: 0
 
     @Synchronized
@@ -61,7 +63,17 @@ class PeerServer(
                     if (!server.isClosed) log.w(TAG, "Accept failed", t)
                     break
                 }
-                launch { handle(socket) }
+                if (!incomingSlots.tryAcquire()) {
+                    runCatching { socket.close() }
+                    continue
+                }
+                launch {
+                    try {
+                        handle(socket)
+                    } finally {
+                        incomingSlots.release()
+                    }
+                }
             }
         }
         log.i(TAG, "Peer server listening port=${server.localPort}")
@@ -122,5 +134,6 @@ class PeerServer(
 
     companion object {
         private const val TAG = "PeerServer"
+        private const val MAX_CONCURRENT_INCOMING = 24
     }
 }
