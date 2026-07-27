@@ -8,6 +8,7 @@ import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
+import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.protocol.ProtocolBody
@@ -101,4 +102,62 @@ class PlaybackQueuePolicyTest {
         assertEquals(180_000, pause.positionMs)
         assertNull(plan.waitForQueueItemId)
     }
+    @Test
+    fun playerWindowKeepsSmallHistoryAndUpcomingRange() {
+        val queue = (0 until 30).map { index ->
+            QueueItem.create(
+                track(('a'.code + (index % 20)).toChar(), "Track $index").copy(
+                    trackId = TrackId(index.toString(16).padStart(64, '0'))
+                ),
+                peer,
+            )
+        }
+        val room = snapshot().copy(
+            queue = queue,
+            playback = CanonicalPlaybackState(queue[15].queueItemId, 0, 1, true),
+        )
+        val window = PlaybackQueuePolicy.playerWindow(room, historyCount = 2, upcomingCount = 5)
+        assertEquals(queue.subList(13, 21).map { it.queueItemId }, window.map { it.queueItemId })
+    }
+
+    @Test
+    fun repeatOneRestartsCurrentTrack() {
+        val room = snapshot(prepared = setOf(first.queueItemId)).copy(repeatMode = RepeatMode.ONE)
+        val plan = PlaybackQueuePolicy.planNaturalEnd(room, first.queueItemId, 180_000, 180_000, 5_000, 1_000)!!
+        val change = plan.mutation as ProtocolBody.CurrentItemChanged
+        assertEquals(first.queueItemId, change.queueItemId)
+        assertTrue(change.resumePlayback)
+    }
+
+    @Test
+    fun repeatOneCanonicalizesAMiddleTrackPlayerLoop() {
+        val room = snapshot(prepared = setOf(second.queueItemId)).copy(
+            playback = CanonicalPlaybackState(second.queueItemId, 0, 1, true),
+            repeatMode = RepeatMode.ONE,
+        )
+        val change = PlaybackQueuePolicy.planRepeatTransition(
+            snapshot = room,
+            repeatedQueueItemId = second.queueItemId,
+            positionMs = 25,
+            coordinatorNowNs = 30_000_000,
+        )
+
+        requireNotNull(change)
+        assertEquals(second.queueItemId, change.queueItemId)
+        assertEquals(0, change.positionMs)
+        assertEquals(5_000_000, change.executeAtCoordinatorNs)
+        assertTrue(change.resumePlayback)
+    }
+
+    @Test
+    fun repeatAllWrapsAtQueueEnd() {
+        val room = snapshot(prepared = setOf(first.queueItemId)).copy(
+            playback = CanonicalPlaybackState(third.queueItemId, 0, 1, true),
+            repeatMode = RepeatMode.ALL,
+        )
+        val plan = PlaybackQueuePolicy.planNaturalEnd(room, third.queueItemId, 180_000, 180_000, 5_000, 1_000)!!
+        val change = plan.mutation as ProtocolBody.CurrentItemChanged
+        assertEquals(first.queueItemId, change.queueItemId)
+    }
+
 }
