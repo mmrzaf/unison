@@ -1,6 +1,7 @@
 package com.darius.unison.storage
 
 import android.content.Context
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Delete
@@ -14,11 +15,20 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
-import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
-@Entity(tableName = "tracks")
+@Entity(
+    tableName = "tracks",
+    indices = [
+        Index("createdAt"),
+        Index("lastPlayedAt"),
+        Index("title"),
+        Index("artist"),
+        Index("album"),
+        Index("originalFileName"),
+    ],
+)
 data class TrackEntity(
     @PrimaryKey val trackId: String,
     val sizeBytes: Long,
@@ -62,6 +72,14 @@ data class PlaylistEntity(
     val updatedAt: Long,
 )
 
+data class PlaylistSummary(
+    val playlistId: String,
+    val name: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val trackCount: Int,
+)
+
 @Entity(
     tableName = "playlist_entries",
     foreignKeys = [
@@ -96,20 +114,98 @@ data class RoomSnapshotEntity(
 
 @Dao
 interface TrackDao {
-    @Query("SELECT * FROM tracks ORDER BY COALESCE(lastPlayedAt, createdAt) DESC")
-    fun observeAll(): Flow<List<TrackEntity>>
+    @Query(
+        """
+        SELECT * FROM tracks
+        WHERE :query = ''
+           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        ORDER BY COALESCE(lastPlayedAt, createdAt) DESC, trackId ASC
+        """
+    )
+    fun pagingRecent(query: String): PagingSource<Int, TrackEntity>
+
+    @Query(
+        """
+        SELECT * FROM tracks
+        WHERE :query = ''
+           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        ORDER BY LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        """
+    )
+    fun pagingByTitle(query: String): PagingSource<Int, TrackEntity>
+
+    @Query(
+        """
+        SELECT * FROM tracks
+        WHERE :query = ''
+           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        ORDER BY LOWER(COALESCE(artist, '')) ASC, LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        """
+    )
+    fun pagingByArtist(query: String): PagingSource<Int, TrackEntity>
+
+    @Query(
+        """
+        SELECT * FROM tracks
+        WHERE :query = ''
+           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        ORDER BY LOWER(COALESCE(album, '')) ASC, LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        """
+    )
+    fun pagingByAlbum(query: String): PagingSource<Int, TrackEntity>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM tracks
+        WHERE :query = ''
+           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        """
+    )
+    fun observeLibraryCount(query: String): Flow<Int>
+
+    @Query(
+        """
+        SELECT trackId FROM tracks
+        WHERE :query = ''
+           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
+           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        ORDER BY LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        """
+    )
+    suspend fun libraryTrackIds(query: String): List<String>
+
+    @Query(
+        """
+        SELECT * FROM tracks
+        WHERE LOWER(COALESCE(originalFileName, '')) = LOWER(:fileName)
+           OR LOWER(COALESCE(title, '')) = LOWER(:title)
+        ORDER BY createdAt DESC LIMIT 1
+        """
+    )
+    suspend fun findByReference(fileName: String, title: String): TrackEntity?
 
     @Query("SELECT * FROM tracks WHERE trackId = :trackId")
     suspend fun get(trackId: String): TrackEntity?
 
     @Query("SELECT * FROM tracks WHERE trackId IN (:trackIds)")
     suspend fun getMany(trackIds: List<String>): List<TrackEntity>
-
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insert(track: TrackEntity): Long
-
-    @Update
-    suspend fun update(track: TrackEntity)
 
     @Upsert
     suspend fun upsert(track: TrackEntity)
@@ -123,7 +219,11 @@ interface TrackDao {
 
 @Dao
 interface TrackSourceDao {
-    @Query("SELECT * FROM track_sources WHERE trackId = :trackId ORDER BY verified DESC, CASE retentionPolicy WHEN 'KEEP_IN_LIBRARY' THEN 0 WHEN 'TEMPORARY_24_HOURS' THEN 1 ELSE 2 END")
+    @Query(
+        "SELECT * FROM track_sources WHERE trackId = :trackId ORDER BY verified DESC, " +
+            "CASE retentionPolicy WHEN 'KEEP_IN_LIBRARY' THEN 0 " +
+            "WHEN 'TEMPORARY_24_HOURS' THEN 1 ELSE 2 END"
+    )
     suspend fun getForTrack(trackId: String): List<TrackSourceEntity>
 
     @Query("SELECT * FROM track_sources WHERE sourceId = :sourceId")
@@ -137,6 +237,12 @@ interface TrackSourceDao {
 
     @Query("SELECT * FROM track_sources WHERE retentionPolicy = 'TEMPORARY_24_HOURS'")
     suspend fun temporarySources(): List<TrackSourceEntity>
+
+    @Query("SELECT * FROM track_sources WHERE managedRelativePath IS NOT NULL")
+    suspend fun managedSources(): List<TrackSourceEntity>
+
+    @Query("SELECT trackId FROM track_sources WHERE managedRelativePath IS NOT NULL")
+    suspend fun managedTrackIds(): List<String>
 
     @Query(
         """
@@ -177,14 +283,24 @@ interface TrackSourceDao {
     @Query("UPDATE track_sources SET retentionPolicy = :policy, expiresAt = :expiresAt WHERE sourceId = :sourceId")
     suspend fun updateRetention(sourceId: String, policy: String, expiresAt: Long?)
 
+    @Query(
+        """
+        UPDATE track_sources
+        SET retentionPolicy = :policy, expiresAt = NULL
+        WHERE trackId IN (:trackIds) AND sourceType = :sourceType
+        """
+    )
+    suspend fun updateRetentionForTracks(
+        trackIds: List<String>,
+        sourceType: String,
+        policy: String,
+    )
+
     @Query("UPDATE track_sources SET expiresAt = :expiresAt WHERE trackId = :trackId AND retentionPolicy = 'TEMPORARY_24_HOURS'")
     suspend fun extendTemporary(trackId: String, expiresAt: Long)
 
     @Delete
     suspend fun delete(source: TrackSourceEntity)
-
-    @Query("SELECT EXISTS(SELECT 1 FROM track_sources WHERE trackId = :trackId AND verified = 1)")
-    suspend fun hasVerified(trackId: String): Boolean
 
     @Query("SELECT COUNT(*) FROM track_sources WHERE trackId = :trackId")
     suspend fun countForTrack(trackId: String): Int
@@ -195,8 +311,16 @@ interface TrackSourceDao {
 
 @Dao
 interface PlaylistDao {
-    @Query("SELECT * FROM playlists ORDER BY updatedAt DESC")
-    fun observeAll(): Flow<List<PlaylistEntity>>
+    @Query(
+        """
+        SELECT p.playlistId, p.name, p.createdAt, p.updatedAt, COUNT(e.entryId) AS trackCount
+        FROM playlists AS p
+        LEFT JOIN playlist_entries AS e ON e.playlistId = p.playlistId
+        GROUP BY p.playlistId
+        ORDER BY p.updatedAt DESC
+        """
+    )
+    fun observeAll(): Flow<List<PlaylistSummary>>
 
     @Query("SELECT * FROM playlists WHERE playlistId = :playlistId")
     suspend fun get(playlistId: String): PlaylistEntity?
