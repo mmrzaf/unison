@@ -26,6 +26,7 @@ class NsdRoomDiscovery(
     private val log: DiagnosticLog,
 ) {
     private val nsd = context.getSystemService(NsdManager::class.java)
+    private val mainExecutor = context.mainExecutor
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
 
@@ -107,49 +108,85 @@ class NsdRoomDiscovery(
                 resolving = true
                 pending.removeFirst()
             }
-            val resolver = object : NsdManager.ResolveListener {
-                override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                    log.w(TAG, "NSD resolve failed code=$errorCode for ${serviceInfo.serviceName}")
-                    finishResolution(next.serviceName)
-                }
-
-                override fun onServiceResolved(resolved: NsdServiceInfo) {
-                    try {
-                        val address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                            resolved.hostAddresses.firstOrNull()
-                        } else {
-                            @Suppress("DEPRECATION")
-                            resolved.host
-                        } ?: return
-                        if (!NetworkAddressPolicy.isAllowed(address)) return
-                        val roomId = resolved.attribute("rid") ?: resolved.serviceName.substringAfter("Unison-", "")
-                        val roomName = resolved.attribute("name") ?: resolved.serviceName
-                        val version = resolved.attribute("v")?.toIntOrNull() ?: PROTOCOL_VERSION
-                        val term = resolved.attribute("term")?.toLongOrNull() ?: 1L
-                        trySend(
-                            NsdDiscoveryEvent.Found(
-                                DiscoveredRoom(
-                                    serviceName = resolved.serviceName,
-                                    roomId = roomId,
-                                    roomName = roomName,
-                                    hostAddress = address.hostAddress ?: return,
-                                    port = resolved.port,
-                                    protocolVersion = version,
-                                    term = term,
-                                )
+            fun handleResolved(resolved: NsdServiceInfo) {
+                try {
+                    val address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        resolved.hostAddresses.firstOrNull()
+                    } else {
+                        @Suppress("DEPRECATION")
+                        resolved.host
+                    } ?: return
+                    if (!NetworkAddressPolicy.isAllowed(address)) return
+                    val roomId = (resolved.attribute("rid") ?: resolved.serviceName.substringAfter("Unison-", ""))
+                        .takeIf { it.length in 8..128 && ROOM_ID_PATTERN.matches(it) }
+                        ?: return
+                    val roomName = (resolved.attribute("name") ?: resolved.serviceName)
+                        .filterNot { it.isISOControl() }
+                        .trim()
+                        .take(80)
+                        .ifBlank { "Unison room" }
+                    val version = resolved.attribute("v")?.toIntOrNull() ?: return
+                    if (version != PROTOCOL_VERSION) return
+                    val term = resolved.attribute("term")?.toLongOrNull()?.takeIf { it > 0 } ?: return
+                    if (resolved.port !in 1..65535) return
+                    trySend(
+                        NsdDiscoveryEvent.Found(
+                            DiscoveredRoom(
+                                serviceName = resolved.serviceName,
+                                roomId = roomId,
+                                roomName = roomName,
+                                hostAddress = address.hostAddress ?: return,
+                                port = resolved.port,
+                                protocolVersion = version,
+                                term = term,
                             )
                         )
-                    } finally {
-                        finishResolution(next.serviceName)
-                    }
+                    )
+                } finally {
+                    finishResolution(next.serviceName)
                 }
             }
-            runCatching {
-                @Suppress("DEPRECATION")
-                nsd.resolveService(next, resolver)
-            }.onFailure {
-                log.w(TAG, "NSD resolver could not start for ${next.serviceName}", it)
-                finishResolution(next.serviceName)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val callback = object : NsdManager.ServiceInfoCallback {
+                    private val finished = AtomicBoolean(false)
+
+                    private fun finish(resolved: NsdServiceInfo? = null) {
+                        if (!finished.compareAndSet(false, true)) return
+                        runCatching { nsd.unregisterServiceInfoCallback(this) }
+                        if (resolved == null) finishResolution(next.serviceName) else handleResolved(resolved)
+                    }
+
+                    override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
+                        log.w(TAG, "NSD info callback failed code=$errorCode for ${next.serviceName}")
+                        finish()
+                    }
+
+                    override fun onServiceUpdated(serviceInfo: NsdServiceInfo) = finish(serviceInfo)
+                    override fun onServiceLost() = finish()
+                    override fun onServiceInfoCallbackUnregistered() = Unit
+                }
+                runCatching { nsd.registerServiceInfoCallback(next, mainExecutor, callback) }
+                    .onFailure {
+                        log.w(TAG, "NSD info callback could not start for ${next.serviceName}", it)
+                        finishResolution(next.serviceName)
+                    }
+            } else {
+                val resolver = object : NsdManager.ResolveListener {
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                        log.w(TAG, "NSD resolve failed code=$errorCode for ${serviceInfo.serviceName}")
+                        finishResolution(next.serviceName)
+                    }
+
+                    override fun onServiceResolved(resolved: NsdServiceInfo) = handleResolved(resolved)
+                }
+                runCatching {
+                    @Suppress("DEPRECATION")
+                    nsd.resolveService(next, resolver)
+                }.onFailure {
+                    log.w(TAG, "NSD resolver could not start for ${next.serviceName}", it)
+                    finishResolution(next.serviceName)
+                }
             }
         }
 
@@ -159,6 +196,7 @@ class NsdRoomDiscovery(
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 if (!active.get() || serviceInfo.serviceType != SERVICE_TYPE) return
                 val shouldResolve = synchronized(resolveLock) {
+                    if (pending.size >= MAX_PENDING_RESOLUTIONS) return@synchronized false
                     if (!queuedNames.add(serviceInfo.serviceName)) return@synchronized false
                     pending.addLast(serviceInfo)
                     !resolving
@@ -218,5 +256,7 @@ class NsdRoomDiscovery(
     companion object {
         const val SERVICE_TYPE = "_unison._tcp."
         private const val TAG = "NsdRoomDiscovery"
+        private const val MAX_PENDING_RESOLUTIONS = 100
+        private val ROOM_ID_PATTERN = Regex("[A-Za-z0-9-]+")
     }
 }
