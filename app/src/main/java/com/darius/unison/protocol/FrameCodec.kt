@@ -9,9 +9,14 @@ import java.nio.ByteOrder
 import java.util.UUID
 
 class FrameCodec(
-    private val sessionKey: ByteArray,
+    sessionKey: ByteArray,
     private val expectedRoomId: String? = null,
 ) {
+    private val sessionKey = sessionKey.copyOf()
+
+    init {
+        require(this.sessionKey.size >= 16) { "Session key is too short" }
+    }
     fun write(output: OutputStream, envelope: Envelope, channelType: ChannelType = ChannelType.CONTROL) {
         require(envelope.protocolVersion == PROTOCOL_VERSION)
         if (expectedRoomId != null) require(envelope.roomId == expectedRoomId)

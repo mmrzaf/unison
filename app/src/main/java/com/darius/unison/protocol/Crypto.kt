@@ -14,7 +14,10 @@ object Crypto {
     private const val PIN_KDF_ITERATIONS = 120_000
     private val secureRandom = SecureRandom()
 
-    fun randomBytes(size: Int): ByteArray = ByteArray(size).also(secureRandom::nextBytes)
+    fun randomBytes(size: Int): ByteArray {
+        require(size in 1..MAX_RANDOM_BYTES) { "Invalid random byte count" }
+        return ByteArray(size).also(secureRandom::nextBytes)
+    }
     fun randomBase64(size: Int): String = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes(size))
     fun randomSixDigitPin(): String = (100_000 + secureRandom.nextInt(900_000)).toString()
 
@@ -22,6 +25,7 @@ object Crypto {
     fun sha256Hex(bytes: ByteArray): String = sha256(bytes).joinToString("") { "%02x".format(it) }
 
     fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray = Mac.getInstance("HmacSHA256").run {
+        require(key.isNotEmpty()) { "HMAC key must not be empty" }
         init(SecretKeySpec(key, "HmacSHA256"))
         doFinal(data)
     }
@@ -29,6 +33,8 @@ object Crypto {
     fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean = MessageDigest.isEqual(a, b)
 
     fun hkdfSha256(input: ByteArray, salt: ByteArray, info: ByteArray, length: Int = 32): ByteArray {
+        require(input.isNotEmpty()) { "HKDF input must not be empty" }
+        require(length in 1..MAX_HKDF_BYTES) { "Invalid HKDF output length" }
         val effectiveSalt = if (salt.isEmpty()) ByteArray(32) else salt
         val prk = hmacSha256(effectiveSalt, input)
         val output = ByteArray(length)
@@ -72,6 +78,7 @@ object Crypto {
     data class EncryptedValue(val ciphertext: ByteArray, val iv: ByteArray)
 
     fun encryptAesGcm(key: ByteArray, plaintext: ByteArray, associatedData: ByteArray): EncryptedValue {
+        requireAesKey(key)
         val iv = randomBytes(12)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
@@ -80,9 +87,20 @@ object Crypto {
     }
 
     fun decryptAesGcm(key: ByteArray, ciphertext: ByteArray, iv: ByteArray, associatedData: ByteArray): ByteArray {
+        requireAesKey(key)
+        require(iv.size == 12) { "Invalid AES-GCM IV" }
+        require(ciphertext.size >= 16) { "Invalid AES-GCM ciphertext" }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
         cipher.updateAAD(associatedData)
         return cipher.doFinal(ciphertext)
     }
+
+    private fun requireAesKey(key: ByteArray) {
+        require(key.size == 16 || key.size == 24 || key.size == 32) { "Invalid AES key size" }
+    }
+
+    private const val MAX_RANDOM_BYTES = 1024 * 1024
+    private const val MAX_HKDF_BYTES = 255 * 32
+
 }

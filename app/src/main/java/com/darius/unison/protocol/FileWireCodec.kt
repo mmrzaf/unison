@@ -27,6 +27,10 @@ object FileWireCodec {
         if (length !in 1..MAX_HEADER) throw ProtocolException("Invalid file header size")
         val bytes = ByteArray(length)
         data.readFully(bytes)
-        return ProtocolJson.decodeFromString(bytes.decodeToString())
+        return try {
+            ProtocolJson.decodeFromString(bytes.decodeToString())
+        } catch (error: Exception) {
+            throw ProtocolException("Invalid file response header", error)
+        }
     }
 }
