@@ -5,7 +5,13 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.os.storage.StorageManager
 import androidx.core.net.toUri
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map as mapPaging
+import androidx.room.withTransaction
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -27,13 +33,38 @@ data class StorageSummary(
     val temporaryBytes: Long = 0L,
 )
 
+enum class LibrarySort { RECENT, TITLE, ARTIST, ALBUM }
+
 class TrackRepository(
     private val context: Context,
     private val database: UnisonDatabase,
     private val fileStore: ManagedFileStore,
 ) {
-    val tracks: Flow<List<TrackDescriptor>> =
-        database.trackDao().observeAll().map { entities -> entities.map(TrackEntity::toDescriptor) }
+    fun pagedLibrary(query: String, sort: LibrarySort): Flow<PagingData<TrackDescriptor>> =
+        Pager(
+            config = PagingConfig(
+                pageSize = LIBRARY_PAGE_SIZE,
+                initialLoadSize = LIBRARY_INITIAL_LOAD_SIZE,
+                prefetchDistance = LIBRARY_PREFETCH_DISTANCE,
+                enablePlaceholders = false,
+            ),
+            pagingSourceFactory = {
+                val normalizedQuery = query.trim()
+                when (sort) {
+                    LibrarySort.RECENT -> database.trackDao().pagingRecent(normalizedQuery)
+                    LibrarySort.TITLE -> database.trackDao().pagingByTitle(normalizedQuery)
+                    LibrarySort.ARTIST -> database.trackDao().pagingByArtist(normalizedQuery)
+                    LibrarySort.ALBUM -> database.trackDao().pagingByAlbum(normalizedQuery)
+                }
+            },
+        ).flow.map { pagingData -> pagingData.mapPaging(TrackEntity::toDescriptor) }
+
+    fun observeLibraryCount(query: String): Flow<Int> =
+        database.trackDao().observeLibraryCount(query.trim())
+
+    suspend fun libraryTrackIds(query: String): Set<TrackId> =
+        database.trackDao().libraryTrackIds(query.trim()).mapTo(linkedSetOf(), ::TrackId)
+
     val temporaryTrackIds: Flow<Set<TrackId>> = database.trackSourceDao().observeTemporaryTrackIds()
         .map { ids -> ids.mapTo(mutableSetOf(), ::TrackId) }
     val storageSummary: Flow<StorageSummary> = combine(
@@ -50,9 +81,26 @@ class TrackRepository(
 
     suspend fun get(trackId: TrackId): TrackDescriptor? = database.trackDao().get(trackId.value)?.toDescriptor()
 
+    suspend fun markPlayed(trackId: TrackId) {
+        database.trackDao().markPlayed(trackId.value, System.currentTimeMillis())
+    }
+
+    suspend fun findByReference(fileName: String, title: String): TrackDescriptor? =
+        database.trackDao().findByReference(fileName, title)?.toDescriptor()
+
     suspend fun getMany(trackIds: List<TrackId>): List<TrackDescriptor> {
         if (trackIds.isEmpty()) return emptyList()
-        val byId = database.trackDao().getMany(trackIds.map { it.value })
+        // Android's SQLite bind-variable limit varies by platform build. Large imported
+        // playlists are valid, so query in conservative chunks and restore caller order.
+        val idChunks = trackIds
+            .asSequence()
+            .map(TrackId::value)
+            .distinct()
+            .chunked(SQLITE_BIND_CHUNK_SIZE)
+            .toList()
+        val entities = mutableListOf<TrackEntity>()
+        for (chunk in idChunks) entities += database.trackDao().getMany(chunk)
+        val byId = entities
             .associate { TrackId(it.trackId) to it.toDescriptor() }
         return trackIds.mapNotNull(byId::get)
     }
@@ -72,10 +120,12 @@ class TrackRepository(
     }
 
     suspend fun bestReadableUri(trackId: TrackId): Uri? = withContext(Dispatchers.IO) {
-        if (fileStore.hasVerified(trackId)) return@withContext Uri.fromFile(fileStore.finalFile(trackId))
+        val expectedSize = database.trackDao().get(trackId.value)?.sizeBytes
+        if (fileStore.hasVerified(trackId, expectedSize)) return@withContext Uri.fromFile(fileStore.finalFile(trackId))
         database.trackSourceDao().getForTrack(trackId.value).firstNotNullOfOrNull { source ->
             when {
-                source.managedRelativePath != null -> fileStore.finalFile(trackId).takeIf(File::isFile)
+                source.managedRelativePath != null -> fileStore.finalFile(trackId)
+                    .takeIf { fileStore.hasVerified(trackId, expectedSize) }
                     ?.let(Uri::fromFile)
 
                 source.uri != null -> source.uri.toUri().takeIf { isReadable(it) }
@@ -126,27 +176,31 @@ class TrackRepository(
         descriptor: TrackDescriptor,
         retentionPolicy: RetentionPolicy,
     ) {
+        val normalized = normalizeDescriptor(descriptor)
+        check(fileStore.hasVerified(normalized.trackId, normalized.sizeBytes)) { "Managed audio is missing or incomplete" }
         val now = System.currentTimeMillis()
-        upsertTrack(descriptor, now)
-        val sourceId = "managed:${descriptor.trackId.value}"
-        val existing = database.trackSourceDao().get(sourceId)
-        val effectiveRetention = strongerRetention(
-            existing?.retentionPolicy?.let(::retentionPolicyOrNull),
-            retentionPolicy,
-        )
-        database.trackSourceDao().upsert(
-            TrackSourceEntity(
-                sourceId = sourceId,
-                trackId = descriptor.trackId.value,
-                sourceType = TrackSourceType.APP_MANAGED_FILE.name,
-                uri = null,
-                managedRelativePath = fileStore.finalFile(descriptor.trackId).relativeTo(context.filesDir).path,
-                retentionPolicy = effectiveRetention.name,
-                verified = true,
-                lastVerifiedAt = now,
-                expiresAt = effectiveRetention.expiryFrom(now),
+        database.withTransaction {
+            upsertTrack(normalized, now)
+            val sourceId = "managed:${normalized.trackId.value}"
+            val existing = database.trackSourceDao().get(sourceId)
+            val effectiveRetention = strongerRetention(
+                existing?.retentionPolicy?.let(::retentionPolicyOrNull),
+                retentionPolicy,
             )
-        )
+            database.trackSourceDao().upsert(
+                TrackSourceEntity(
+                    sourceId = sourceId,
+                    trackId = normalized.trackId.value,
+                    sourceType = TrackSourceType.APP_MANAGED_FILE.name,
+                    uri = null,
+                    managedRelativePath = fileStore.finalFile(normalized.trackId).relativeTo(context.filesDir).path,
+                    retentionPolicy = effectiveRetention.name,
+                    verified = true,
+                    lastVerifiedAt = now,
+                    expiresAt = effectiveRetention.expiryFrom(now),
+                )
+            )
+        }
     }
 
     /**
@@ -159,36 +213,52 @@ class TrackRepository(
         retentionPolicy: RetentionPolicy = RetentionPolicy.KEEP_IN_LIBRARY,
     ): TrackDescriptor = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
+        requireSupportedSize(resolver, uri)
         val name = queryDisplayName(resolver, uri)
         val mime = resolver.getType(uri)
         val metadata = extractMetadata(uri)
         validateAudioCandidate(name, mime ?: metadata.mimeType, metadata.durationMs)
-        requireSupportedSize(resolver, uri)
 
         val result = resolver.openInputStream(uri)?.use { input ->
             fileStore.copyAndHash(input, MAX_TRACK_BYTES)
         } ?: error("Unable to open selected file")
 
-        val descriptor = TrackDescriptor(
-            trackId = result.trackId,
-            sizeBytes = result.sizeBytes,
-            mimeType = mime ?: metadata.mimeType,
-            durationMs = metadata.durationMs,
-            title = metadata.title,
-            artist = metadata.artist,
-            album = metadata.album,
-            originalFileName = name,
+        if (result.sizeBytes !in 1..MAX_TRACK_BYTES) {
+            result.file.delete()
+            error("The selected audio file is empty or too large")
+        }
+        val descriptor = normalizeDescriptor(
+            TrackDescriptor(
+                trackId = result.trackId,
+                sizeBytes = result.sizeBytes,
+                mimeType = mime ?: metadata.mimeType,
+                durationMs = metadata.durationMs,
+                title = metadata.title,
+                artist = metadata.artist,
+                album = metadata.album,
+                originalFileName = name,
+            )
         )
         registerManagedFile(descriptor, retentionPolicy)
         descriptor
     }
 
-
     suspend fun keep(trackId: TrackId) {
-        database.trackSourceDao().getForTrack(trackId.value)
-            .filter { it.sourceType == TrackSourceType.APP_MANAGED_FILE.name }
-            .forEach {
-                database.trackSourceDao().updateRetention(it.sourceId, RetentionPolicy.KEEP_IN_LIBRARY.name, null)
+        keepMany(listOf(trackId))
+    }
+
+    suspend fun keepMany(trackIds: Collection<TrackId>) {
+        trackIds
+            .asSequence()
+            .map(TrackId::value)
+            .distinct()
+            .chunked(SQLITE_BIND_CHUNK_SIZE)
+            .forEach { chunk ->
+                database.trackSourceDao().updateRetentionForTracks(
+                    trackIds = chunk,
+                    sourceType = TrackSourceType.APP_MANAGED_FILE.name,
+                    policy = RetentionPolicy.KEEP_IN_LIBRARY.name,
+                )
             }
     }
 
@@ -219,29 +289,10 @@ class TrackRepository(
         candidates.size
     }
 
-    suspend fun descriptorFromManagedFile(trackId: TrackId): TrackDescriptor? {
-        val existing = get(trackId)
-        if (existing != null) return existing
-        val file = fileStore.finalFile(trackId).takeIf(File::isFile) ?: return null
-        val metadata = extractMetadata(Uri.fromFile(file))
-        val descriptor = TrackDescriptor(
-            trackId = trackId,
-            sizeBytes = file.length(),
-            mimeType = metadata.mimeType,
-            durationMs = metadata.durationMs,
-            title = metadata.title,
-            artist = metadata.artist,
-            album = metadata.album,
-            originalFileName = trackId.value,
-        )
-        registerManagedFile(descriptor, RetentionPolicy.TEMPORARY_24_HOURS)
-        return descriptor
-    }
-
-
     private fun strongerRetention(existing: RetentionPolicy?, requested: RetentionPolicy): RetentionPolicy = when {
         existing == RetentionPolicy.KEEP_IN_LIBRARY || requested == RetentionPolicy.KEEP_IN_LIBRARY -> RetentionPolicy.KEEP_IN_LIBRARY
-        existing == RetentionPolicy.TEMPORARY_24_HOURS || requested == RetentionPolicy.TEMPORARY_24_HOURS -> RetentionPolicy.TEMPORARY_24_HOURS
+        existing == RetentionPolicy.TEMPORARY_24_HOURS ||
+            requested == RetentionPolicy.TEMPORARY_24_HOURS -> RetentionPolicy.TEMPORARY_24_HOURS
         else -> requested
     }
 
@@ -258,12 +309,16 @@ class TrackRepository(
         )
     }
 
-
-    @Suppress("UsableSpace") // Require space already available; do not evict other apps' caches.
+    @Suppress("UsableSpace")
     private fun requireSupportedSize(resolver: ContentResolver, uri: Uri) {
         val declaredSize = querySize(resolver, uri) ?: return
-        require(declaredSize in 0..MAX_TRACK_BYTES) { "Audio files larger than 1 GiB are not supported" }
-        require(context.filesDir.usableSpace >= declaredSize + MIN_FREE_SPACE_BYTES) { "Not enough storage space" }
+        require(declaredSize in 1..MAX_TRACK_BYTES) { "Audio files must be between 1 byte and 1 GiB" }
+        val storageManager = context.getSystemService(StorageManager::class.java)
+        val allocatableBytes = runCatching {
+            storageManager.getAllocatableBytes(storageManager.getUuidForPath(context.filesDir))
+        }.getOrNull()
+        val availableBytes = allocatableBytes ?: context.filesDir.usableSpace
+        require(availableBytes >= declaredSize + MIN_FREE_SPACE_BYTES) { "Not enough storage space" }
     }
 
     private fun querySize(resolver: ContentResolver, uri: Uri): Long? = runCatching {
@@ -271,6 +326,25 @@ class TrackRepository(
             if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else null
         }
     }.getOrNull()
+
+    private fun normalizeDescriptor(descriptor: TrackDescriptor): TrackDescriptor {
+        require(descriptor.trackId.value.matches(TRACK_ID_PATTERN)) { "Invalid audio identity" }
+        require(descriptor.sizeBytes in 1..MAX_TRACK_BYTES) { "Invalid audio size" }
+        return descriptor.copy(
+            mimeType = descriptor.mimeType.cleanText(MAX_MIME_LENGTH),
+            durationMs = descriptor.durationMs.coerceIn(0, MAX_TRACK_DURATION_MS),
+            title = descriptor.title.cleanText(MAX_METADATA_LENGTH),
+            artist = descriptor.artist.cleanText(MAX_METADATA_LENGTH),
+            album = descriptor.album.cleanText(MAX_METADATA_LENGTH),
+            originalFileName = descriptor.originalFileName.cleanText(MAX_FILENAME_LENGTH),
+        )
+    }
+
+    private fun String?.cleanText(maxLength: Int): String? = this
+        ?.filterNot { it.isISOControl() }
+        ?.trim()
+        ?.take(maxLength)
+        ?.ifBlank { null }
 
     private fun validateAudioCandidate(name: String?, mimeType: String?, durationMs: Long) {
         val extension = name?.substringAfterLast('.', "")?.lowercase().orEmpty()
@@ -319,6 +393,15 @@ class TrackRepository(
     companion object {
         const val TEMPORARY_RETENTION_MS = 24 * 60 * 60 * 1000L
         private const val MAX_TRACK_BYTES = 1L shl 30
+        private const val MAX_TRACK_DURATION_MS = 30L * 24 * 60 * 60 * 1000
+        private const val MAX_METADATA_LENGTH = 256
+        private const val MAX_FILENAME_LENGTH = 512
+        private const val MAX_MIME_LENGTH = 128
+        private val TRACK_ID_PATTERN = Regex("[0-9a-f]{64}")
+        private const val LIBRARY_PAGE_SIZE = 60
+        private const val LIBRARY_INITIAL_LOAD_SIZE = 120
+        private const val LIBRARY_PREFETCH_DISTANCE = 20
+        private const val SQLITE_BIND_CHUNK_SIZE = 900
         private const val MIN_FREE_SPACE_BYTES = 32L * 1024L * 1024L
         private val SUPPORTED_AUDIO_EXTENSIONS = setOf(
             "mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "amr", "3gp", "mp4"
