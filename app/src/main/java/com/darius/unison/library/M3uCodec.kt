@@ -12,12 +12,17 @@ data class M3uEntry(
 data class M3uPlaylist(val entries: List<M3uEntry>)
 
 object M3uCodec {
+    const val MAX_ENTRIES = 10_000
+    const val MAX_LINE_LENGTH = 8_192
+    const val MAX_FILE_BYTES = 4 * 1024 * 1024
+
     fun parse(reader: Reader): M3uPlaylist {
         val entries = mutableListOf<M3uEntry>()
         var pendingDuration: Long? = null
         var pendingTitle: String? = null
         BufferedReader(reader).useLines { lines ->
             lines.forEachIndexed { index, raw ->
+                require(raw.length <= MAX_LINE_LENGTH) { "M3U line is too long" }
                 val line = if (index == 0) raw.removePrefix("\uFEFF").trim() else raw.trim()
                 when {
                     line.isBlank() -> Unit
@@ -31,6 +36,7 @@ object M3uCodec {
 
                     line.startsWith('#') -> Unit
                     else -> {
+                        require(entries.size < MAX_ENTRIES) { "M3U playlist has too many entries" }
                         entries += M3uEntry(line, pendingDuration, pendingTitle)
                         pendingDuration = null
                         pendingTitle = null
