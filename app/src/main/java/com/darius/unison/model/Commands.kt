@@ -11,7 +11,7 @@ sealed interface AppCommand {
     data object LeaveRoom : AppCommand
     data object CreateOfflineNetwork : AppCommand
     data object StopOfflineNetwork : AppCommand
-    data class AddTracks(val trackIds: List<TrackId>) : AppCommand
+    data class AddTracks(val trackIds: List<TrackId>, val insertAfterCurrent: Boolean = false) : AppCommand
     data class SaveDisplayName(val name: String) : AppCommand
     data class KeepTrack(val trackId: TrackId) : AppCommand
     data class RemoveTemporaryTrack(val trackId: TrackId) : AppCommand
@@ -20,8 +20,12 @@ sealed interface AppCommand {
     data class Seek(val positionMs: Long) : AppCommand
     data object SkipNext : AppCommand
     data object SkipPrevious : AppCommand
+    data class PlayQueueItem(val queueItemId: QueueItemId) : AppCommand
+    data object ShuffleQueue : AppCommand
+    data class SetRepeat(val mode: RepeatMode) : AppCommand
     data class RemoveQueueItem(val queueItemId: QueueItemId) : AppCommand
     data class MoveQueueItem(val queueItemId: QueueItemId, val newIndex: Int) : AppCommand
+    data object ClearPlayed : AppCommand
     data class UpdateRoomOptions(val options: RoomOptions) : AppCommand
 }
 
@@ -62,10 +66,18 @@ sealed interface UserCommand {
     ) : UserCommand
 
     @Serializable
+    data class PlayQueueItem(
+        override val commandId: String = UUID.randomUUID().toString(),
+        override val requestedBy: PeerId,
+        val queueItemId: QueueItemId,
+    ) : UserCommand
+
+    @Serializable
     data class QueueAdd(
         override val commandId: String = UUID.randomUUID().toString(),
         override val requestedBy: PeerId,
         val tracks: List<TrackDescriptor>,
+        val insertAfterCurrent: Boolean = false,
     ) : UserCommand
 
     @Serializable
@@ -81,6 +93,28 @@ sealed interface UserCommand {
         override val requestedBy: PeerId,
         val queueItemId: QueueItemId,
         val newIndex: Int,
+    ) : UserCommand
+
+    @Serializable
+    data class QueueClearPlayed(
+        override val commandId: String = UUID.randomUUID().toString(),
+        override val requestedBy: PeerId,
+    ) : UserCommand
+
+    @Serializable
+    data class QueueShuffle(
+        override val commandId: String = UUID.randomUUID().toString(),
+        override val requestedBy: PeerId,
+        val shuffleSeed: Long,
+    ) : UserCommand
+
+    @Serializable
+    data class PlaybackModeChange(
+        override val commandId: String = UUID.randomUUID().toString(),
+        override val requestedBy: PeerId,
+        val shuffleEnabled: Boolean,
+        val repeatMode: RepeatMode,
+        val shuffleSeed: Long,
     ) : UserCommand
 
     @Serializable

@@ -108,6 +108,9 @@ data class MemberSnapshot(
 )
 
 @Serializable
+enum class RepeatMode { OFF, ALL, ONE }
+
+@Serializable
 data class RoomOptions(
     val everyoneCanAdd: Boolean = true,
     val everyoneCanControl: Boolean = true,
@@ -161,6 +164,9 @@ data class RoomSnapshot(
     val queue: List<QueueItem> = emptyList(),
     val preparedQueueItemIds: Set<QueueItemId> = emptySet(),
     val playback: CanonicalPlaybackState = CanonicalPlaybackState(),
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: RepeatMode = RepeatMode.OFF,
+    val unshuffledQueueItemIds: List<QueueItemId> = emptyList(),
 )
 
 @Serializable
@@ -220,6 +226,9 @@ data class RoomUiState(
     val statusMessage: String? = null,
     val errorMessage: String? = null,
     val localPlaybackPositionMs: Long = 0,
+    val localPlaybackQueueItemId: QueueItemId? = null,
+    val localIsPlaying: Boolean = false,
+    val localSeekRevision: Long = 0,
     val localDriftMs: Long = 0,
     val roomAddress: String? = null,
     val roomPort: Int? = null,
