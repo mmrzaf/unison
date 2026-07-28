@@ -77,7 +77,7 @@ manifest retains Android's `INTERNET` permission solely because raw private TCP 
 
 ## 5. Protocol
 
-Wire protocol version 1 is independent of application version 1.0.0. Handshakes negotiate that
+Wire protocol version 2 is independent of application version 1.0.0. Handshakes negotiate that
 protocol, prove room PIN knowledge, exchange nonces, and protect delivery of the room secret with
 AES-GCM. Control frames are length-bounded and authenticated with HMAC-SHA-256. Envelopes carry
 room, term, sender, UUID, timestamp, and typed body. Malformed frames fail closed.

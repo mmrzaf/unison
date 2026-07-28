@@ -78,7 +78,7 @@ identity.
 ./scripts/check-data.sh
 ```
 
-The first release starts with Room schema version 1 and wire protocol version 1. Application version
+The first release starts with Room schema version 1 and wire protocol version 2. Application version
 `1.0.0` uses Android `versionCode` 1.
 
 ## Structure

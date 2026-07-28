@@ -2,33 +2,51 @@
 
 Current source audit validated on 2026-07-28:
 
-- repository, manifest, version, local-runtime, and development-marker policy checks;
-- fresh-release Room schema version 1;
-- 72 deterministic Kotlin/JVM core tests with zero failures;
+- 171 Android/JVM unit tests with zero failures;
+- synchronization, affine-clock, two-hour multi-device, room reducer, event-loop, snapshot,
+  replay/ordering, crypto, managed-file, cleanup-lease, playlist, and transfer-cancellation cases;
+- repository, manifest, local-runtime, architecture-invariant, and development-marker checks;
 - dependency-free Kotlin patch-regression checks for delimiter balance, duplicate named arguments,
   icon imports, and manual-discovery invariants;
-- focused Kotlin compilation of the changed NSD, control-connection/server/client, and artwork-cache
-  sources using local stubs;
-- clean overlay application and repeat execution of static, core, and data checks;
-- protocol version 1 compatibility guard and content-addressed storage checks.
+- coordinator-local PIN and snapshot-exclusion source checks;
+- SHA-256 verification and lease-protected deletion/partial-cleanup tests;
+- worker dependency-injection and socket-ownership source checks;
+- playlist path/ambiguity/order tests, SAF permission-ledger tests, and artwork-backoff tests;
+- advisory host-side library-search benchmark through 100,000 tracks; physical-device results remain the FTS decision gate;
+- split-state, nullable playback telemetry, peer-registry, message-router, role-engine, bounded admission-state, and control-admission tests;
+- source-shape gates for the reduced application shell and ViewModel boundaries;
+- removal of incomplete persisted room sessions and hard caps on transfer-authorization state;
+- Android debug/release lint, debug assembly, and minified release assembly with zero failures.
 
-The full Android Gradle build, Compose compilation, Android Lint, and APK assembly were not rerun in
-this review environment because Gradle 8.14.5, Android SDK 36, and Maven artifacts were not
-available
-in the local offline cache. Run the following on the provisioned Android build machine before
-release:
+Run these development checks on a provisioned Android machine:
 
 ```bash
-./scripts/verify-offline-ready.sh
-./scripts/build-debug.sh
-./scripts/build-release.sh
+./scripts/check-static.sh
+./scripts/check-core.sh
+./scripts/check-data.sh
+./scripts/benchmark-library-search.py
+./gradlew testDebugUnitTest
+./gradlew lintDebug
+./gradlew assembleDebug
 ```
 
-## Remaining physical-device gates
+## Required physical-device checks
 
-A release candidate still requires the three-device matrix in [Testing](TESTING.md), especially
-manual discovery, joining a third device during playback, long-running drift behavior, artwork after
-transfer, hotspot task-removal behavior, reconnect failure cleanup, media controls, and signed
-installation.
+Use at least three Android devices to verify:
 
-A signed release additionally requires the private local key used for previous installations.
+1. screen-off and lock-screen playback for an extended session;
+2. backgrounding, task removal, battery saver, sleep/wake, and Wi-Fi interruption recovery;
+3. Android 13+ notification grant, denial, and later settings recovery;
+4. built-in, wired, USB when available, and Bluetooth route changes;
+5. cancellation during a blocked or slow transfer, followed by resume;
+6. cleanup while queued, playing, uploading, downloading, and after lease release;
+7. same-size managed-file corruption and automatic reacquisition;
+8. initial PIN admission, reconnect without PIN, wrong-PIN throttling, nonce replay rejection, and
+   coordinator promotion with a rotated invite PIN;
+9. cancellation during a large M3U folder scan and confirmation that persisted tree grants are released;
+10. duplicate playlist filename/title matches requiring an explicit choice while preserving source order;
+11. QR dialog responsiveness and cache reuse;
+12. artwork memory and disk behavior while rapidly scrolling a large library.
+
+Record device model, Android version, battery restrictions, network topology, transfer outcome, and
+observed synchronization recovery for each run.

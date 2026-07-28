@@ -1,17 +1,26 @@
 # Implementation status
 
-Unison 1.0.0 is a single native Android application foundation with:
+The current Unison engineering tree includes:
 
-- local library, playlists, bounded M3U import/export, and content-addressed managed audio;
+- local library, playlists, cancellable/observable M3U import, explicit ambiguous-match review, bounded M3U export, and content-addressed managed audio;
 - local room discovery, QR/direct join, and LocalOnlyHotspot support;
-- authenticated command framing and encrypted room-secret exchange;
+- coordinator-local invite PINs, reconnect proof, directional authenticated control framing, and
+  encrypted room-secret delivery;
 - deterministic collaborative queue and scheduled transport state;
-- resumable authorized peer-to-peer transfer with final SHA-256 verification;
-- Media3 playback, media session controls, clock synchronization, drift correction, and coordinator
-  recovery;
-- Room/Paging persistence, exported baseline schema, temporary retention, and local cleanup;
-- Compose UI with library, playlists, rooms, queue, player, settings, and transfer/status feedback;
-- local APK signing, shrinking, checksums, and offline validation scripts.
+- resumable, authorized peer-to-peer transfer with SHA-256 verification, explicit cancellation, and
+  active-file leases;
+- Media3 playback, wake mode, media-session controls, affine clock synchronization, filtered drift
+  correction, discontinuity recovery, and coordinator recovery;
+- serialized room-event ownership, validated bounded snapshots, separated control-traffic queues,
+  replay/term/sequence protection, and focused peer/routing/admission/role components and legacy snapshot cleanup;
+- one injected Room database for UI/runtime/workers, Paging persistence, temporary retention,
+  operation-scoped SAF grants, and lease-aware local cleanup;
+- Android 13+ notification-permission handling and understandable denial behavior;
+- independently published structural, playback, and transfer state;
+- Compose UI split by library, playlist, room, and shared-component boundaries, with a focused
+  flow-composition ViewModel and delegated room/playlist/import actions;
+- background/cached QR generation plus bounded artwork memory, disk usage, and retry work.
 
-There are no parallel product versions, store bundle paths, hosted release workflows, cloud
-services, remote endpoints, or runtime Google service dependencies in the cleaned project.
+The finalized deterministic core and static suites pass in the source-review environment. Full
+Android compilation and physical-device lifecycle tests require a provisioned Android/Gradle build
+machine.

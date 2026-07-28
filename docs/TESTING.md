@@ -9,7 +9,8 @@
 ```
 
 The core harness compiles selected production sources with Kotlin/JVM and runs deterministic
-protocol, reducer, sync, storage, playlist, and policy tests without Android SDK downloads.
+protocol, reducer, sync, storage, playlist-resolution, path-security, SAF-ledger, artwork-backoff,
+and policy tests without Android SDK downloads.
 
 ## Offline Android checks
 
@@ -27,9 +28,9 @@ generation, optional `apksigner` verification, and SHA-256 output.
 ## GitHub CI
 
 Pushes and pull requests run the repository checks, Android unit tests, strict debug and release
-lint, and both APK assemblies on Ubuntu 24.04. Successful runs expose `Unison-debug` for 14 days
-and the unsigned, shrunk `Unison-release-unsigned` artifact for 30 days. Neither CI artifact is a
-signed release.
+lint, and both APK assemblies on Ubuntu 24.04. Successful runs expose
+`Unison-debug-<short-sha>` for 14 days and the unsigned, shrunk `Unison-release-unsigned` artifact
+for 30 days. Neither CI artifact is a signed release.
 
 ## Manual device matrix
 
@@ -59,3 +60,41 @@ Test at least three physical devices, including Android 11 and a current target 
 
 Document device model, Android version, battery restrictions, router/hotspot topology, and observed
 drift for every release candidate.
+
+## Security, storage, and lifecycle checks
+
+Before changing data, credential, worker, or lifecycle code, keep these cases green:
+
+- same-size managed-file corruption is rejected by SHA-256;
+- active leases block final-file, partial-file, metadata, and expiry cleanup;
+- cancellation closes the active download socket before cancelling its job;
+- global shutdown closes active upload and download sockets;
+- canonical snapshot serialization contains no invite PIN;
+- reconnect proof and directional control keys remain deterministic and distinct;
+- screen-off wake mode, notification permission, and discontinuity reset invariants remain present.
+
+## Library and media-cache checks
+
+Keep these cases green while changing library or image work:
+
+- encoded, double-encoded, Windows, UNC, absolute, and parent-traversal playlist paths are rejected;
+- duplicate filename/title matches stay ambiguous until the user selects a candidate;
+- explicit selections preserve original playlist-entry order;
+- folder traversal checks cancellation and reports documents, current directory, match counts, and elapsed time;
+- operation-scoped SAF permissions release only after the final reader;
+- QR generation stays on `Dispatchers.Default` and within its memory/size limits;
+- artwork retry delay backs off and caps, while memory and disk budgets remain enforced;
+- `./scripts/benchmark-library-search.py` is rerun before any Room FTS migration.
+
+## Architecture-boundary checks
+
+Keep these cases green while changing architecture or UI boundaries:
+
+- structural room changes publish independently from playback and transfer telemetry;
+- unknown local position and drift remain nullable rather than becoming false zero values;
+- all canonical mutations remain actor-serialized after component extraction;
+- peer registry, message router, role policy, persistence, and admission behavior stay covered by pure tests;
+- PIN and reconnect admission cannot bypass nonce, rate-limit, or directional-key rules;
+- `UnisonApp.kt` remains a shell rather than absorbing feature screens again;
+- `MainViewModel.kt` composes flows and delegates workflows instead of regaining room, playlist, or import implementations;
+- protocol options are not added unless they are enforced end to end.

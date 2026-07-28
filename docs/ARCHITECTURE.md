@@ -8,13 +8,14 @@ defines the shared monotonic timeline; it is not an account owner or privileged 
 
 ## Layers
 
-- **UI:** Jetpack Compose screens and permission flow. UI state is exposed through `MainViewModel`
-  and immutable flows.
+- **UI:** Jetpack Compose feature screens and permission flow. `MainViewModel` composes immutable
+  structural, playback, transfer, library, playlist, and import flows while focused action classes own workflows.
 - **Application:** `AppContainer`, `RoomCommandBus`, settings, and shared state ownership.
 - **Library:** bounded imports, content metadata, playlists, and M3U interoperability.
 - **Storage:** Room database with an exported baseline schema, artwork cache, and content-addressed
   managed files.
-- **Room:** pure reducer plus serialized engine and runtime orchestration.
+- **Room:** pure reducer plus serialized actor orchestration, peer registry, role engines, message router,
+  legacy-session cleanup, and control-admission controller.
 - **Network:** Android NSD, LocalOnlyHotspot, private-address policy, control sockets, and file
   sockets.
 - **Protocol:** authenticated frames, PIN proof, encrypted room-secret exchange, replay-resistant
@@ -26,8 +27,9 @@ defines the shared monotonic timeline; it is not an account owner or privileged 
 ## State ownership
 
 `RoomReducer` is the deterministic authority for canonical mutations. `RoomRuntime` serializes
-accepted mutations, broadcasts their sequence, schedules playback, manages peers, and reconciles
-availability. UI and players consume canonical state; they do not mutate it directly.
+accepted mutations and owns Android lifecycle orchestration while focused components handle peer bookkeeping,
+routing, admission, legacy-session cleanup, and role policy. `RoomStore` publishes structural state separately from
+playback and transfer telemetry. UI and players consume state; they do not mutate canonical state directly.
 
 ## Storage integrity
 
@@ -48,6 +50,7 @@ become visible as final tracks only after complete digest verification.
 
 ## Offline boundary
 
-Runtime communication is limited to IPv4/IPv6 loopback, link-local, or private site-local addresses.
-Invitation links are accepted only for the `unison://join` scheme, current protocol, six-digit PIN,
-valid local IPv4 address, and bounded metadata. No source code contains a remote HTTP endpoint.
+Runtime communication is limited to local/private addresses. The current discovery, invitation,
+and direct-endpoint protocol advertises IPv4 addresses only; complete IPv6 endpoint exchange is not
+implemented. Invitation links are accepted only for the `unison://join` scheme, current protocol,
+six-digit PIN, valid local IPv4 address, and bounded metadata. No source code contains a remote HTTP endpoint.
