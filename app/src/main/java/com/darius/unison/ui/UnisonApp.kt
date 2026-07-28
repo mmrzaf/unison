@@ -2,15 +2,14 @@ package com.darius.unison.ui
 
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -35,6 +34,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
@@ -105,13 +106,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -145,11 +146,12 @@ import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransferProgress
-import java.util.Locale
-import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.util.Locale
+import kotlin.math.roundToInt
 
 private enum class Destination(val label: String) { LIBRARY("Library"), ROOM("Room") }
 private enum class TransportRequest { PLAY, PAUSE, SEEK, NEXT, PREVIOUS, PLAY_ITEM }
@@ -208,14 +210,14 @@ fun UnisonApp(viewModel: MainViewModel) {
         val value = ui.message
         if (!value.isNullOrBlank()) {
             snackbar.showSnackbar(value)
-            viewModel.clearMessage()
+            viewModel.clearMessage(value)
         }
     }
     LaunchedEffect(ui.room.errorMessage) {
         val value = ui.room.errorMessage
         if (!value.isNullOrBlank()) {
             snackbar.showSnackbar(value)
-            viewModel.clearRoomError()
+            viewModel.clearRoomError(value)
         }
     }
     val activeRoomId = ui.room.snapshot?.roomId
@@ -227,7 +229,7 @@ fun UnisonApp(viewModel: MainViewModel) {
             destination = Destination.ROOM
         }
     }
-    LaunchedEffect(destination, ui.room.lifecycle) {
+    LaunchedEffect(destination, activeRoomId, ui.room.lifecycle) {
         if (destination != Destination.ROOM && ui.room.lifecycle == RoomLifecycleState.DISCOVERING) {
             viewModel.command(AppCommand.StopDiscovery)
         }
@@ -352,7 +354,9 @@ fun UnisonApp(viewModel: MainViewModel) {
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        Box(Modifier
+            .padding(padding)
+            .fillMaxSize()) {
             val playlist = ui.selectedPlaylist
             if (playlist != null) {
                 PlaylistDetailScreen(
@@ -621,7 +625,9 @@ private fun RoomLobbyScreen(
         if (connecting) {
             item {
                 Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -637,15 +643,25 @@ private fun RoomLobbyScreen(
                     headlineContent = { Text(room.roomName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     supportingContent = { Text("Tap to join") },
                     leadingContent = { Icon(Icons.Default.Groups, null) },
-                    modifier = Modifier.fillMaxWidth().clickable { joining = room; pin = "" },
-                    trailingContent = { Text("Join", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { joining = room; pin = "" },
+                    trailingContent = {
+                        Text(
+                            "Join",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
                 )
                 HorizontalDivider()
             }
         } else if (state.room.lifecycle == RoomLifecycleState.DISCOVERING) {
             item {
                 Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -653,6 +669,14 @@ private fun RoomLobbyScreen(
                     Spacer(Modifier.width(10.dp))
                     Text("Looking for nearby rooms…")
                 }
+            }
+        } else if (state.room.discoveryCompleted) {
+            item {
+                EmptyState(
+                    title = "No rooms found",
+                    text = "Make sure everyone is on the same Wi-Fi, then tap Find rooms to search again.",
+                    icon = Icons.Default.SearchOff,
+                )
             }
         }
     }
@@ -745,7 +769,9 @@ private fun LibraryScreen(
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -785,7 +811,9 @@ private fun LibraryScreen(
 
         if (!allMusicOpen) {
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 SectionTitle("Your playlists")
@@ -796,7 +824,9 @@ private fun LibraryScreen(
                 )
             }
             LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -811,7 +841,9 @@ private fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 18.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
@@ -849,7 +881,9 @@ private fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 18.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
@@ -884,7 +918,9 @@ private fun LibraryScreen(
                     item(key = "empty-playlists") {
                         Card(onClick = startPlaylistCreation, modifier = Modifier.fillMaxWidth()) {
                             Row(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary)
@@ -903,171 +939,186 @@ private fun LibraryScreen(
                 }
             }
         } else {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SectionTitle("All music")
-            Spacer(Modifier.weight(1f))
-            if (state.room.snapshot != null) {
-                FilledTonalButton(
-                    onClick = {
-                        onSelectAll("") { all -> onAddTracksToRoom(all.toList()) }
-                    },
-                    enabled = state.libraryTotalCount > 0,
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Add all")
-                }
-            }
-            TextButton(
-                onClick = {
-                    selectingMusic = !selectingMusic
-                    if (!selectingMusic) musicSelection = emptySet()
-                },
-                enabled = tracks.itemCount > 0,
-            ) { Text(if (selectingMusic) "Done" else "Select") }
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = state.libraryQuery,
-                onValueChange = onQueryChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Search title, artist, or album") },
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                trailingIcon = {
-                    if (state.libraryQuery.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, "Clear") }
-                    }
-                },
-                singleLine = true,
-            )
-            Box {
-                IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, "Sort") }
-                DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                    LibrarySort.entries.forEach { sort ->
-                        DropdownMenuItem(
-                            text = { Text(sort.displayName()) },
-                            trailingIcon = { if (sort == state.librarySort) Icon(Icons.Default.Check, null) },
-                            onClick = { sortMenu = false; onSortChange(sort) },
-                        )
-                    }
-                }
-            }
-        }
-        if (selectingMusic) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 8.dp, top = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    "${musicSelection.size} selected",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = {
-                    if (musicSelection.size == state.libraryVisibleCount) {
-                        musicSelection = emptySet()
-                    } else {
-                        onSelectAll(state.libraryQuery) { musicSelection = it }
-                    }
-                }) {
-                    Text(if (musicSelection.size == state.libraryVisibleCount) "Clear" else "Select all")
-                }
-                IconButton(
-                    onClick = { playlistTarget = musicSelection },
-                    enabled = musicSelection.isNotEmpty(),
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.QueueMusic, "Add selection to playlist")
-                }
+                SectionTitle("All music")
+                Spacer(Modifier.weight(1f))
                 if (state.room.snapshot != null) {
                     FilledTonalButton(
                         onClick = {
-                            onAddTracksToRoom(musicSelection.toList())
-                            musicSelection = emptySet()
-                            selectingMusic = false
+                            onSelectAll("") { all -> onAddTracksToRoom(all.toList()) }
                         },
-                        enabled = musicSelection.isNotEmpty(),
+                        enabled = state.libraryTotalCount > 0,
                     ) {
                         Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
                         Spacer(Modifier.width(6.dp))
-                        Text("Room")
+                        Text("Add all")
+                    }
+                }
+                TextButton(
+                    onClick = {
+                        selectingMusic = !selectingMusic
+                        if (!selectingMusic) musicSelection = emptySet()
+                    },
+                    enabled = tracks.itemCount > 0,
+                ) { Text(if (selectingMusic) "Done" else "Select") }
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = state.libraryQuery,
+                    onValueChange = onQueryChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Search title, artist, or album") },
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    trailingIcon = {
+                        if (state.libraryQuery.isNotEmpty()) {
+                            IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, "Clear") }
+                        }
+                    },
+                    singleLine = true,
+                )
+                Box {
+                    IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, "Sort") }
+                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                        LibrarySort.entries.forEach { sort ->
+                            DropdownMenuItem(
+                                text = { Text(sort.displayName()) },
+                                trailingIcon = { if (sort == state.librarySort) Icon(Icons.Default.Check, null) },
+                                onClick = { sortMenu = false; onSortChange(sort) },
+                            )
+                        }
                     }
                 }
             }
-        }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
-            when {
-                tracks.loadState.refresh is LoadState.Loading && tracks.itemCount == 0 -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-                tracks.loadState.refresh is LoadState.Error && tracks.itemCount == 0 -> {
-                    LoadError(onRetry = tracks::retry)
-                }
-                tracks.itemCount == 0 -> {
-                    EmptyState(
-                        title = if (state.libraryQuery.isBlank()) "No music yet" else "No matches",
-                        text = if (state.libraryQuery.isBlank()) "Add local audio files to start." else "Try another search.",
-                        icon = Icons.Default.AudioFile,
-                        actionLabel = if (state.libraryQuery.isBlank()) "Add music" else null,
-                        onAction = onChooseFiles,
+            if (selectingMusic) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        "${musicSelection.size} selected",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.weight(1f),
                     )
-                }
-                else -> {
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        items(
-                            count = tracks.itemCount,
-                            key = tracks.itemKey { it.trackId.value },
-                        ) { index ->
-                            tracks[index]?.let { track ->
-                                TrackRow(
-                                    track = track,
-                                    temporary = track.trackId in state.temporaryTrackIds,
-                                    roomActive = state.room.snapshot != null,
-                                    selectionMode = selectingMusic,
-                                    selected = track.trackId in musicSelection,
-                                    onSelectionChange = { checked ->
-                                        musicSelection = if (checked) {
-                                            musicSelection + track.trackId
-                                        } else {
-                                            musicSelection - track.trackId
-                                        }
-                                    },
-                                    onAddToRoom = { onAddTrackToRoom(track.trackId) },
-                                    onPlayNext = { onPlayNext(track.trackId) },
-                                    onKeep = { onKeepTrack(track.trackId) },
-                                    onRemove = { onRemoveTemporaryTrack(track.trackId) },
-                                    onAddToPlaylist = { playlistTarget = setOf(track.trackId) },
-                                )
-                                HorizontalDivider(Modifier.padding(start = 56.dp))
-                            }
+                    TextButton(onClick = {
+                        if (musicSelection.size == state.libraryVisibleCount) {
+                            musicSelection = emptySet()
+                        } else {
+                            onSelectAll(state.libraryQuery) { musicSelection = it }
                         }
-                        when (tracks.loadState.append) {
-                            is LoadState.Loading -> item {
-                                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    }) {
+                        Text(if (musicSelection.size == state.libraryVisibleCount) "Clear" else "Select all")
+                    }
+                    IconButton(
+                        onClick = { playlistTarget = musicSelection },
+                        enabled = musicSelection.isNotEmpty(),
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, "Add selection to playlist")
+                    }
+                    if (state.room.snapshot != null) {
+                        FilledTonalButton(
+                            onClick = {
+                                onAddTracksToRoom(musicSelection.toList())
+                                musicSelection = emptySet()
+                                selectingMusic = false
+                            },
+                            enabled = musicSelection.isNotEmpty(),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Room")
+                        }
+                    }
+                }
+            }
+            Box(Modifier
+                .fillMaxWidth()
+                .weight(1f)) {
+                when {
+                    tracks.loadState.refresh is LoadState.Loading && tracks.itemCount == 0 -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+
+                    tracks.loadState.refresh is LoadState.Error && tracks.itemCount == 0 -> {
+                        LoadError(onRetry = tracks::retry)
+                    }
+
+                    tracks.itemCount == 0 -> {
+                        EmptyState(
+                            title = if (state.libraryQuery.isBlank()) "No music yet" else "No matches",
+                            text = if (state.libraryQuery.isBlank()) "Add local audio files to start." else "Try another search.",
+                            icon = Icons.Default.AudioFile,
+                            actionLabel = if (state.libraryQuery.isBlank()) "Add music" else null,
+                            onAction = onChooseFiles,
+                        )
+                    }
+
+                    else -> {
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            items(
+                                count = tracks.itemCount,
+                                key = tracks.itemKey { it.trackId.value },
+                            ) { index ->
+                                tracks[index]?.let { track ->
+                                    TrackRow(
+                                        track = track,
+                                        temporary = track.trackId in state.temporaryTrackIds,
+                                        roomActive = state.room.snapshot != null,
+                                        selectionMode = selectingMusic,
+                                        selected = track.trackId in musicSelection,
+                                        onSelectionChange = { checked ->
+                                            musicSelection = if (checked) {
+                                                musicSelection + track.trackId
+                                            } else {
+                                                musicSelection - track.trackId
+                                            }
+                                        },
+                                        onAddToRoom = { onAddTrackToRoom(track.trackId) },
+                                        onPlayNext = { onPlayNext(track.trackId) },
+                                        onKeep = { onKeepTrack(track.trackId) },
+                                        onRemove = { onRemoveTemporaryTrack(track.trackId) },
+                                        onAddToPlaylist = { playlistTarget = setOf(track.trackId) },
+                                    )
+                                    HorizontalDivider(Modifier.padding(start = 56.dp))
                                 }
                             }
-                            is LoadState.Error -> item {
-                                TextButton(onClick = tracks::retry, modifier = Modifier.fillMaxWidth()) {
-                                    Text("Try loading more")
+                            when (tracks.loadState.append) {
+                                is LoadState.Loading -> item {
+                                    Box(Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                                    }
                                 }
+
+                                is LoadState.Error -> item {
+                                    TextButton(onClick = tracks::retry, modifier = Modifier.fillMaxWidth()) {
+                                        Text("Try loading more")
+                                    }
+                                }
+
+                                else -> Unit
                             }
-                            else -> Unit
                         }
                     }
                 }
             }
         }
-    }
     }
 
     playlistTarget?.let { trackIds ->
@@ -1199,7 +1250,9 @@ private fun LibraryScreen(
                         ) { index ->
                             pickerTracks[index]?.let { track ->
                                 Row(
-                                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Checkbox(
@@ -1258,7 +1311,10 @@ private fun TrackRow(
         headlineContent = { Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             Text(
-                listOfNotNull(track.artist?.takeIf(String::isNotBlank), formatDuration(track.durationMs)).joinToString(" • "),
+                listOfNotNull(
+                    track.artist?.takeIf(String::isNotBlank),
+                    formatDuration(track.durationMs)
+                ).joinToString(" • "),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1351,7 +1407,9 @@ private fun PlaylistDetailScreen(
 
     Column(Modifier.fillMaxSize()) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1542,7 +1600,7 @@ private fun PlaylistDetailScreen(
                             )
                         },
                     )
-                    HorizontalDivider(Modifier.padding(start = 48.dp))
+                    HorizontalDivider(Modifier.padding(start = 56.dp))
                 }
             }
         }
@@ -1594,7 +1652,8 @@ private fun PlaylistDetailScreen(
                                     Checkbox(
                                         checked = track.trackId in selected,
                                         onCheckedChange = { checked ->
-                                            selected = if (checked) selected + track.trackId else selected - track.trackId
+                                            selected =
+                                                if (checked) selected + track.trackId else selected - track.trackId
                                         },
                                     )
                                     Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1605,7 +1664,10 @@ private fun PlaylistDetailScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = { onAddTracks(selected.toList()); addSongs = false }, enabled = selected.isNotEmpty()) {
+                Button(
+                    onClick = { onAddTracks(selected.toList()); addSongs = false },
+                    enabled = selected.isNotEmpty()
+                ) {
                     Text("Add")
                 }
             },
@@ -1779,15 +1841,18 @@ private fun RoomScreen(
             TransportRequest.PAUSE -> !state.room.localIsPlaying
             TransportRequest.SEEK -> false
             TransportRequest.NEXT,
-            -> state.room.localPlaybackQueueItemId != transportStartItem
+                -> state.room.localPlaybackQueueItemId != transportStartItem
+
             TransportRequest.PREVIOUS -> {
                 state.room.localPlaybackQueueItemId != transportStartItem ||
                     (previousRestartsCurrent && playbackPositionMs <= 1_000L)
             }
+
             TransportRequest.PLAY_ITEM ->
                 state.room.localPlaybackQueueItemId == requestedQueueItemId &&
                     state.room.localIsPlaying &&
                     state.room.localSeekRevision > transportStartSeekRevision
+
             null -> false
         }
         if (completed) {
@@ -1797,302 +1862,319 @@ private fun RoomScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-    LazyColumn(
-        state = roomListState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item(key = "room-header") {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${snapshot.members.count { it.connected }} listening",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = { showQr = true }, enabled = joinLink != null) { Icon(Icons.Default.QrCode2, "Invite") }
-                Box {
-                    IconButton(onClick = { roomMenu = true }) { Icon(Icons.Default.MoreVert, "Room actions") }
-                    DropdownMenu(expanded = roomMenu, onDismissRequest = { roomMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Save queue as playlist") },
-                            enabled = snapshot.queue.isNotEmpty(),
-                            onClick = { roomMenu = false; saveQueueDialog = true },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Clear played songs") },
-                            enabled = snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId } > 0,
-                            onClick = { roomMenu = false; onClearPlayed() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Listeners (${snapshot.members.count { it.connected }})") },
-                            leadingIcon = { Icon(Icons.Default.Person, null) },
-                            onClick = { roomMenu = false; showListeners = true },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Import M3U playlist") },
-                            leadingIcon = { Icon(Icons.Default.UploadFile, null) },
-                            onClick = { roomMenu = false; onImportM3u() },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Room settings") },
-                            leadingIcon = { Icon(Icons.Default.Settings, null) },
-                            onClick = { roomMenu = false; showOptions = true },
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Leave room") },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) },
-                            onClick = { roomMenu = false; confirmLeave = true },
-                        )
-                    }
-                }
-            }
-        }
-        if (nowPlaying != null) {
-            item(key = "full-player") {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        TrackArtwork(nowPlaying.track, 148.dp)
-                        Text(
-                            nowPlaying.track.displayTitle,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            nowPlaying.track.artist?.takeIf(String::isNotBlank) ?: " ",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                        )
-                        Slider(
-                            value = seekPreview.coerceIn(0f, duration.toFloat()),
-                            onValueChange = { dragging = true; seekPreview = it },
-                            onValueChangeFinished = {
-                                dragging = false
-                                pendingSeekPositionMs = seekPreview.toLong()
-                                transportStartSeekRevision = state.room.localSeekRevision
-                                transportRequest = TransportRequest.SEEK
-                                onSeek(pendingSeekPositionMs ?: 0L)
-                            },
-                            valueRange = 0f..duration.toFloat(),
-                            enabled = hasSeekableDuration,
-                        )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(formatDuration(seekPreview.toLong()), style = MaterialTheme.typography.labelSmall)
-                            Text(
-                                if (hasSeekableDuration) formatDuration(duration) else "—:—",
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                        ) {
-                            IconButton(
-                                onClick = {
-                                    previousRestartsCurrent = playbackPositionMs > 4_000L
-                                    transportStartItem = state.room.localPlaybackQueueItemId
-                                    transportRequest = TransportRequest.PREVIOUS
-                                    onPrevious()
-                                },
-                                enabled = transportRequest == null,
-                            ) {
-                                Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(32.dp))
-                            }
-                            FilledIconButton(
-                                onClick = requestPlayPause,
-                                modifier = Modifier.size(58.dp),
-                                enabled = transportRequest == null,
-                            ) {
-                                if (transportRequest != null) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(26.dp),
-                                        strokeWidth = 2.5.dp,
-                                    )
-                                } else {
-                                    Icon(
-                                        if (state.room.localIsPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        if (state.room.localIsPlaying) "Pause" else "Play",
-                                        Modifier.size(32.dp),
-                                    )
-                                }
-                            }
-                            IconButton(
-                                onClick = {
-                                    transportStartItem = state.room.localPlaybackQueueItemId
-                                    transportRequest = TransportRequest.NEXT
-                                    onNext()
-                                },
-                                enabled = transportRequest == null,
-                            ) {
-                                Icon(Icons.Default.SkipNext, "Next", Modifier.size(32.dp))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        item(key = "queue-controls") {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyColumn(
+            state = roomListState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item(key = "room-header") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    SectionTitle("Queue")
-                    Spacer(Modifier.weight(1f))
                     Text(
-                        "${snapshot.queue.size} / 1,000",
+                        "${snapshot.members.count { it.connected }} listening",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    IconButton(
-                        onClick = onShuffle,
-                        enabled = snapshot.queue.size > 1,
-                    ) {
-                        Icon(Icons.Default.Shuffle, "Shuffle queue")
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { showQr = true }, enabled = joinLink != null) {
+                        Icon(
+                            Icons.Default.QrCode2,
+                            "Invite"
+                        )
                     }
-                    val repeatDescription = when (snapshot.repeatMode) {
-                        RepeatMode.OFF -> "Repeat is off"
-                        RepeatMode.ALL -> "Repeat queue"
-                        RepeatMode.ONE -> "Repeat current song"
-                    }
-                    if (snapshot.repeatMode == RepeatMode.OFF) {
-                        IconButton(
-                            onClick = { onRepeat(RepeatMode.ALL) },
-                            enabled = snapshot.queue.isNotEmpty(),
-                        ) {
-                            Icon(Icons.Default.Repeat, repeatDescription)
-                        }
-                    } else {
-                        FilledTonalIconButton(
-                            onClick = { onRepeat(snapshot.repeatMode.next()) },
-                            enabled = snapshot.queue.isNotEmpty(),
-                        ) {
-                            Icon(
-                                if (snapshot.repeatMode == RepeatMode.ONE) {
-                                    Icons.Default.RepeatOne
-                                } else {
-                                    Icons.Default.Repeat
-                                },
-                                repeatDescription,
+                    Box {
+                        IconButton(onClick = { roomMenu = true }) { Icon(Icons.Default.MoreVert, "Room actions") }
+                        DropdownMenu(expanded = roomMenu, onDismissRequest = { roomMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Save queue as playlist") },
+                                enabled = snapshot.queue.isNotEmpty(),
+                                onClick = { roomMenu = false; saveQueueDialog = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Clear played songs") },
+                                enabled = snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId } > 0,
+                                onClick = { roomMenu = false; onClearPlayed() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Listeners (${snapshot.members.count { it.connected }})") },
+                                leadingIcon = { Icon(Icons.Default.Person, null) },
+                                onClick = { roomMenu = false; showListeners = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import M3U playlist") },
+                                leadingIcon = { Icon(Icons.Default.UploadFile, null) },
+                                onClick = { roomMenu = false; onImportM3u() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Room settings") },
+                                leadingIcon = { Icon(Icons.Default.Settings, null) },
+                                onClick = { roomMenu = false; showOptions = true },
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Leave room") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) },
+                                onClick = { roomMenu = false; confirmLeave = true },
                             )
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { showAddFromLibrary = true }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Default.Add, null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Add from library")
-                    }
-                    OutlinedButton(onClick = onChooseFiles) {
-                        Icon(Icons.Default.AudioFile, null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Files")
+            }
+            if (nowPlaying != null) {
+                item(key = "full-player") {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(
+                            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            TrackArtwork(
+                                track = nowPlaying.track,
+                                size = 148.dp,
+                                reloadKey = state.room.transfers[nowPlaying.track.trackId]?.state == MemberTrackState.READY,
+                            )
+                            Text(
+                                nowPlaying.track.displayTitle,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                nowPlaying.track.artist?.takeIf(String::isNotBlank) ?: " ",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                            Slider(
+                                value = seekPreview.coerceIn(0f, duration.toFloat()),
+                                onValueChange = { dragging = true; seekPreview = it },
+                                onValueChangeFinished = {
+                                    dragging = false
+                                    pendingSeekPositionMs = seekPreview.toLong()
+                                    transportStartSeekRevision = state.room.localSeekRevision
+                                    transportRequest = TransportRequest.SEEK
+                                    onSeek(pendingSeekPositionMs ?: 0L)
+                                },
+                                valueRange = 0f..duration.toFloat(),
+                                enabled = hasSeekableDuration,
+                            )
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(formatDuration(seekPreview.toLong()), style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    if (hasSeekableDuration) formatDuration(duration) else "—:—",
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            }
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        previousRestartsCurrent = playbackPositionMs > 4_000L
+                                        transportStartItem = state.room.localPlaybackQueueItemId
+                                        transportRequest = TransportRequest.PREVIOUS
+                                        onPrevious()
+                                    },
+                                    enabled = transportRequest == null,
+                                ) {
+                                    Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(32.dp))
+                                }
+                                FilledIconButton(
+                                    onClick = requestPlayPause,
+                                    modifier = Modifier.size(58.dp),
+                                    enabled = transportRequest == null,
+                                ) {
+                                    if (transportRequest != null) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(26.dp),
+                                            strokeWidth = 2.5.dp,
+                                        )
+                                    } else {
+                                        Icon(
+                                            if (state.room.localIsPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                            if (state.room.localIsPlaying) "Pause" else "Play",
+                                            Modifier.size(32.dp),
+                                        )
+                                    }
+                                }
+                                IconButton(
+                                    onClick = {
+                                        transportStartItem = state.room.localPlaybackQueueItemId
+                                        transportRequest = TransportRequest.NEXT
+                                        onNext()
+                                    },
+                                    enabled = transportRequest == null,
+                                ) {
+                                    Icon(Icons.Default.SkipNext, "Next", Modifier.size(32.dp))
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
-        state.room.statusMessage
-            ?.takeIf { it.isNotBlank() && it != "Ready" }
-            ?.let { status ->
-                item(key = "room-status") {
-                    Text(
-                        status,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+            item(key = "queue-controls") {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        SectionTitle("Queue")
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "${snapshot.queue.size} / 1,000",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        IconButton(
+                            onClick = onShuffle,
+                            enabled = snapshot.queue.size > 1,
+                        ) {
+                            Icon(Icons.Default.Shuffle, "Shuffle queue")
+                        }
+                        val repeatDescription = when (snapshot.repeatMode) {
+                            RepeatMode.OFF -> "Repeat is off"
+                            RepeatMode.ALL -> "Repeat queue"
+                            RepeatMode.ONE -> "Repeat current song"
+                        }
+                        if (snapshot.repeatMode == RepeatMode.OFF) {
+                            IconButton(
+                                onClick = { onRepeat(RepeatMode.ALL) },
+                                enabled = snapshot.queue.isNotEmpty(),
+                            ) {
+                                Icon(Icons.Default.Repeat, repeatDescription)
+                            }
+                        } else {
+                            FilledTonalIconButton(
+                                onClick = { onRepeat(snapshot.repeatMode.next()) },
+                                enabled = snapshot.queue.isNotEmpty(),
+                            ) {
+                                Icon(
+                                    if (snapshot.repeatMode == RepeatMode.ONE) {
+                                        Icons.Default.RepeatOne
+                                    } else {
+                                        Icons.Default.Repeat
+                                    },
+                                    repeatDescription,
+                                )
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { showAddFromLibrary = true }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Add, null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add from library")
+                        }
+                        OutlinedButton(onClick = onChooseFiles) {
+                            Icon(Icons.Default.AudioFile, null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Files")
+                        }
+                    }
+                }
+            }
+            state.room.statusMessage
+                ?.takeIf { it.isNotBlank() && it != "Ready" }
+                ?.let { status ->
+                    item(key = "room-status") {
+                        Text(
+                            status,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+            if (activeTransfers.isNotEmpty()) {
+                item(key = "transfers") {
+                    TransferStatusCard(
+                        transfers = activeTransfers,
+                        titles = snapshot.queue.associate { it.track.trackId to it.track.displayTitle },
                     )
                 }
             }
-        if (activeTransfers.isNotEmpty()) {
-            item(key = "transfers") {
-                TransferStatusCard(
-                    transfers = activeTransfers,
-                    titles = snapshot.queue.associate { it.track.trackId to it.track.displayTitle },
-                )
-            }
-        }
-        if (snapshot.queue.isEmpty()) {
-            item(key = "empty-queue") {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.QueueMusic,
-                            null,
-                            modifier = Modifier.size(42.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(
-                            "Queue is empty",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            "Add a playlist or choose audio files to start listening together.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
+            if (snapshot.queue.isEmpty()) {
+                item(key = "empty-queue") {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.QueueMusic,
+                                null,
+                                modifier = Modifier.size(42.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                "Queue is empty",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "Add a playlist or choose audio files to start listening together.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                     }
                 }
-            }
-        } else {
-            itemsIndexed(snapshot.queue, key = { _, item -> item.queueItemId.value }) { index, item ->
-                QueueRow(
-                    index = index,
-                    lastIndex = snapshot.queue.lastIndex,
-                    title = item.track.displayTitle,
-                    artist = item.track.artist,
-                    durationMs = item.track.durationMs,
-                    current = item.queueItemId == displayedQueueItemId,
-                    playing = item.queueItemId == state.room.localPlaybackQueueItemId && state.room.localIsPlaying,
-                    temporary = item.track.trackId in state.temporaryTrackIds,
-                    canReorder = !snapshot.shuffleEnabled,
-                    draggedIndex = draggedQueueIndex,
-                    dragTargetIndex = dragTargetIndex,
-                    onDragStateChange = { dragged, target ->
-                        draggedQueueIndex = dragged
-                        dragTargetIndex = target
-                    },
-                    onMove = { onMoveQueueItem(item.queueItemId, it) },
-                    onPlay = {
-                        if (transportRequest == null) {
-                            requestedQueueItemId = item.queueItemId
-                            transportStartSeekRevision = state.room.localSeekRevision
-                            transportRequest = TransportRequest.PLAY_ITEM
-                            onPlayQueueItem(item.queueItemId)
-                        }
-                    },
-                    onRemove = { onRemoveQueueItem(item.queueItemId) },
-                    onKeep = { onKeepTrack(item.track.trackId) },
-                )
-                HorizontalDivider(Modifier.padding(start = 48.dp))
+            } else {
+                itemsIndexed(snapshot.queue, key = { _, item -> item.queueItemId.value }) { index, item ->
+                    QueueRow(
+                        index = index,
+                        lastIndex = snapshot.queue.lastIndex,
+                        track = item.track,
+                        artworkReloadKey = state.room.transfers[item.track.trackId]?.state,
+                        current = item.queueItemId == displayedQueueItemId,
+                        playing = item.queueItemId == state.room.localPlaybackQueueItemId && state.room.localIsPlaying,
+                        temporary = item.track.trackId in state.temporaryTrackIds,
+                        canReorder = !snapshot.shuffleEnabled,
+                        draggedIndex = draggedQueueIndex,
+                        dragTargetIndex = dragTargetIndex,
+                        onDragStateChange = { dragged, target ->
+                            draggedQueueIndex = dragged
+                            dragTargetIndex = target
+                        },
+                        onMove = { onMoveQueueItem(item.queueItemId, it) },
+                        onPlay = {
+                            if (transportRequest == null) {
+                                requestedQueueItemId = item.queueItemId
+                                transportStartSeekRevision = state.room.localSeekRevision
+                                transportRequest = TransportRequest.PLAY_ITEM
+                                onPlayQueueItem(item.queueItemId)
+                            }
+                        },
+                        onRemove = { onRemoveQueueItem(item.queueItemId) },
+                        onKeep = { onKeepTrack(item.track.trackId) },
+                    )
+                    HorizontalDivider(Modifier.padding(start = 48.dp))
+                }
             }
         }
-    }
         AnimatedVisibility(
             visible = compactPlayerVisible && nowPlaying != null,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter).zIndex(2f),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .zIndex(2f),
         ) {
             CompactRoomPlayer(
                 track = nowPlaying?.track,
+                artworkReloadKey = nowPlaying?.track?.trackId?.let { state.room.transfers[it]?.state },
                 isPlaying = state.room.localIsPlaying,
                 pending = transportRequest != null,
                 onPlayPause = requestPlayPause,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }
     }
@@ -2219,9 +2301,16 @@ private fun RoomScreen(
             onDismissRequest = { showQr = false },
             title = { Text("Invite friends") },
             text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     Image(QrCode.create(joinLink), "Room QR", Modifier.size(252.dp))
-                    Text("PIN ${snapshot.roomPin ?: "—"}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "PIN ${snapshot.roomPin ?: "—"}",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
                     Text("Scan while connected to the same Wi-Fi.", style = MaterialTheme.typography.bodySmall)
                 }
             },
@@ -2296,6 +2385,7 @@ private fun RoomScreen(
 @Composable
 private fun CompactRoomPlayer(
     track: TrackDescriptor?,
+    artworkReloadKey: Any?,
     isPlaying: Boolean,
     pending: Boolean,
     onPlayPause: () -> Unit,
@@ -2303,20 +2393,23 @@ private fun CompactRoomPlayer(
 ) {
     Card(modifier) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier.size(40.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    if (isPlaying) Icons.Default.Equalizer else Icons.Default.MusicNote,
-                    null,
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+            if (track != null) {
+                TrackArtwork(track = track, size = 40.dp, reloadKey = artworkReloadKey)
+            } else {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.primary)
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -2360,7 +2453,9 @@ private fun TransferStatusCard(
 ) {
     Card(Modifier.fillMaxWidth()) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             transfers.take(3).forEach { transfer ->
@@ -2417,9 +2512,8 @@ private fun TransferStatusCard(
 private fun QueueRow(
     index: Int,
     lastIndex: Int,
-    title: String,
-    artist: String?,
-    durationMs: Long,
+    track: TrackDescriptor,
+    artworkReloadKey: Any?,
     current: Boolean,
     playing: Boolean,
     temporary: Boolean,
@@ -2439,8 +2533,10 @@ private fun QueueRow(
         draggedIndex == null || dragTargetIndex == null || draggedIndex == index -> 0f
         draggedIndex < dragTargetIndex && index in (draggedIndex + 1)..dragTargetIndex ->
             -estimatedRowHeightPx
+
         draggedIndex > dragTargetIndex && index in dragTargetIndex until draggedIndex ->
             estimatedRowHeightPx
+
         else -> 0f
     }
     val animatedDisplacementPx by animateFloatAsState(
@@ -2461,23 +2557,25 @@ private fun QueueRow(
                 shadowElevation = if (dragOffsetPx == 0f) 0f else 8.dp.toPx()
             }
             .clickable(enabled = draggedIndex == null, onClick = onPlay),
-        headlineContent = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             Text(
                 listOfNotNull(
                     when {
                         playing -> "Playing"
                         current -> "Paused"
-                        else -> artist?.takeIf(String::isNotBlank)
+                        else -> track.artist?.takeIf(String::isNotBlank)
                     },
                     "Temporary".takeIf { temporary },
-                    formatDuration(durationMs),
+                    formatDuration(track.durationMs),
                 ).joinToString(" • "),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         },
-        leadingContent = { Icon(if (current) Icons.Default.Equalizer else Icons.Default.MusicNote, null) },
+        leadingContent = {
+            TrackArtwork(track = track, size = 40.dp, reloadKey = artworkReloadKey)
+        },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (canReorder) {
@@ -2506,7 +2604,7 @@ private fun QueueRow(
                                         )
                                         val targetIndex = (
                                             index + (dragOffsetPx / estimatedRowHeightPx).roundToInt()
-                                        ).coerceIn(0, lastIndex)
+                                            ).coerceIn(0, lastIndex)
                                         onDragStateChange(index, targetIndex)
                                     },
                                 )
@@ -2552,17 +2650,52 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 }
 
 @Composable
-private fun TrackArtwork(track: TrackDescriptor, size: androidx.compose.ui.unit.Dp) {
+private fun TrackArtwork(
+    track: TrackDescriptor,
+    size: androidx.compose.ui.unit.Dp,
+    reloadKey: Any? = Unit,
+) {
     val container = LocalContext.current.unisonContainer
-    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = track.trackId) {
-        value = withContext(Dispatchers.IO) {
-            val audioFile = container.trackRepository.requireReadableFile(track.trackId)
-            audioFile?.let { container.artworkStore.bitmapFor(track.trackId, it) }
+    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = track.trackId, key2 = reloadKey) {
+        try {
+            val audioFile = withContext(Dispatchers.IO) {
+                container.trackRepository.requireReadableFile(track.trackId)
+            }
+            if (audioFile != null) {
+                value = withContext(Dispatchers.IO) {
+                    container.artworkStore.bitmapFor(track.trackId, audioFile)
+                }
+                // Retry once only when extraction recorded a transient decoder/storage failure.
+                val retryDelayMs = if (value == null) {
+                    withContext(Dispatchers.IO) {
+                        container.artworkStore.transientRetryDelayMs(track.trackId)
+                    }
+                } else {
+                    null
+                }
+                if (retryDelayMs != null) {
+                    delay(retryDelayMs + 500L)
+                    value = withContext(Dispatchers.IO) {
+                        container.artworkStore.bitmapFor(track.trackId, audioFile)
+                    }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            container.diagnostics.w(
+                "TrackArtwork",
+                "Could not load artwork track=${track.trackId.value.take(8)}",
+                error,
+            )
         }
     }
     val shape = RoundedCornerShape(if (size >= 100.dp) 18.dp else 8.dp)
     Box(
-        Modifier.size(size).clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+        Modifier
+            .size(size)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
         contentAlignment = Alignment.Center,
     ) {
         val artwork = bitmap
@@ -2595,8 +2728,12 @@ private fun OperationBanner(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+    Card(modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp, vertical = 6.dp)) {
+        Column(Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)) {
             if (progress == null) {
                 Text(
                     "Working…",
@@ -2627,7 +2764,9 @@ private fun OperationBanner(
 @Composable
 private fun LoadError(onRetry: () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(36.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(36.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2658,7 +2797,9 @@ private fun EmptyState(
     onAction: () -> Unit = {},
 ) {
     Column(
-        Modifier.fillMaxWidth().padding(36.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(36.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

@@ -10,9 +10,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.darius.unison.app.unisonContainer
+import com.darius.unison.library.LibrarySort
 import com.darius.unison.library.M3uCodec
 import com.darius.unison.library.M3uEntry
-import com.darius.unison.library.LibrarySort
 import com.darius.unison.library.PlaylistDetail
 import com.darius.unison.library.StorageSummary
 import com.darius.unison.model.AppCommand
@@ -28,20 +28,20 @@ import com.darius.unison.room.RoomReducer
 import com.darius.unison.storage.PlaylistSummary
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 enum class ShareDestination { ROOM, LIBRARY, BOTH }
@@ -155,8 +155,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val operation = combine(busy, importProgress, ::OperationState)
     private val transient =
-        combine(operation, message, pendingM3uResolution, selectedPlaylist, pendingShare) {
-                operationState, notice, pending, playlist, share ->
+        combine(
+            operation,
+            message,
+            pendingM3uResolution,
+            selectedPlaylist,
+            pendingShare
+        ) { operationState, notice, pending, playlist, share ->
             TransientUiState(operationState, notice, pending, playlist, share)
         }
     private val preferences = combine(
@@ -261,6 +266,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 insertAfterCurrent -> "Playing next"
                 selectedTracks.size < trackIds.size ->
                     "Adding ${selectedTracks.size} songs; the queue holds up to ${RoomReducer.MAX_QUEUE_ITEMS}"
+
                 selectedTracks.size == 1 -> "Added to the queue"
                 else -> "Adding ${selectedTracks.size} songs"
             },
@@ -484,6 +490,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ShareDestination.BOTH -> importM3u(pending.uris.single(), toRoom = true)
                 }
             }
+
             destination == ShareDestination.ROOM -> importMusic(pending.uris, toRoom = true)
             destination == ShareDestination.LIBRARY -> importMusic(pending.uris, toRoom = false)
             destination == ShareDestination.BOTH -> startAudioImport(
@@ -521,14 +528,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     result.tracks.isEmpty() -> result.errors.firstOrNull() ?: "Unison could not add this music"
                     result.errors.isNotEmpty() ->
                         "Added ${result.tracks.size}; ${result.errors.size} could not be opened"
+
                     completion == ImportCompletion.BOTH -> "Added to your library and room"
                     completion == ImportCompletion.ROOM ->
                         "Added ${result.tracks.size} song${if (result.tracks.size == 1) "" else "s"} to the room"
+
                     else -> "Added ${result.tracks.size} song${if (result.tracks.size == 1) "" else "s"}"
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Throwable) {
+            } catch (_: Exception) {
                 message.value = "Unison could not add this music"
             } finally {
                 importProgress.value = null
@@ -659,7 +668,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Result.success(block())
     } catch (cancelled: CancellationException) {
         throw cancelled
-    } catch (error: Throwable) {
+    } catch (error: Exception) {
         Result.failure(error)
     }
 
@@ -667,12 +676,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         message.value = value
     }
 
-    fun clearMessage() {
-        message.value = null
+    fun clearMessage(expected: String) {
+        message.compareAndSet(expected, null)
     }
 
-    fun clearRoomError() {
-        container.roomStore.update { it.copy(errorMessage = null) }
+    fun clearRoomError(expected: String) {
+        container.roomStore.update { state ->
+            if (state.errorMessage == expected) state.copy(errorMessage = null) else state
+        }
     }
 
     fun joinLink(): String? {
@@ -785,7 +796,8 @@ private fun AppCommand.feedbackMessage(): String? = when (this) {
     AppCommand.SkipNext,
     AppCommand.SkipPrevious,
     is AppCommand.PlayQueueItem,
-    -> null
+        -> null
+
     AppCommand.ShuffleQueue,
     is AppCommand.SetRepeat,
     is AppCommand.RemoveQueueItem,
@@ -793,12 +805,14 @@ private fun AppCommand.feedbackMessage(): String? = when (this) {
     AppCommand.ClearPlayed,
     is AppCommand.UpdateRoomOptions,
     AppCommand.LeaveRoom,
-    -> null
+        -> null
+
     is AppCommand.AddTracks -> when {
         trackIds.isEmpty() -> null
         insertAfterCurrent -> "Playing next"
         trackIds.size == 1 -> "Added to the queue"
         else -> "Adding ${trackIds.size} songs"
     }
+
     else -> null
 }
