@@ -9,9 +9,9 @@ import com.darius.unison.model.TrackDescriptor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -55,7 +55,7 @@ class ImportManager(
                         Result.success(trackRepository.importUri(uri, retentionPolicy))
                     } catch (cancelled: CancellationException) {
                         throw cancelled
-                    } catch (error: Throwable) {
+                    } catch (error: Exception) {
                         Result.failure(error)
                     }
                     progressEvents.send(Unit)
@@ -133,7 +133,7 @@ class ImportManager(
 
         val parsed = runCatching { reference.toUri() }.getOrNull()
         if (parsed != null && parsed.scheme in SUPPORTED_URI_SCHEMES) {
-            return runCatching { trackRepository.importUri(parsed) }.getOrNull()
+            return suspendResult { trackRepository.importUri(parsed) }.getOrNull()
         }
 
         val file = File(reference).let { candidate ->
@@ -144,12 +144,12 @@ class ImportManager(
             }
         }
         if (file.isFile && file.canRead()) {
-            return runCatching { trackRepository.importUri(Uri.fromFile(file)) }.getOrNull()
+            return suspendResult { trackRepository.importUri(Uri.fromFile(file)) }.getOrNull()
         }
 
         val treeDocument = treeIndex?.resolve(reference)
         if (treeDocument != null) {
-            return runCatching { trackRepository.importUri(treeDocument.uri) }.getOrNull()
+            return suspendResult { trackRepository.importUri(treeDocument.uri) }.getOrNull()
         }
 
         val filename = reference.replace('\\', '/').substringAfterLast('/').trim()
@@ -209,6 +209,14 @@ class ImportManager(
             }
             return byName[segments.lastOrNull().orEmpty()]?.singleOrNull()
         }
+    }
+
+    private suspend fun <T> suspendResult(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
     }
 
     private fun Throwable.toUserMessage(): String = when {

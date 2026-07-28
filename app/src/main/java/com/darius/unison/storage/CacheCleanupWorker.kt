@@ -54,7 +54,7 @@ class CacheCleanupWorker(
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             if (runAttemptCount < MAX_RETRY_ATTEMPTS) Result.retry() else Result.failure()
         } finally {
             database.close()

@@ -4,13 +4,12 @@ import android.content.ContentResolver
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.provider.OpenableColumns
 import android.os.storage.StorageManager
+import android.provider.OpenableColumns
 import androidx.core.net.toUri
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
-import androidx.paging.map as mapPaging
 import androidx.room.withTransaction
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackDescriptor
@@ -26,6 +25,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.paging.map as mapPaging
 
 data class StorageSummary(
     val totalBytes: Long = 0L,
@@ -177,7 +177,12 @@ class TrackRepository(
         retentionPolicy: RetentionPolicy,
     ) {
         val normalized = normalizeDescriptor(descriptor)
-        check(fileStore.hasVerified(normalized.trackId, normalized.sizeBytes)) { "Managed audio is missing or incomplete" }
+        check(
+            fileStore.hasVerified(
+                normalized.trackId,
+                normalized.sizeBytes
+            )
+        ) { "Managed audio is missing or incomplete" }
         val now = System.currentTimeMillis()
         database.withTransaction {
             upsertTrack(normalized, now)
@@ -293,6 +298,7 @@ class TrackRepository(
         existing == RetentionPolicy.KEEP_IN_LIBRARY || requested == RetentionPolicy.KEEP_IN_LIBRARY -> RetentionPolicy.KEEP_IN_LIBRARY
         existing == RetentionPolicy.TEMPORARY_24_HOURS ||
             requested == RetentionPolicy.TEMPORARY_24_HOURS -> RetentionPolicy.TEMPORARY_24_HOURS
+
         else -> requested
     }
 
@@ -375,7 +381,7 @@ class TrackRepository(
                 album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM),
                 mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE),
             )
-        } catch (_: Throwable) {
+        } catch (_: Exception) {
             AudioMetadata()
         } finally {
             runCatching { retriever.release() }

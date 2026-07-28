@@ -105,7 +105,10 @@ class TransferManager(
                     return@withPermit
                 }
                 if (!authorizations.remove(request.authorizationToken, authorization)) {
-                    HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Rejected("Transfer authorization already used"))
+                    HandshakeCodec.write(
+                        socket.getOutputStream(),
+                        HandshakeMessage.Rejected("Transfer authorization already used")
+                    )
                     return@withPermit
                 }
                 val file = trackRepository.requireReadableFile(request.trackId)
@@ -180,32 +183,46 @@ class TransferManager(
         source: PeerEndpoint,
         authorizationToken: String,
     ) {
-        if (fileStore.hasVerified(track.trackId, track.sizeBytes)) {
-            scope.launch { onCompleted(track) }
-            return
-        }
         activeDownloads[track.trackId]?.cancel()
         activeDownloads[track.trackId] = scope.launch(Dispatchers.IO) {
-            incomingSemaphore.withPermit {
-                try {
-                    performDownload(roomId, track, source, authorizationToken)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Throwable) {
-                    log.w(TAG, "Transfer failed track=${track.trackId.value.take(8)}", error)
+            try {
+                if (fileStore.hasVerified(track.trackId, track.sizeBytes)) {
+                    // A process may have committed the content-addressed file just before crashing,
+                    // leaving the database registration incomplete. Repair that state before
+                    // announcing readiness, and keep the operation tracked by cancelAll().
+                    trackRepository.registerManagedFile(track, retentionPolicyProvider())
                     onProgress(
                         TransferProgress(
                             track.trackId,
-                            fileStore.partialFile(track.trackId).length(),
+                            track.sizeBytes,
                             track.sizeBytes,
                             source.peerId,
                             localIdentity.peerId,
-                            MemberTrackState.FAILED,
-                            error.message
+                            MemberTrackState.READY,
                         )
                     )
-                    onFailed(track.trackId, source.peerId, error.message ?: "Transfer failed")
+                    onCompleted(track)
+                } else {
+                    incomingSemaphore.withPermit {
+                        performDownload(roomId, track, source, authorizationToken)
+                    }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                log.w(TAG, "Transfer failed track=${track.trackId.value.take(8)}", error)
+                onProgress(
+                    TransferProgress(
+                        track.trackId,
+                        fileStore.partialFile(track.trackId).length(),
+                        track.sizeBytes,
+                        source.peerId,
+                        localIdentity.peerId,
+                        MemberTrackState.FAILED,
+                        error.message,
+                    )
+                )
+                onFailed(track.trackId, source.peerId, error.message ?: "Transfer failed")
             }
         }.also { job -> job.invokeOnCompletion { activeDownloads.remove(track.trackId, job) } }
     }
