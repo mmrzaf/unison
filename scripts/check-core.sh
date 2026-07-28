@@ -38,9 +38,12 @@ SOURCES=(
   app/src/main/java/com/darius/unison/util/MonotonicClock.kt
   app/src/main/java/com/darius/unison/library/M3uCodec.kt
   app/src/main/java/com/darius/unison/network/NetworkAddressPolicy.kt
+  app/src/main/java/com/darius/unison/network/DiscoveredRoomRegistry.kt
   app/src/test/java/com/darius/unison/library/M3uCodecTest.kt
   app/src/test/java/com/darius/unison/model/CanonicalPlaybackStateTest.kt
+  app/src/test/java/com/darius/unison/model/RoomUiStateTest.kt
   app/src/test/java/com/darius/unison/network/NetworkAddressPolicyTest.kt
+  app/src/test/java/com/darius/unison/network/DiscoveredRoomRegistryTest.kt
   app/src/test/java/com/darius/unison/protocol/CryptoTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackQueuePolicyTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackRequestPolicyTest.kt

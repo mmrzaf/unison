@@ -20,6 +20,7 @@ class M3uCodecTest {
         val parsed = M3uCodec.parse(StringReader("\uFEFF#EXTM3U\n# comment\ntrack.mp3\n"))
         assertEquals(listOf(M3uEntry("track.mp3")), parsed.entries)
     }
+
     @Test
     fun parserRejectsOversizedLines() {
         val oversized = "a".repeat(M3uCodec.MAX_LINE_LENGTH + 1)

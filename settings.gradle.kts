@@ -1,9 +1,9 @@
 pluginManagement {
     val runningInGithubActions = System.getenv("GITHUB_ACTIONS") == "true"
     val useIranMirrors = !runningInGithubActions && (
-            providers.gradleProperty("useIranMirrors").orNull == "true" ||
-                    System.getenv("USE_IRAN_MIRRORS") == "true"
-            )
+        providers.gradleProperty("useIranMirrors").orNull == "true" ||
+            System.getenv("USE_IRAN_MIRRORS") == "true"
+        )
 
     repositories {
         if (useIranMirrors) {
@@ -21,9 +21,9 @@ pluginManagement {
 dependencyResolutionManagement {
     val runningInGithubActions = System.getenv("GITHUB_ACTIONS") == "true"
     val useIranMirrors = !runningInGithubActions && (
-            providers.gradleProperty("useIranMirrors").orNull == "true" ||
-                    System.getenv("USE_IRAN_MIRRORS") == "true"
-            )
+        providers.gradleProperty("useIranMirrors").orNull == "true" ||
+            System.getenv("USE_IRAN_MIRRORS") == "true"
+        )
 
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {

@@ -4,6 +4,8 @@ fun main() {
     val classes = listOf(
         com.darius.unison.library.M3uCodecTest::class.java,
         com.darius.unison.model.CanonicalPlaybackStateTest::class.java,
+        com.darius.unison.model.RoomUiStateTest::class.java,
+        com.darius.unison.network.DiscoveredRoomRegistryTest::class.java,
         com.darius.unison.network.NetworkAddressPolicyTest::class.java,
         com.darius.unison.playback.SystemMediaCommandPolicyTest::class.java,
         com.darius.unison.protocol.CryptoTest::class.java,

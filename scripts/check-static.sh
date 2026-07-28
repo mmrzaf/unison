@@ -112,4 +112,6 @@ if grep -R -n -E 'TODO([: (]|$)|FIXME([: (]|$)|HACK([: (]|$)|XXX([: (]|$)|NotImp
   exit 1
 fi
 
+./scripts/check-kotlin-source.py
+
 echo 'Static repository checks passed.'
