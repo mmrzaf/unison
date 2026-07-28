@@ -117,6 +117,7 @@ class RoomRuntime(
     private var queueRefreshJob: Job? = null
     private var timelineRefreshJob: Job? = null
     private var recoveryJob: Job? = null
+    private var joinTimeoutJob: Job? = null
     private var lastObservedPlayerItem: QueueItemId? = null
     private var lastHandledEndedItem: QueueItemId? = null
     private var lastObservedRepeatTransitionRevision = 0L
@@ -401,7 +402,16 @@ class RoomRuntime(
             container.roomStore.update {
                 it.copy(lifecycle = RoomLifecycleState.JOINING, statusMessage = "Joining room…")
             }
-            startSessionJobs()
+            // The encrypted handshake only authenticates the socket. Do not start heartbeat or
+            // clock-sync traffic until JoinAccepted installs the canonical room context; otherwise
+            // envelopes have no authoritative room ID and must be rejected by FrameCodec.
+            joinTimeoutJob?.cancel()
+            joinTimeoutJob = scope.launch {
+                delay(INITIAL_JOIN_TIMEOUT_MS)
+                if (engine == null && coordinatorConnection === connected.connection) {
+                    connected.connection.close(IllegalStateException("Join acceptance timed out"))
+                }
+            }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
@@ -713,7 +723,10 @@ class RoomRuntime(
         when (val body = envelope.body) {
             is ProtocolBody.JoinAccepted -> {
                 if (isCoordinator() || peerId != coordinatorPeerId) return
-                if (body.snapshot.roomId != envelope.roomId || body.snapshot.term.coordinatorPeerId != peerId) return
+                if (body.snapshot.roomId != envelope.roomId || body.snapshot.term.coordinatorPeerId != peerId) {
+                    throw IllegalStateException("Invalid join acceptance")
+                }
+                joinTimeoutJob?.cancel(); joinTimeoutJob = null
                 clockSync.reset()
                 clockReadyPeers.clear()
                 engine = RoomEngine(body.snapshot)
@@ -722,9 +735,28 @@ class RoomRuntime(
                 lastSeenElapsedMs[body.snapshot.term.coordinatorPeerId] = SystemClock.elapsedRealtime()
                 announcedTrackIds.clear()
                 recoveryJob?.cancel(); recoveryJob = null
+
+                // Commit the room to UI only after local playback state can represent the accepted
+                // snapshot. A local preparation failure is recoverable and must not tear down an
+                // otherwise valid authenticated control connection.
+                try {
+                    reconcileSnapshotQueue(body.snapshot)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    log.e(TAG, "Initial playback reconciliation failed", error)
+                    setError("Connected, but playback could not be prepared")
+                }
                 updateSnapshot(body.snapshot, RoomLifecycleState.CONNECTED, "Connected")
-                reconcileSnapshotQueue(body.snapshot)
-                prepareWindow(body.snapshot)
+                startSessionJobs()
+                try {
+                    prepareWindow(body.snapshot)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Throwable) {
+                    log.w(TAG, "Initial track preparation failed", error)
+                    setError("Connected; some music may need to be prepared again")
+                }
             }
 
             is ProtocolBody.UserCommandRequest -> if (isCoordinator()) {
@@ -1505,6 +1537,17 @@ class RoomRuntime(
         if (!wasCurrent && coordinatorConnection !== connection) return
         if (coordinatorPeerId == peerId && !isCoordinator()) {
             if (coordinatorConnection === connection) coordinatorConnection = null
+            if (engine == null) {
+                // There is no canonical state to recover from until JoinAccepted arrives. Treat an
+                // initial socket failure as a failed join instead of entering a dead RECONNECTING state.
+                joinTimeoutJob?.cancel(); joinTimeoutJob = null
+                connections.remove(peerId, connection)
+                coordinatorPeerId = null
+                roomSecret = null
+                roomPin = null
+                setFailure(userFacingJoinFailure(cause ?: IllegalStateException("Connection closed before joining")))
+                return
+            }
             container.roomStore.update {
                 it.copy(
                     lifecycle = RoomLifecycleState.RECONNECTING,
@@ -1655,6 +1698,7 @@ class RoomRuntime(
         queueRefreshJob?.cancel(); queueRefreshJob = null
         timelineRefreshJob?.cancel(); timelineRefreshJob = null
         recoveryJob?.cancel(); recoveryJob = null
+        joinTimeoutJob?.cancel(); joinTimeoutJob = null
         transferManager?.cancelAll()
         connections.values.forEach { it.close() }
         connections.clear()
@@ -1731,10 +1775,11 @@ class RoomRuntime(
 
     private suspend fun envelope(body: ProtocolBody, sequence: Long? = null): Envelope {
         val snapshot = engine?.snapshot()
+            ?: throw IllegalStateException("Room session is not established")
         return Envelope(
-            roomId = snapshot?.roomId ?: container.roomStore.state.value.snapshot?.roomId.orEmpty(),
-            term = snapshot?.term?.number ?: 0,
-            coordinatorPeerId = snapshot?.term?.coordinatorPeerId,
+            roomId = snapshot.roomId,
+            term = snapshot.term.number,
+            coordinatorPeerId = snapshot.term.coordinatorPeerId,
             senderPeerId = identity.peerId,
             sequence = sequence,
             messageId = UUID.randomUUID().toString(),
@@ -1892,6 +1937,7 @@ class RoomRuntime(
         private const val PEER_TIMEOUT_MS = 18_000L
         private const val MAX_PIN_FAILURES = 5
         private const val PIN_BACKOFF_MS = 30_000L
+        private const val INITIAL_JOIN_TIMEOUT_MS = 12_000L
         private val HELLO_TOKEN_PATTERN = Regex("^[A-Za-z0-9_-]+$")
     }
 }

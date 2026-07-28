@@ -41,6 +41,23 @@ class FrameCodecTest {
     }
 
     @Test
+    fun envelopeForAnotherRoomIsRejectedBeforeWrite() {
+        val codec = FrameCodec(Crypto.randomBytes(32), "accepted-room")
+        val envelope = Envelope(
+            roomId = "",
+            term = 0,
+            senderPeerId = PeerId("peer"),
+            messageId = UUID.randomUUID().toString(),
+            sentAtElapsedNs = 10,
+            body = ProtocolBody.ClockPing("ping", 10),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            codec.write(ByteArrayOutputStream(), envelope)
+        }
+    }
+
+    @Test
     fun roomSecretIsProtectedByPinKey() {
         val secret = Crypto.randomBytes(32)
         val key = Crypto.derivePinKey("room", "123456", "nonce")

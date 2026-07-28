@@ -83,7 +83,12 @@ class ControlConnection(
         outgoing.close()
         runCatching { socket.close() }
         scope.cancel()
-        log.i(TAG, "Control connection closed peer=${peerId.value.take(8)} cause=${cause?.javaClass?.simpleName}")
+        when (cause) {
+            null, is CancellationException ->
+                log.i(TAG, "Control connection closed peer=${peerId.value.take(8)}")
+            else ->
+                log.e(TAG, "Control connection failed peer=${peerId.value.take(8)}", cause)
+        }
         callbackScope.launch(Dispatchers.Default) { onClosed(this@ControlConnection, cause) }
     }
 
