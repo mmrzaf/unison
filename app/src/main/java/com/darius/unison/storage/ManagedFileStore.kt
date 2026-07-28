@@ -13,12 +13,30 @@ import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.SyncFailedException
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+
+enum class ManagedFileLeaseReason {
+    ROOM_QUEUE,
+    PLAYBACK,
+    TRANSFER_DOWNLOAD,
+    TRANSFER_UPLOAD,
+    IMPORT,
+    INDEXING,
+    PENDING_SIDE_EFFECT,
+}
+
+interface ManagedFileLease : AutoCloseable {
+    val trackId: TrackId
+    val reason: ManagedFileLeaseReason
+}
 
 class ManagedFileStore(filesDir: File) {
     constructor(context: Context) : this(context.filesDir)
 
     private val root = File(filesDir, "tracks").apply { mkdirs() }
     private val commitLocks = Array(COMMIT_LOCK_STRIPES) { Any() }
+    private val leaseCounts = ConcurrentHashMap<TrackId, Int>()
 
     fun finalFile(trackId: TrackId): File = fileFor(trackId, suffix = "")
     fun partialFile(trackId: TrackId): File = fileFor(trackId, suffix = ".part")
@@ -29,9 +47,45 @@ class ManagedFileStore(filesDir: File) {
         return File(directory, trackId.value + suffix)
     }
 
+    /** Verifies the content-addressed file, not only its filename or byte count. */
     fun hasVerified(trackId: TrackId, expectedSize: Long? = null): Boolean {
         val file = finalFile(trackId)
-        return file.isFile && (expectedSize == null || file.length() == expectedSize)
+        if (!file.isFile) return false
+        if (expectedSize != null && file.length() != expectedSize) {
+            discardCorruptFinal(trackId, file)
+            return false
+        }
+        val valid = runCatching { sha256Hex(file) == trackId.value }.getOrDefault(false)
+        if (!valid) discardCorruptFinal(trackId, file)
+        return valid
+    }
+
+    fun acquireLease(trackId: TrackId, reason: ManagedFileLeaseReason): ManagedFileLease {
+        leaseCounts.compute(trackId) { _, count -> (count ?: 0) + 1 }
+        return object : ManagedFileLease {
+            override val trackId: TrackId = trackId
+            override val reason: ManagedFileLeaseReason = reason
+            private val closed = AtomicBoolean(false)
+
+            override fun close() {
+                if (!closed.compareAndSet(false, true)) return
+                leaseCounts.compute(trackId) { _, count ->
+                    when {
+                        count == null || count <= 1 -> null
+                        else -> count - 1
+                    }
+                }
+            }
+        }
+    }
+
+    fun isLeased(trackId: TrackId): Boolean = (leaseCounts[trackId] ?: 0) > 0
+
+    private fun discardCorruptFinal(trackId: TrackId, file: File) {
+        if (isLeased(trackId)) return
+        synchronized(commitLocks[(file.name.hashCode() and Int.MAX_VALUE) % commitLocks.size]) {
+            if (!isLeased(trackId)) file.delete()
+        }
     }
 
     suspend fun hash(input: InputStream, maxBytes: Long = Long.MAX_VALUE): HashResult = withContext(Dispatchers.IO) {
@@ -213,16 +267,23 @@ class ManagedFileStore(filesDir: File) {
         var removed = 0
         root.walkTopDown().filter(File::isFile).forEach { file ->
             val temporary = file.name.startsWith("staging-") || file.name.endsWith(".part")
-            if (temporary && file.lastModified() in 1 until olderThanEpochMs && file.delete()) removed++
+            val partialTrackId = file.name.removeSuffix(".part")
+                .takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+                ?.let(::TrackId)
+            val protected = partialTrackId?.let(::isLeased) == true
+            if (temporary && !protected && file.lastModified() in 1 until olderThanEpochMs && file.delete()) removed++
         }
         return removed
     }
 
+    /** Explicit transfer-owner discard. Background cleanup never calls this method. */
     fun discardPartial(trackId: TrackId): Boolean = partialFile(trackId).delete()
+
     fun delete(trackId: TrackId): Boolean {
+        if (isLeased(trackId)) return false
         val target = finalFile(trackId)
         return synchronized(commitLocks[(target.name.hashCode() and Int.MAX_VALUE) % commitLocks.size]) {
-            target.delete() or partialFile(trackId).delete()
+            if (isLeased(trackId)) false else target.delete() or partialFile(trackId).delete()
         }
     }
 

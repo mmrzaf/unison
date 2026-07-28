@@ -105,6 +105,67 @@ class ManagedFileStoreTest {
     }
 
     @Test
+    fun verifiedLookupRejectsAndRemovesSameSizeCorruption() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(64 * 1024) { (it % 241).toByte() }
+            val result = store.copyAndHash(ByteArrayInputStream(bytes))
+            result.file.writeBytes(ByteArray(bytes.size) { 0x33 })
+
+            assertTrue(!store.hasVerified(result.trackId, bytes.size.toLong()))
+            assertTrue(!result.file.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun activeLeaseBlocksDeletionUntilReleased() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = "leased audio".repeat(2048).encodeToByteArray()
+            val result = store.copyAndHash(ByteArrayInputStream(bytes))
+            val lease = store.acquireLease(result.trackId, ManagedFileLeaseReason.PLAYBACK)
+
+            assertTrue(store.isLeased(result.trackId))
+            assertTrue(!store.delete(result.trackId))
+            assertTrue(result.file.exists())
+
+            lease.close()
+            assertTrue(!store.isLeased(result.trackId))
+            assertTrue(store.delete(result.trackId))
+            assertTrue(!result.file.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun activeTransferLeaseProtectsStalePartialFromCleanup() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(2048) { it.toByte() }
+            val trackId = store.hash(ByteArrayInputStream(bytes)).trackId
+            val partial = store.partialFile(trackId).apply {
+                writeBytes(bytes)
+                setLastModified(1L)
+            }
+            val lease = store.acquireLease(trackId, ManagedFileLeaseReason.TRANSFER_DOWNLOAD)
+
+            assertEquals(0, store.cleanupAbandonedFiles(2L))
+            assertTrue(partial.exists())
+            lease.close()
+            assertEquals(1, store.cleanupAbandonedFiles(2L))
+            assertTrue(!partial.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun peerTransferUsesTheSameSafeWriteLifecycleAndCanResume() = runBlocking {
         val root = createTempDirectory("unison-store-").toFile()
         try {

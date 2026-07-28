@@ -85,8 +85,8 @@ class TrackRepository(
         database.trackDao().markPlayed(trackId.value, System.currentTimeMillis())
     }
 
-    suspend fun findByReference(fileName: String, title: String): TrackDescriptor? =
-        database.trackDao().findByReference(fileName, title)?.toDescriptor()
+    suspend fun findReferenceCandidates(fileName: String, title: String): List<TrackDescriptor> =
+        database.trackDao().findReferenceCandidates(fileName, title).map(TrackEntity::toDescriptor)
 
     suspend fun getMany(trackIds: List<TrackId>): List<TrackDescriptor> {
         if (trackIds.isEmpty()) return emptyList()
@@ -107,7 +107,7 @@ class TrackRepository(
 
     suspend fun hasVerifiedSource(trackId: TrackId): Boolean {
         val expectedSize = database.trackDao().get(trackId.value)?.sizeBytes
-        return fileStore.hasVerified(trackId, expectedSize) || bestReadableUri(trackId) != null
+        return verifiedManagedFile(trackId, expectedSize) != null || bestReadableUri(trackId) != null
     }
 
     /** Best-effort portable M3U reference. App-private managed paths are intentionally never
@@ -121,12 +121,10 @@ class TrackRepository(
 
     suspend fun bestReadableUri(trackId: TrackId): Uri? = withContext(Dispatchers.IO) {
         val expectedSize = database.trackDao().get(trackId.value)?.sizeBytes
-        if (fileStore.hasVerified(trackId, expectedSize)) return@withContext Uri.fromFile(fileStore.finalFile(trackId))
+        verifiedManagedFile(trackId, expectedSize)?.let { return@withContext Uri.fromFile(it) }
         database.trackSourceDao().getForTrack(trackId.value).firstNotNullOfOrNull { source ->
             when {
-                source.managedRelativePath != null -> fileStore.finalFile(trackId)
-                    .takeIf { fileStore.hasVerified(trackId, expectedSize) }
-                    ?.let(Uri::fromFile)
+                source.managedRelativePath != null -> verifiedManagedFile(trackId, expectedSize)?.let(Uri::fromFile)
 
                 source.uri != null -> source.uri.toUri().takeIf { isReadable(it) }
                 else -> null
@@ -137,8 +135,7 @@ class TrackRepository(
     suspend fun requireReadableFile(trackId: TrackId): File? = withContext(Dispatchers.IO) {
         val expectedSize = database.trackDao().get(trackId.value)?.sizeBytes
         val managed = fileStore.finalFile(trackId)
-        if (fileStore.hasVerified(trackId, expectedSize)) return@withContext managed
-        if (managed.exists()) managed.delete()
+        verifiedManagedFile(trackId, expectedSize)?.let { return@withContext it }
         run {
             val uri = bestReadableUri(trackId) ?: return@withContext null
             requireSupportedSize(context.contentResolver, uri)
@@ -292,6 +289,24 @@ class TrackRepository(
             .toList()
         candidates.forEach { deleteTemporary(it) }
         candidates.size
+    }
+
+    private suspend fun verifiedManagedFile(trackId: TrackId, expectedSize: Long?): File? {
+        val file = fileStore.finalFile(trackId)
+        if (fileStore.hasVerified(trackId, expectedSize)) return file
+        val managedSourceId = "managed:${trackId.value}"
+        database.withTransaction {
+            val trackSourceDao = database.trackSourceDao()
+
+            trackSourceDao.get(managedSourceId)?.let { source ->
+                trackSourceDao.delete(source)
+            }
+
+            if (trackSourceDao.countForTrack(trackId.value) == 0) {
+                database.trackDao().delete(trackId.value)
+            }
+        }
+        return null
     }
 
     private fun strongerRetention(existing: RetentionPolicy?, requested: RetentionPolicy): RetentionPolicy = when {

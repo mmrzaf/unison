@@ -14,7 +14,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
-/** Lazy, bounded artwork extraction. Audio import never decodes artwork. */
+/** Lazy, coalesced, memory-bounded, and disk-bounded artwork extraction. */
 class ArtworkStore(cacheDir: File) {
     private val root = File(cacheDir, "artwork").apply { mkdirs() }
     private val locks = Array(ARTWORK_LOCK_STRIPES) { Mutex() }
@@ -24,28 +24,32 @@ class ArtworkStore(cacheDir: File) {
     }
 
     suspend fun fileFor(trackId: TrackId, audioFile: File): File? = withContext(Dispatchers.IO) {
-        locks[(trackId.value.hashCode() and Int.MAX_VALUE) % locks.size].withLock {
+        locks[stripe(trackId)].withLock {
             val target = artworkFile(trackId)
-            val noArtwork = File(root, "${trackId.value}$NO_ARTWORK_SUFFIX")
+            val noArtwork = noArtworkMarker(trackId)
             val retryMarker = retryMarker(trackId)
             if (target.isFile && target.length() > 0) {
-                if (hasDecodableBounds(target)) return@withLock target
+                if (hasDecodableBounds(target)) {
+                    target.setLastModified(System.currentTimeMillis())
+                    return@withLock target
+                }
                 target.delete()
                 memory.remove(trackId.value)
             }
             if (noArtwork.isFile) return@withLock null
-            if (retryMarker.isRecent(TRANSIENT_FAILURE_RETRY_MS)) return@withLock null
-            retryMarker.delete()
+            if (remainingRetryDelayMs(retryMarker) != null) return@withLock null
 
             try {
                 val bytes = embeddedPicture(audioFile)
                 if (bytes == null || bytes.size > MAX_EMBEDDED_ART_BYTES) {
                     noArtwork.touch()
+                    retryMarker.delete()
                     return@withLock null
                 }
                 val bitmap = decodeScaled(bytes, MAX_ARTWORK_EDGE_PX)
                 if (bitmap == null) {
                     noArtwork.touch()
+                    retryMarker.delete()
                     return@withLock null
                 }
                 val staging = File.createTempFile("art-", ".tmp", root)
@@ -63,18 +67,23 @@ class ArtworkStore(cacheDir: File) {
                     noArtwork.delete()
                     retryMarker.delete()
                     memory.put(trackId.value, bitmap)
+                    enforceDiskBudget()
                     target.takeIf { it.isFile && it.length() > 0 }
                 } catch (error: Throwable) {
                     staging.delete()
-                    bitmap.recycle()
+                    if (memory.get(trackId.value) !== bitmap && !bitmap.isRecycled) bitmap.recycle()
                     throw error
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: OutOfMemoryError) {
+                memory.evictAll()
+                recordTransientFailure(retryMarker)
+                null
             } catch (_: Exception) {
-                // Decoder/provider failures can be transient on newly received files or under memory
-                // pressure. Do not permanently classify the immutable track as artwork-free.
-                retryMarker.touch()
+                // Provider/decoder failures can be transient for newly received files. Exponential
+                // backoff prevents a failed cover from being decoded on every recomposition.
+                recordTransientFailure(retryMarker)
                 null
             }
         }
@@ -86,8 +95,8 @@ class ArtworkStore(cacheDir: File) {
         memory.get(trackId.value)?.takeUnless { it.isRecycled }?.let { return@withContext it }
         decodeCached(trackId, first)?.let { return@withContext it }
 
-        // A partial cache write or storage cleanup race must self-heal instead of leaving a broken
-        // JPEG forever. Re-extract once from the verified audio file.
+        // A partial cache write or cleanup race self-heals by extracting once more from verified
+        // audio. The striped lock coalesces concurrent callers for the same content hash.
         first.delete()
         memory.remove(trackId.value)
         val second = fileFor(trackId, audioFile) ?: return@withContext null
@@ -98,46 +107,98 @@ class ArtworkStore(cacheDir: File) {
         memory.evictAll()
     }
 
-    /**
-     * Clears transient and negative results after a verified transfer completes. A valid cached
-     * artwork file is preserved; [fileFor] already validates it and self-heals corrupt entries.
-     */
     suspend fun invalidate(trackId: TrackId) = withContext(Dispatchers.IO) {
-        locks[(trackId.value.hashCode() and Int.MAX_VALUE) % locks.size].withLock {
+        locks[stripe(trackId)].withLock {
             memory.remove(trackId.value)
-            File(root, "${trackId.value}$NO_ARTWORK_SUFFIX").delete()
+            noArtworkMarker(trackId).delete()
             retryMarker(trackId).delete()
         }
     }
 
+    /** Removes stale markers/files and enforces the total disk budget. */
     fun cleanup(olderThanEpochMs: Long): Int {
         var removed = 0
         root.listFiles().orEmpty().forEach { file ->
+            // A process death can leave staging files behind. Active staging files are fresh; stale
+            // ones must not bypass cleanup forever merely because they are not cache entries.
+            if (file.extension == "tmp") {
+                if (file.lastModified() in 1 until olderThanEpochMs && file.delete()) removed++
+                return@forEach
+            }
             if (file.lastModified() in 1 until olderThanEpochMs && file.delete()) removed++
         }
-        return removed
+        return removed + enforceDiskBudget()
     }
 
     fun artworkFile(trackId: TrackId): File = File(root, "${trackId.value}.jpg")
 
-    /** Remaining delay before a transient extraction failure should be retried, or null when the
-     * track is not awaiting retry. Safe for UI/runtime scheduling; extraction remains lock-guarded. */
-    fun transientRetryDelayMs(trackId: TrackId): Long? {
-        val marker = retryMarker(trackId)
-        if (!marker.isFile) return null
-        val ageMs = (System.currentTimeMillis() - marker.lastModified()).coerceAtLeast(0L)
-        return (TRANSIENT_FAILURE_RETRY_MS - ageMs).coerceAtLeast(0L)
+    fun transientRetryDelayMs(trackId: TrackId): Long? = remainingRetryDelayMs(retryMarker(trackId))
+
+    private fun enforceDiskBudget(
+        maxBytes: Long = DISK_CACHE_BYTES,
+        maxFiles: Int = DISK_CACHE_FILES,
+    ): Int {
+        val candidates = root.listFiles().orEmpty()
+            .filter { it.isFile && it.extension != "tmp" }
+            .sortedBy(File::lastModified)
+            .toMutableList()
+        var bytes = candidates.sumOf { it.length().coerceAtLeast(0L) }
+        var removed = 0
+        while (candidates.size > maxFiles || bytes > maxBytes) {
+            val oldest = candidates.removeFirstOrNull() ?: break
+            val length = oldest.length().coerceAtLeast(0L)
+            if (oldest.delete()) {
+                bytes = (bytes - length).coerceAtLeast(0L)
+                removed++
+            }
+        }
+        return removed
     }
 
-    private fun retryMarker(trackId: TrackId): File = File(root, "${trackId.value}.retry")
+    private fun stripe(trackId: TrackId): Int =
+        (trackId.value.hashCode() and Int.MAX_VALUE) % locks.size
 
-    private fun decodeCached(trackId: TrackId, file: File): Bitmap? =
-        BitmapFactory.decodeFile(file.absolutePath)?.also { memory.put(trackId.value, it) }
+    private fun retryMarker(trackId: TrackId): File = File(root, "${trackId.value}.retry-v3")
+
+    private fun noArtworkMarker(trackId: TrackId): File = File(root, "${trackId.value}$NO_ARTWORK_SUFFIX")
+
+    private fun remainingRetryDelayMs(marker: File): Long? {
+        if (!marker.isFile) return null
+        val failures = marker.readFailureCount()
+        val delay = ArtworkRetryPolicy.delayMs(failures)
+        val ageMs = (System.currentTimeMillis() - marker.lastModified()).coerceAtLeast(0L)
+        return (delay - ageMs).takeIf { it > 0L }
+    }
+
+    private fun recordTransientFailure(marker: File) {
+        val count = (marker.readFailureCount() + 1).coerceAtMost(MAX_RECORDED_FAILURES)
+        marker.parentFile?.mkdirs()
+        runCatching { marker.writeText(count.toString()) }
+        marker.setLastModified(System.currentTimeMillis())
+    }
+
+    private fun File.readFailureCount(): Int = runCatching {
+        readText().trim().toInt().coerceAtLeast(1)
+    }.getOrDefault(0)
+
+    private fun decodeCached(trackId: TrackId, file: File): Bitmap? = try {
+        BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 },
+        )?.also {
+            file.setLastModified(System.currentTimeMillis())
+            memory.put(trackId.value, it)
+        }
+    } catch (_: OutOfMemoryError) {
+        memory.evictAll()
+        null
+    }
 
     private fun hasDecodableBounds(file: File): Boolean {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, options)
-        return options.outWidth > 0 && options.outHeight > 0
+        return options.outWidth > 0 && options.outHeight > 0 &&
+            options.outWidth <= MAX_CACHED_DIMENSION && options.outHeight <= MAX_CACHED_DIMENSION
     }
 
     private fun embeddedPicture(audioFile: File): ByteArray? {
@@ -154,6 +215,7 @@ class ArtworkStore(cacheDir: File) {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        if (bounds.outWidth > MAX_SOURCE_DIMENSION || bounds.outHeight > MAX_SOURCE_DIMENSION) return null
         var sample = 1
         while (bounds.outWidth / sample > maxEdgePx * 2 || bounds.outHeight / sample > maxEdgePx * 2) {
             sample *= 2
@@ -177,9 +239,6 @@ class ArtworkStore(cacheDir: File) {
         return scaled
     }
 
-    private fun File.isRecent(maxAgeMs: Long): Boolean =
-        isFile && System.currentTimeMillis() - lastModified() in 0 until maxAgeMs
-
     private fun File.touch() {
         parentFile?.mkdirs()
         if (!exists()) createNewFile() else setLastModified(System.currentTimeMillis())
@@ -187,14 +246,15 @@ class ArtworkStore(cacheDir: File) {
 
     private companion object {
         const val MAX_EMBEDDED_ART_BYTES = 12 * 1024 * 1024
+        const val MAX_SOURCE_DIMENSION = 16_384
+        const val MAX_CACHED_DIMENSION = 1_024
         const val MAX_ARTWORK_EDGE_PX = 512
         const val JPEG_QUALITY = 88
         const val MEMORY_CACHE_KIB = 8 * 1024
+        const val DISK_CACHE_BYTES = 64L * 1024L * 1024L
+        const val DISK_CACHE_FILES = 512
         const val ARTWORK_LOCK_STRIPES = 16
-        const val TRANSIENT_FAILURE_RETRY_MS = 30_000L
-
-        // Versioned suffix intentionally invalidates legacy markers that classified every decoder
-        // exception as "no artwork" and could permanently hide valid cover art.
-        const val NO_ARTWORK_SUFFIX = ".none-v2"
+        const val MAX_RECORDED_FAILURES = 32
+        const val NO_ARTWORK_SUFFIX = ".none-v3"
     }
 }

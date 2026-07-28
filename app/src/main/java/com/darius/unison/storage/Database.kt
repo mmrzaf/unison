@@ -196,10 +196,10 @@ interface TrackDao {
         SELECT * FROM tracks
         WHERE LOWER(COALESCE(originalFileName, '')) = LOWER(:fileName)
            OR LOWER(COALESCE(title, '')) = LOWER(:title)
-        ORDER BY createdAt DESC LIMIT 1
+        ORDER BY createdAt DESC, trackId ASC
         """
     )
-    suspend fun findByReference(fileName: String, title: String): TrackEntity?
+    suspend fun findReferenceCandidates(fileName: String, title: String): List<TrackEntity>
 
     @Query("SELECT * FROM tracks WHERE trackId = :trackId")
     suspend fun get(trackId: String): TrackEntity?
@@ -349,17 +349,8 @@ interface PlaylistDao {
 
 @Dao
 interface RoomSnapshotDao {
-    @Query("SELECT * FROM room_snapshots WHERE roomId = :roomId")
-    suspend fun get(roomId: String): RoomSnapshotEntity?
-
-    @Query("SELECT * FROM room_snapshots ORDER BY updatedAt DESC LIMIT 1")
-    suspend fun latest(): RoomSnapshotEntity?
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(snapshot: RoomSnapshotEntity)
-
-    @Query("DELETE FROM room_snapshots WHERE roomId = :roomId")
-    suspend fun delete(roomId: String)
+    @Query("DELETE FROM room_snapshots")
+    suspend fun deleteAll()
 }
 
 @Database(
