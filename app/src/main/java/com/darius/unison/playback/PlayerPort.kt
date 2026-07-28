@@ -9,6 +9,9 @@ data class PlayerState(
     val queueItemId: QueueItemId? = null,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
+    /** True while playback is intended, including temporary buffering and seek settlement. */
+    val playWhenReady: Boolean = false,
+    /** True only while media is currently advancing and audible. */
     val isPlaying: Boolean = false,
     val playbackSpeed: Float = 1f,
     val prepared: Boolean = false,

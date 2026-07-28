@@ -99,7 +99,7 @@ class ScheduledPlaybackController(
                 action()
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (error: Throwable) {
+            } catch (error: Exception) {
                 log.e(TAG, "Scheduled $name failed", error)
                 onError("Playback could not start")
             }

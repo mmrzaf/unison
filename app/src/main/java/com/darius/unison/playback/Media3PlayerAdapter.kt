@@ -128,7 +128,15 @@ class Media3PlayerAdapter(
                     mediaItem
                 )
 
-                existingIndex != targetIndex -> exoPlayer.moveMediaItem(existingIndex, targetIndex)
+                else -> {
+                    // Queue items often become playable before artwork extraction finishes. Replace
+                    // compatible items when metadata changes; Media3 keeps the same media source and
+                    // continues current playback without rebuilding the whole timeline.
+                    if (exoPlayer.getMediaItemAt(existingIndex) != mediaItem) {
+                        exoPlayer.replaceMediaItem(existingIndex, mediaItem)
+                    }
+                    if (existingIndex != targetIndex) exoPlayer.moveMediaItem(existingIndex, targetIndex)
+                }
             }
         }
 
@@ -246,6 +254,7 @@ class Media3PlayerAdapter(
             queueItemId = exoPlayer.currentMediaItem?.mediaId?.takeIf(String::isNotBlank)?.let(::QueueItemId),
             positionMs = exoPlayer.currentPosition.coerceAtLeast(0),
             durationMs = duration,
+            playWhenReady = exoPlayer.playWhenReady,
             isPlaying = exoPlayer.isPlaying,
             playbackSpeed = exoPlayer.playbackParameters.speed,
             prepared = exoPlayer.playbackState == Player.STATE_READY,
