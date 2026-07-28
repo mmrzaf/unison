@@ -52,10 +52,14 @@ jobs:
       - name: Test, lint, and build APKs
         run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
 
+      - name: Record short commit SHA
+        id: git-info
+        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
-          name: Unison-debug
+          name: Unison-debug-${{ steps.git-info.outputs.short_sha }}
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
