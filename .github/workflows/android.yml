@@ -52,15 +52,26 @@ jobs:
       - name: Test, lint, and build APKs
         run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
 
-      - name: Record short commit SHA
-        id: git-info
-        run: echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Name debug APK
+        id: debug_apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          short_sha="${GITHUB_SHA::7}"
+          apk_stem="Unison-debug-${short_sha}"
+
+          apk_path="app/build/outputs/apk/debug/${apk_stem}.apk"
+          mv app/build/outputs/apk/debug/app-debug.apk "$apk_path"
+
+          echo "artifact_name=$apk_stem" >> "$GITHUB_OUTPUT"
+          echo "apk_path=$apk_path" >> "$GITHUB_OUTPUT"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7
         with:
-          name: Unison-debug-${{ steps.git-info.outputs.short_sha }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: ${{ steps.debug_apk.outputs.artifact_name }}
+          path: ${{ steps.debug_apk.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
