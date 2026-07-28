@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
+import android.os.ext.SdkExtensions
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.util.DiagnosticLog
@@ -322,8 +323,18 @@ class NsdRoomDiscovery(
     private fun NsdServiceInfo.attribute(key: String): String? =
         attributes[key]?.toString(StandardCharsets.UTF_8)
 
-    private fun isRecoverable(errorCode: Int): Boolean =
-        errorCode != NsdManager.FAILURE_BAD_PARAMETERS
+    private fun isRecoverable(errorCode: Int): Boolean {
+        val isBadParameters = if (supportsNsdBadParametersError()) {
+            errorCode == NsdManager.FAILURE_BAD_PARAMETERS
+        } else {
+            false
+        }
+        return !isBadParameters
+    }
+
+    private fun supportsNsdBadParametersError(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            SdkExtensions.getExtensionVersion(Build.VERSION_CODES.TIRAMISU) >= 7
 
     companion object {
         const val SERVICE_TYPE = "_unison._tcp."
