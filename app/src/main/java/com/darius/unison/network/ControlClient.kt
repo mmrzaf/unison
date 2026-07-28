@@ -91,9 +91,9 @@ class ControlClient(
 
                 else -> throw ProtocolException("Unexpected handshake response")
             }
-        } catch (t: Throwable) {
+        } catch (error: Exception) {
             runCatching { socket.close() }
-            throw t
+            throw error
         }
     }
 }

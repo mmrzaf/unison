@@ -101,7 +101,7 @@ class UnisonRoomService : MediaSessionService() {
         runtime = RoomRuntime(this, unisonContainer, playerAdapter, serviceScope)
         roomForegroundJob = serviceScope.launch(Dispatchers.Main.immediate) {
             unisonContainer.roomStore.state
-                .map { state -> state.active || state.hotspot != null }
+                .map { state -> state.sessionActive || state.hotspot != null }
                 .distinctUntilChanged()
                 .collect {
                     // Room/network activity is external to Media3's Player state. Force Media3 to
@@ -116,7 +116,7 @@ class UnisonRoomService : MediaSessionService() {
                     runtime.handle(command)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (error: Throwable) {
+                } catch (error: Exception) {
                     unisonContainer.diagnostics.e(TAG, "Room command failed: ${command::class.simpleName}", error)
                     unisonContainer.roomStore.update { state ->
                         state.copy(errorMessage = "Unison could not complete that action")
@@ -139,20 +139,21 @@ class UnisonRoomService : MediaSessionService() {
 
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
         val roomState = unisonContainer.roomStore.state.value
-        val roomRequiresForeground = roomState.active || roomState.hotspot != null
+        val roomRequiresForeground = roomState.sessionActive || roomState.hotspot != null
         // Media3 normally moves a paused player back to a background service. An active offline
         // room still needs sockets, discovery, transfers, and the shared clock, so force the same
         // MediaStyle notification to remain foreground until the room ends.
         super.onUpdateNotification(
             session,
             startInForegroundRequired || roomRequiresForeground ||
-                (::playerAdapter.isInitialized && playerAdapter.state.value.isPlaying),
+                (::playerAdapter.isInitialized && playerAdapter.state.value.playWhenReady),
         )
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val playing = ::playerAdapter.isInitialized && playerAdapter.state.value.isPlaying
-        if (!unisonContainer.roomStore.state.value.active && !playing) stopSelf()
+        val playing = ::playerAdapter.isInitialized && playerAdapter.state.value.playWhenReady
+        val room = unisonContainer.roomStore.state.value
+        if (!room.sessionActive && room.hotspot == null && !playing) stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 
@@ -172,8 +173,8 @@ class UnisonRoomService : MediaSessionService() {
         idleStopJob = serviceScope.launch {
             delay(1_000)
             val room = unisonContainer.roomStore.state.value
-            val playing = ::playerAdapter.isInitialized && playerAdapter.state.value.isPlaying
-            if (!room.active && room.hotspot == null && !playing) stopSelf()
+            val playing = ::playerAdapter.isInitialized && playerAdapter.state.value.playWhenReady
+            if (!room.operationActive && room.hotspot == null && !playing) stopSelf()
         }
     }
 

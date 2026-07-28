@@ -18,6 +18,7 @@ object Crypto {
         require(size in 1..MAX_RANDOM_BYTES) { "Invalid random byte count" }
         return ByteArray(size).also(secureRandom::nextBytes)
     }
+
     fun randomBase64(size: Int): String = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes(size))
     fun randomSixDigitPin(): String = (100_000 + secureRandom.nextInt(900_000)).toString()
 

@@ -8,6 +8,7 @@ import com.darius.unison.protocol.HandshakeCodec
 import com.darius.unison.protocol.HandshakeMessage
 import com.darius.unison.protocol.ProtocolException
 import com.darius.unison.util.DiagnosticLog
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -59,8 +60,8 @@ class PeerServer(
             while (isActive && !server.isClosed) {
                 val socket = try {
                     server.accept()
-                } catch (t: Throwable) {
-                    if (!server.isClosed) log.w(TAG, "Accept failed", t)
+                } catch (error: Exception) {
+                    if (!server.isClosed) log.w(TAG, "Accept failed", error)
                     break
                 }
                 if (!incomingSlots.tryAcquire()) {
@@ -118,8 +119,11 @@ class PeerServer(
                     }
                 }
             }
-        } catch (t: Throwable) {
-            log.w(TAG, "Incoming connection failed", t)
+        } catch (cancelled: CancellationException) {
+            runCatching { socket.close() }
+            throw cancelled
+        } catch (error: Exception) {
+            log.w(TAG, "Incoming connection failed", error)
             runCatching { socket.close() }
         }
     }

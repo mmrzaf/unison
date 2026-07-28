@@ -73,7 +73,7 @@ class LocalHotspotController(
                 },
                 Handler(Looper.getMainLooper()),
             )
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             if (requestGeneration != generation.get()) return
             starting.set(false)
             reservation = null

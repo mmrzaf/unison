@@ -2,8 +2,8 @@ package com.darius.unison.room
 
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
-import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.RepeatMode
+import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackId
 import com.darius.unison.protocol.ProtocolBody
 

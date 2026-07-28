@@ -5,9 +5,9 @@ import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
+import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
-import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.UserCommand
@@ -178,7 +178,8 @@ class RoomReducerTest {
             shuffleSeed = 42L,
         )
         val firstResult = RoomReducer.decide(room, command, 2) as RoomReducer.Decision.Accepted
-        val secondResult = RoomReducer.decide(room, command.copy(commandId = "other"), 2) as RoomReducer.Decision.Accepted
+        val secondResult =
+            RoomReducer.decide(room, command.copy(commandId = "other"), 2) as RoomReducer.Decision.Accepted
         val firstQueue = firstResult.mutations.single().snapshot.queue
         val secondQueue = secondResult.mutations.single().snapshot.queue
         assertEquals(queue.take(3).map { it.queueItemId }, firstQueue.take(3).map { it.queueItemId })
@@ -281,7 +282,9 @@ class RoomReducerTest {
             2,
         ) as RoomReducer.Decision.Accepted
         val updated = result.mutations.single().snapshot
-        assertEquals(listOf(first.track.trackId, nextTrack.trackId, second.track.trackId), updated.queue.map { it.track.trackId })
+        assertEquals(
+            listOf(first.track.trackId, nextTrack.trackId, second.track.trackId),
+            updated.queue.map { it.track.trackId })
         assertEquals(first.queueItemId, updated.playback.queueItemId)
     }
 
@@ -356,7 +359,9 @@ class RoomReducerTest {
             UserCommand.QueueClearPlayed(requestedBy = peer),
             2,
         ) as RoomReducer.Decision.Accepted
-        assertEquals(listOf(queue[2].queueItemId, queue[3].queueItemId), result.mutations.last().snapshot.queue.map { it.queueItemId })
+        assertEquals(
+            listOf(queue[2].queueItemId, queue[3].queueItemId),
+            result.mutations.last().snapshot.queue.map { it.queueItemId })
         assertEquals(queue[2].queueItemId, result.mutations.last().snapshot.playback.queueItemId)
     }
 

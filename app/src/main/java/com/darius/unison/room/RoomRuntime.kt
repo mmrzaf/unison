@@ -22,9 +22,11 @@ import com.darius.unison.model.UserCommand
 import com.darius.unison.model.UserFacingStatus
 import com.darius.unison.network.ControlClient
 import com.darius.unison.network.ControlConnection
+import com.darius.unison.network.DiscoveredRoomRegistry
 import com.darius.unison.network.LocalHotspotController
 import com.darius.unison.network.NetworkAddressPolicy
 import com.darius.unison.network.NsdDiscoveryEvent
+import com.darius.unison.network.NsdDiscoveryException
 import com.darius.unison.network.NsdRoomDiscovery
 import com.darius.unison.network.PeerServer
 import com.darius.unison.network.WifiLocks
@@ -44,11 +46,12 @@ import com.darius.unison.transfer.TransferManager
 import com.darius.unison.util.AndroidMonotonicClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -56,6 +59,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.Socket
 import java.util.Base64
 import java.util.UUID
@@ -79,6 +83,7 @@ class RoomRuntime(
     private val playbackSync = PlaybackSyncEngine()
     private val wifiLocks = WifiLocks(appContext)
     private val discovery = NsdRoomDiscovery(appContext, wifiLocks, log)
+    private val discoveredRoomRegistry = DiscoveredRoomRegistry()
     private val hotspot = LocalHotspotController(appContext, log)
     private val controlClient = ControlClient(scope, log)
     private val server = PeerServer(scope, log, this)
@@ -108,19 +113,26 @@ class RoomRuntime(
 
     private var transferManager: TransferManager? = null
     private var discoveryJob: Job? = null
+    private var discoveryGeneration = 0L
     private var heartbeatJob: Job? = null
     private var clockSyncJob: Job? = null
     private var syncJob: Job? = null
     private var persistenceJob: Job? = null
     private var addressMonitorJob: Job? = null
     private var speedResetJob: Job? = null
+    private var artworkRetryJob: Job? = null
+    private var artworkRetryTrackId: TrackId? = null
     private var queueRefreshJob: Job? = null
     private var timelineRefreshJob: Job? = null
     private var recoveryJob: Job? = null
     private var joinTimeoutJob: Job? = null
     private var lastObservedPlayerItem: QueueItemId? = null
     private var lastHandledEndedItem: QueueItemId? = null
+    private var lastObservedSeekRevision = 0L
     private var lastObservedRepeatTransitionRevision = 0L
+    private var correctionSuppressedUntilElapsedMs = 0L
+    private var lastAutomaticSeekElapsedMs: Long? = null
+    private var lastAutomaticSeekQueueItemId: QueueItemId? = null
     private var pendingAutoResumeQueueItemId: QueueItemId? = null
     private var pendingPlayRequestedBy: PeerId? = null
     private var closed = false
@@ -134,7 +146,7 @@ class RoomRuntime(
                     applyCanonicalSideEffects(body, snapshot)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (error: Throwable) {
+                } catch (error: Exception) {
                     log.e(TAG, "Canonical side effect failed for ${body::class.simpleName}", error)
                     setError("Unison could not prepare this song")
                 }
@@ -174,10 +186,17 @@ class RoomRuntime(
                     it.copy(
                         localPlaybackPositionMs = value.positionMs,
                         localPlaybackQueueItemId = value.queueItemId,
-                        localIsPlaying = value.isPlaying,
+                        // UI and room transport follow intent. ExoPlayer's isPlaying becomes false
+                        // while buffering or settling a seek, which must not look like a user pause.
+                        localIsPlaying = value.playWhenReady,
                         localSeekRevision = value.seekRevision,
                         errorMessage = value.error ?: it.errorMessage,
                     )
+                }
+                if (value.seekRevision > lastObservedSeekRevision) {
+                    lastObservedSeekRevision = value.seekRevision
+                    correctionSuppressedUntilElapsedMs =
+                        SystemClock.elapsedRealtime() + POSITION_SETTLE_INTERVAL_MS
                 }
                 val previous = lastObservedPlayerItem
                 lastObservedPlayerItem = value.queueItemId
@@ -188,7 +207,7 @@ class RoomRuntime(
                 if (repeatedCurrentItem && value.queueItemId != null && isCoordinator()) {
                     recordNaturalRepeatTransition(value.queueItemId, value.positionMs)
                 } else if (previous != null && value.queueItemId != null &&
-                    previous != value.queueItemId && value.isPlaying && isCoordinator()
+                    previous != value.queueItemId && value.playWhenReady && isCoordinator()
                 ) {
                     pendingAutoResumeQueueItemId = null
                     recordNaturalTrackTransition(value.queueItemId, value.positionMs)
@@ -381,81 +400,179 @@ class RoomRuntime(
                 errorMessage = null
             )
         }
-        try {
-            val connected = controlClient.connect(
-                identity = identity,
-                roomId = room.roomId,
-                host = room.hostAddress,
-                port = room.port,
-                listeningPort = server.port,
-                pin = pin,
-                appVersion = BuildConfig.VERSION_NAME,
-                onEnvelope = ::onEnvelope,
-                onClosed = ::onControlClosed,
-            )
-            roomSecret = connected.roomSecret
-            roomPin = pin
-            coordinatorPeerId = connected.coordinatorPeerId
-            coordinatorConnection = connected.connection
-            connections[connected.coordinatorPeerId] = connected.connection
-            connected.connection.start()
-            container.roomStore.update {
-                it.copy(lifecycle = RoomLifecycleState.JOINING, statusMessage = "Joining room…")
-            }
-            // The encrypted handshake only authenticates the socket. Do not start heartbeat or
-            // clock-sync traffic until JoinAccepted installs the canonical room context; otherwise
-            // envelopes have no authoritative room ID and must be rejected by FrameCodec.
-            joinTimeoutJob?.cancel()
-            joinTimeoutJob = scope.launch {
-                delay(INITIAL_JOIN_TIMEOUT_MS)
-                if (engine == null && coordinatorConnection === connected.connection) {
-                    connected.connection.close(IllegalStateException("Join acceptance timed out"))
+        var identityCollisionRetried = false
+        while (true) {
+            try {
+                log.i(
+                    TAG,
+                    "Joining room id=${room.roomId.take(8)} peer=${identity.peerId.value.take(8)} " +
+                        "target=${room.hostAddress}:${room.port}",
+                )
+                val connected = controlClient.connect(
+                    identity = identity,
+                    roomId = room.roomId,
+                    host = room.hostAddress,
+                    port = room.port,
+                    listeningPort = server.port,
+                    pin = pin,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    onEnvelope = ::onEnvelope,
+                    onClosed = ::onControlClosed,
+                )
+                roomSecret = connected.roomSecret
+                roomPin = pin
+                coordinatorPeerId = connected.coordinatorPeerId
+                coordinatorConnection = connected.connection
+                connections[connected.coordinatorPeerId] = connected.connection
+                connected.connection.start()
+                container.roomStore.update {
+                    it.copy(lifecycle = RoomLifecycleState.JOINING, statusMessage = "Joining room…")
                 }
+                // The encrypted handshake only authenticates the socket. Do not start heartbeat or
+                // clock-sync traffic until JoinAccepted installs the canonical room context; otherwise
+                // envelopes have no authoritative room ID and must be rejected by FrameCodec.
+                joinTimeoutJob?.cancel()
+                joinTimeoutJob = scope.launch {
+                    delay(INITIAL_JOIN_TIMEOUT_MS)
+                    if (engine == null && coordinatorConnection === connected.connection) {
+                        connected.connection.close(IllegalStateException("Join acceptance timed out"))
+                    }
+                }
+                return
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (!identityCollisionRetried && isIdentityCollision(error)) {
+                    identityCollisionRetried = true
+                    refreshDuplicatedIdentity()
+                    continue
+                }
+                log.w(TAG, "Could not join room", error)
+                setFailure(userFacingJoinFailure(error))
+                return
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Throwable) {
-            log.w(TAG, "Could not join room", error)
-            setFailure(userFacingJoinFailure(error))
         }
     }
 
+    private suspend fun refreshDuplicatedIdentity() {
+        val previousPeerId = identity.peerId
+        transferManager?.cancelAll()
+        transferManager = null
+        identity = container.settings.rotateIdentity()
+        container.roomStore.update {
+            it.copy(
+                localIdentity = identity,
+                lifecycle = RoomLifecycleState.CONNECTING,
+                status = UserFacingStatus.PREPARING,
+                statusMessage = "Refreshing device identity…",
+                errorMessage = null,
+            )
+        }
+        ensureServerAndTransfers()
+        log.w(
+            TAG,
+            "Refreshed duplicated identity old=${previousPeerId.value.take(8)} " +
+                "new=${identity.peerId.value.take(8)}; retrying join once",
+        )
+    }
+
+    private fun isIdentityCollision(error: Throwable): Boolean =
+        error.message.orEmpty().contains(IDENTITY_COLLISION_REASON, ignoreCase = true)
+
     private fun startDiscovery() {
+        if (discoveryJob?.isActive == true) {
+            log.i(TAG, "Nearby-room discovery is already active")
+            return
+        }
         discoveryJob?.cancel()
+        val scanGeneration = ++discoveryGeneration
+        discoveredRoomRegistry.clear()
         container.roomStore.update {
             it.copy(
                 lifecycle = if (it.snapshot == null) RoomLifecycleState.DISCOVERING else it.lifecycle,
                 discoveredRooms = emptyList(),
-                errorMessage = null
+                discoveryCompleted = false,
+                statusMessage = if (it.snapshot == null) "Looking for nearby rooms…" else it.statusMessage,
+                errorMessage = null,
             )
         }
-        discoveryJob = scope.launch {
-            discovery.discover()
-                .catch { setError("Could not find nearby rooms") }
-                .collect { event ->
-                    container.roomStore.update { state ->
+        val scanJob = scope.launch(start = CoroutineStart.LAZY) {
+            fun publishRooms() {
+                val rooms = discoveredRoomRegistry.rooms()
+                container.roomStore.update { state ->
+                    if (state.discoveredRooms == rooms) state else state.copy(discoveredRooms = rooms)
+                }
+            }
+            try {
+                val completedNormally = withTimeoutOrNull(MANUAL_DISCOVERY_WINDOW_MS) {
+                    discovery.discover().collect { event ->
                         when (event) {
-                            is NsdDiscoveryEvent.Found -> state.copy(
-                                discoveredRooms = (state.discoveredRooms
-                                    .filterNot { it.roomId == event.room.roomId || it.serviceName == event.room.serviceName } + event.room)
-                                    .sortedBy { it.roomName }
-                            )
+                            is NsdDiscoveryEvent.Found -> {
+                                if (discoveredRoomRegistry.found(event.room)) {
+                                    publishRooms()
+                                }
+                            }
 
-                            is NsdDiscoveryEvent.Lost -> state.copy(
-                                discoveredRooms = state.discoveredRooms.filterNot { it.serviceName == event.serviceName }
-                            )
+                            // Keep a room found during this short scan visible after the browse
+                            // window closes. The next button press clears the list and performs a
+                            // fresh scan, avoiding mDNS loss flicker without background discovery.
+                            is NsdDiscoveryEvent.Lost -> Unit
                         }
                     }
+                    true
                 }
+                if (completedNormally == true) {
+                    log.w(TAG, "NSD discovery flow completed before the manual scan window ended")
+                } else {
+                    log.i(TAG, "Manual nearby-room search finished")
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val recoverable = (error as? NsdDiscoveryException)?.recoverable != false
+                log.w(TAG, "Manual nearby-room search failed recoverable=$recoverable", error)
+                container.roomStore.update { state ->
+                    state.copy(
+                        errorMessage = if (recoverable) {
+                            "Room search stopped. Tap Find rooms to try again"
+                        } else {
+                            "Nearby room access is unavailable"
+                        },
+                    )
+                }
+            } finally {
+                // callbackFlow owns its exact listener and closes it in awaitClose. Do not call the
+                // class-level stop method here: an older cancelled job could otherwise stop a newer
+                // scan that has already installed its listener.
+                if (discoveryGeneration == scanGeneration) {
+                    discoveryJob = null
+                    container.roomStore.update { state ->
+                        state.copy(
+                            lifecycle = if (state.snapshot == null) RoomLifecycleState.IDLE else state.lifecycle,
+                            discoveryCompleted = state.snapshot == null,
+                            statusMessage = if (state.snapshot == null) null else state.statusMessage,
+                        )
+                    }
+                }
+            }
         }
+        discoveryJob = scanJob
+        scanJob.start()
     }
 
     private fun stopDiscovery() {
+        discoveryGeneration++
         discoveryJob?.cancel()
         discoveryJob = null
         discovery.stopDiscovery()
+        discoveredRoomRegistry.clear()
         container.roomStore.update { state ->
-            state.copy(lifecycle = if (state.snapshot == null) RoomLifecycleState.IDLE else state.lifecycle)
+            state.copy(
+                lifecycle = if (state.snapshot == null) RoomLifecycleState.IDLE else state.lifecycle,
+                discoveredRooms = emptyList(),
+                discoveryCompleted = false,
+                statusMessage = if (state.snapshot == null) null else state.statusMessage,
+            )
         }
     }
 
@@ -463,7 +580,7 @@ class RoomRuntime(
         if (trackIds.isEmpty()) return
         val remainingCapacity = (
             RoomReducer.MAX_QUEUE_ITEMS - (engine?.snapshot()?.queue?.size ?: 0)
-        ).coerceAtLeast(0)
+            ).coerceAtLeast(0)
         if (remainingCapacity == 0) {
             setError("The room queue is full")
             return
@@ -475,7 +592,7 @@ class RoomRuntime(
         val descriptors = container.trackRepository.getMany(requestedTrackIds)
         val available = withContext(Dispatchers.IO) {
             descriptors.filter { descriptor ->
-                runCatching { container.trackRepository.requireReadableFile(descriptor.trackId) != null }
+                suspendResult { container.trackRepository.requireReadableFile(descriptor.trackId) != null }
                     .onFailure { error -> log.w(TAG, "Could not prepare ${descriptor.trackId.value.take(8)}", error) }
                     .getOrDefault(false)
             }
@@ -514,7 +631,7 @@ class RoomRuntime(
         }
         refreshPlayerQueue(snapshot)
         val hasFile = withContext(Dispatchers.IO) {
-            runCatching { container.trackRepository.requireReadableFile(item.track.trackId) != null }
+            suspendResult { container.trackRepository.requireReadableFile(item.track.trackId) != null }
                 .onFailure { error -> log.w(TAG, "Could not prepare ${item.track.trackId.value.take(8)}", error) }
                 .getOrDefault(false)
         }
@@ -743,7 +860,7 @@ class RoomRuntime(
                     reconcileSnapshotQueue(body.snapshot)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (error: Throwable) {
+                } catch (error: Exception) {
                     log.e(TAG, "Initial playback reconciliation failed", error)
                     setError("Connected, but playback could not be prepared")
                 }
@@ -753,7 +870,7 @@ class RoomRuntime(
                     prepareWindow(body.snapshot)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (error: Throwable) {
+                } catch (error: Exception) {
                     log.w(TAG, "Initial track preparation failed", error)
                     setError("Connected; some music may need to be prepared again")
                 }
@@ -896,7 +1013,7 @@ class RoomRuntime(
 
     private suspend fun announceLocalAvailability(track: TrackDescriptor) {
         if (!announcedTrackIds.add(track.trackId)) return
-        val hasFile = runCatching { container.trackRepository.requireReadableFile(track.trackId) != null }
+        val hasFile = suspendResult { container.trackRepository.requireReadableFile(track.trackId) != null }
             .onFailure { error -> log.w(TAG, "Could not read ${track.trackId.value.take(8)}", error) }
             .getOrDefault(false)
         if (isCoordinator()) {
@@ -1030,6 +1147,9 @@ class RoomRuntime(
 
     private suspend fun onLocalTrackReady(descriptor: TrackDescriptor) {
         announcedTrackIds.add(descriptor.trackId)
+        // Transfer completion is the authoritative point at which the immutable audio file is ready.
+        // Remove any transient/negative artwork result created while the file was unavailable.
+        container.artworkStore.invalidate(descriptor.trackId)
         refreshPlayerQueue(engine?.snapshot() ?: return)
         if (isCoordinator()) onTrackHave(identity.peerId, descriptor.trackId)
         else sendToCoordinator(ProtocolBody.TrackReady(descriptor.trackId))
@@ -1062,7 +1182,7 @@ class RoomRuntime(
         )
         val readable = withContext(Dispatchers.IO) {
             windowQueue.associate { item ->
-                val file = runCatching { container.trackRepository.requireReadableFile(item.track.trackId) }
+                val file = suspendResult { container.trackRepository.requireReadableFile(item.track.trackId) }
                     .onFailure { error -> log.w(TAG, "Could not load ${item.track.trackId.value.take(8)}", error) }
                     .getOrNull()
                 item.track.trackId to file
@@ -1075,15 +1195,19 @@ class RoomRuntime(
         val artworkQueueItemId = preferredCurrentQueueItemId
             ?: snapshot.playback.queueItemId
             ?: allowedByRoom.firstOrNull()?.queueItemId
-        val artworkFile = allowedByRoom
-            .firstOrNull { it.queueItemId == artworkQueueItemId }
-            ?.let { item ->
-                readable[item.track.trackId]?.let { audioFile ->
-                    runCatching { container.artworkStore.fileFor(item.track.trackId, audioFile) }
-                        .onFailure { error -> log.w(TAG, "Could not load artwork", error) }
-                        .getOrNull()
+        val artworkItem = allowedByRoom.firstOrNull { it.queueItemId == artworkQueueItemId }
+        var artworkRetryDelayMs: Long? = null
+        val artworkFile = artworkItem?.let { item ->
+            readable[item.track.trackId]?.let { audioFile ->
+                val file = suspendResult { container.artworkStore.fileFor(item.track.trackId, audioFile) }
+                    .onFailure { error -> log.w(TAG, "Could not load artwork", error) }
+                    .getOrNull()
+                if (file == null) {
+                    artworkRetryDelayMs = container.artworkStore.transientRetryDelayMs(item.track.trackId)
                 }
+                file
             }
+        }
         val playable = allowedByRoom.mapNotNull { item ->
             readable[item.track.trackId]?.let { audioFile ->
                 LocalPlayableItem(
@@ -1103,11 +1227,44 @@ class RoomRuntime(
             else -> snapshot.playback.projectedPositionMs(clockSync.coordinatorNowNs())
         }
         player.setQueue(playable, current, currentPosition)
+        val artworkTrackId = artworkItem?.track?.trackId
+        val retryDelayMs = artworkRetryDelayMs
+        if (artworkTrackId != null && retryDelayMs != null) {
+            scheduleArtworkRetry(artworkTrackId, snapshot.roomId, retryDelayMs)
+        } else {
+            cancelArtworkRetry()
+        }
+    }
+
+    private fun scheduleArtworkRetry(trackId: TrackId, roomId: String, delayMs: Long) {
+        if (artworkRetryTrackId == trackId && artworkRetryJob?.isActive == true) return
+        cancelArtworkRetry()
+        artworkRetryTrackId = trackId
+        artworkRetryJob = scope.launch {
+            delay(delayMs.coerceAtLeast(0L) + ARTWORK_RETRY_SETTLE_MS)
+            artworkRetryJob = null
+            artworkRetryTrackId = null
+            val snapshot = engine?.snapshot()?.takeIf { it.roomId == roomId } ?: return@launch
+            val local = player.state.value
+            val currentTrackId = snapshot.queue
+                .firstOrNull { it.queueItemId == local.queueItemId }
+                ?.track
+                ?.trackId
+            if (currentTrackId == trackId) {
+                refreshPlayerQueue(snapshot, local.queueItemId, local.positionMs)
+            }
+        }
+    }
+
+    private fun cancelArtworkRetry() {
+        artworkRetryJob?.cancel()
+        artworkRetryJob = null
+        artworkRetryTrackId = null
     }
 
     private suspend fun markTrackPlayed(snapshot: RoomSnapshot, queueItemId: QueueItemId) {
         snapshot.queue.firstOrNull { it.queueItemId == queueItemId }?.track?.trackId?.let { trackId ->
-            runCatching { container.trackRepository.markPlayed(trackId) }
+            suspendResult { container.trackRepository.markPlayed(trackId) }
                 .onFailure { error -> log.w(TAG, "Could not update recent music", error) }
         }
     }
@@ -1279,35 +1436,101 @@ class RoomRuntime(
             refreshPlayerQueue(engine?.snapshot() ?: return)
             if (player.state.value.queueItemId != queueItem) return
         }
+
+        // Transport reconciliation is based on persistent intent, not whether audio happens to be
+        // audible in this instant. Buffering and seek settlement make isPlaying false even though
+        // playWhenReady remains true; treating that transient state as a pause caused the old
+        // periodic play/pause loop and the visible button flicker.
+        var localState = player.state.value
+        if (canonical.isPlaying && !localState.playWhenReady) {
+            player.play()
+            localState = player.state.value
+        } else if (!canonical.isPlaying && localState.playWhenReady) {
+            player.pause()
+            localState = player.state.value
+        }
+
         val expected = canonical.projectedPositionMs(coordinatorNow)
-        val localState = player.state.value
         val actual = localState.positionMs
         val drift = expected - actual
         container.roomStore.update { it.copy(localDriftMs = drift) }
-        when (val correction = playbackSync.correction(expected, actual)) {
-            PlaybackSyncEngine.Correction.None -> if (abs(player.state.value.playbackSpeed - 1f) > 0.001f) player.setPlaybackSpeed(
-                1f
-            )
 
-            is PlaybackSyncEngine.Correction.Seek -> player.seekTo(correction.positionMs)
-            is PlaybackSyncEngine.Correction.AdjustSpeed -> {
-                player.setPlaybackSpeed(correction.speed)
-                speedResetJob?.cancel()
-                speedResetJob = scope.launch {
-                    delay(correction.durationMs)
-                    player.setPlaybackSpeed(1f)
+        val elapsedNow = SystemClock.elapsedRealtime()
+        val positionIsSettled = localState.prepared && elapsedNow >= correctionSuppressedUntilElapsedMs
+        if (positionIsSettled) {
+            when (val correction = playbackSync.correction(expected, actual)) {
+                PlaybackSyncEngine.Correction.None -> {
+                    speedResetJob?.cancel()
+                    speedResetJob = null
+                    if (abs(player.state.value.playbackSpeed - 1f) > 0.001f) {
+                        player.setPlaybackSpeed(1f)
+                    }
+                }
+
+                is PlaybackSyncEngine.Correction.Seek -> {
+                    val sameQueueItem = lastAutomaticSeekQueueItemId == queueItem
+                    val cooldownElapsed = lastAutomaticSeekElapsedMs
+                        ?.takeIf { sameQueueItem }
+                        ?.let { elapsedNow - it }
+                    val emergencyRecovery = abs(drift) >= EMERGENCY_SEEK_DRIFT_MS
+                    if (!sameQueueItem || cooldownElapsed == null ||
+                        cooldownElapsed >= AUTOMATIC_SEEK_COOLDOWN_MS || emergencyRecovery
+                    ) {
+                        speedResetJob?.cancel()
+                        speedResetJob = null
+                        if (abs(player.state.value.playbackSpeed - 1f) > 0.001f) {
+                            player.setPlaybackSpeed(1f)
+                        }
+                        lastAutomaticSeekElapsedMs = elapsedNow
+                        lastAutomaticSeekQueueItemId = queueItem
+                        correctionSuppressedUntilElapsedMs = elapsedNow + POSITION_SETTLE_INTERVAL_MS
+                        player.seekTo(correction.positionMs)
+                    } else {
+                        log.i(
+                            TAG,
+                            "Suppress automatic seek item=${queueItem.value.take(8)} driftMs=$drift " +
+                                "cooldownMs=${AUTOMATIC_SEEK_COOLDOWN_MS - cooldownElapsed}",
+                        )
+                    }
+                }
+
+                is PlaybackSyncEngine.Correction.AdjustSpeed -> {
+                    // Speed correction is useful only while the shared intent is to advance.
+                    // The policy scales gently with sustained drift and stays within Media3's
+                    // narrow recovery range, avoiding seek churn for recoverable divergence.
+                    if (canonical.isPlaying && localState.playWhenReady) {
+                        if (abs(player.state.value.playbackSpeed - correction.speed) > 0.001f) {
+                            player.setPlaybackSpeed(correction.speed)
+                        }
+                        speedResetJob?.cancel()
+                        speedResetJob = scope.launch {
+                            delay(correction.durationMs)
+                            player.setPlaybackSpeed(1f)
+                        }
+                    } else {
+                        speedResetJob?.cancel()
+                        speedResetJob = null
+                        if (abs(player.state.value.playbackSpeed - 1f) > 0.001f) {
+                            player.setPlaybackSpeed(1f)
+                        }
+                    }
                 }
             }
+        } else {
+            // Never carry a corrective speed through buffering or another seek.
+            speedResetJob?.cancel()
+            speedResetJob = null
+            if (abs(player.state.value.playbackSpeed - 1f) > 0.001f) {
+                player.setPlaybackSpeed(1f)
+            }
         }
-        // Periodic state is also the recovery path when a scheduled command was lost during a
-        // transient reconnect. Reconcile transport state only after position correction.
-        if (canonical.isPlaying && !player.state.value.isPlaying) player.play()
-        else if (!canonical.isPlaying && player.state.value.isPlaying) player.pause()
+
+        val reportState = player.state.value
         sendToCoordinator(
             ProtocolBody.PlaybackStatusReport(
                 queueItem,
-                player.state.value.positionMs,
-                player.state.value.isPlaying,
+                reportState.positionMs,
+                reportState.playWhenReady,
                 drift
             )
         )
@@ -1410,7 +1633,7 @@ class RoomRuntime(
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             log.w(TAG, "Snapshot persistence failed", error)
         }
     }
@@ -1423,7 +1646,13 @@ class RoomRuntime(
         if (!isCoordinator()) return PeerServer.ControlAdmission.Rejected("Coordinator moved")
         if (hello.roomId != snapshot.roomId) return PeerServer.ControlAdmission.Rejected("Wrong room")
         if (PROTOCOL_VERSION !in hello.protocolVersions) return PeerServer.ControlAdmission.Rejected("App versions are incompatible")
-        if (hello.peerId == identity.peerId) return PeerServer.ControlAdmission.Rejected("Cannot join yourself")
+        if (hello.peerId == identity.peerId) {
+            log.w(
+                TAG,
+                "Rejected duplicated coordinator identity peer=${hello.peerId.value.take(8)} remote=$remoteAddress",
+            )
+            return PeerServer.ControlAdmission.Rejected(IDENTITY_COLLISION_REASON)
+        }
         if (hello.peerId.value.length !in 16..128 || !HELLO_TOKEN_PATTERN.matches(hello.peerId.value)) {
             return PeerServer.ControlAdmission.Rejected("Invalid peer identity")
         }
@@ -1582,7 +1811,7 @@ class RoomRuntime(
         if (endpoint != null && pin != null) {
             repeat(3) { attempt ->
                 delay(1_200L + attempt * 600L)
-                val result = runCatching {
+                val result = suspendResult {
                     controlClient.connect(
                         identity = identity,
                         roomId = snapshot.roomId,
@@ -1659,7 +1888,7 @@ class RoomRuntime(
             repeat(5) { attempt ->
                 if (restored) return@repeat
                 delay(350L + attempt * 450L)
-                val connected = runCatching {
+                val connected = suspendResult {
                     controlClient.connect(
                         identity, snapshot.roomId, endpoint.hostAddress, endpoint.port, server.port,
                         pin, BuildConfig.VERSION_NAME, ::onEnvelope, ::onControlClosed,
@@ -1680,7 +1909,7 @@ class RoomRuntime(
     }
 
     private suspend fun leaveRoom() {
-        runCatching { sendToCoordinator(ProtocolBody.LeaveRoom("left")) }
+        suspendResult { sendToCoordinator(ProtocolBody.LeaveRoom("left")) }
         resetSession(keepDiscovery = false)
         player.pause()
         player.setRepeatCurrentItem(false)
@@ -1695,6 +1924,7 @@ class RoomRuntime(
         syncJob?.cancel(); syncJob = null
         persistenceJob?.cancel(); persistenceJob = null
         speedResetJob?.cancel(); speedResetJob = null
+        cancelArtworkRetry()
         queueRefreshJob?.cancel(); queueRefreshJob = null
         timelineRefreshJob?.cancel(); timelineRefreshJob = null
         recoveryJob?.cancel(); recoveryJob = null
@@ -1716,7 +1946,11 @@ class RoomRuntime(
         recentCommandIds.clear()
         lastObservedPlayerItem = null
         lastHandledEndedItem = null
+        lastObservedSeekRevision = player.state.value.seekRevision
         lastObservedRepeatTransitionRevision = player.state.value.repeatTransitionRevision
+        correctionSuppressedUntilElapsedMs = 0L
+        lastAutomaticSeekElapsedMs = null
+        lastAutomaticSeekQueueItemId = null
         pendingAutoResumeQueueItemId = null
         pendingPlayRequestedBy = null
         engine = null
@@ -1872,6 +2106,14 @@ class RoomRuntime(
         }
     }
 
+    private suspend fun <T> suspendResult(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Exception) {
+        Result.failure(error)
+    }
+
     private fun userFacingJoinFailure(error: Throwable): String {
         val detail = error.message.orEmpty()
         return when {
@@ -1881,7 +2123,7 @@ class RoomRuntime(
                 detail.contains("protocol", ignoreCase = true) -> "This room uses a different Unison version"
 
             detail.contains("room is full", ignoreCase = true) -> "This room is full"
-            detail.contains("cannot join yourself", ignoreCase = true) -> "This phone is already in the room"
+            detail.contains(IDENTITY_COLLISION_REASON, ignoreCase = true) -> "This phone is already in the room"
             else -> "Could not connect to this room"
         }
     }
@@ -1890,13 +2132,22 @@ class RoomRuntime(
         container.roomStore.update { it.copy(errorMessage = message, statusMessage = null) }
     }
 
-    private fun setFailure(message: String) {
+    private suspend fun setFailure(message: String) {
+        // A terminal failure must not leave a stale snapshot, sockets, or audio running behind the
+        // lobby. Avoid cancelling the coroutine currently reporting recovery failure, then perform
+        // the same deterministic teardown as Leave room before publishing the error.
+        if (recoveryJob === currentCoroutineContext()[Job]) recoveryJob = null
+        resetSession(keepDiscovery = false)
+        suspendResult { player.pause() }
+        suspendResult { player.setRepeatCurrentItem(false) }
+        suspendResult { player.setQueue(emptyList(), null, 0) }
+        container.roomStore.reset()
         container.roomStore.update {
             it.copy(
                 lifecycle = RoomLifecycleState.FAILED,
                 status = UserFacingStatus.UNAVAILABLE,
                 errorMessage = message,
-                statusMessage = null
+                statusMessage = null,
             )
         }
     }
@@ -1915,11 +2166,20 @@ class RoomRuntime(
 
     companion object {
         private const val TAG = "RoomRuntime"
+        private const val IDENTITY_COLLISION_REASON = "Cannot join yourself"
         private const val MAX_ROOM_MEMBERS = 8
         private const val HEARTBEAT_INTERVAL_MS = 5_000L
         private const val CLOCK_SYNC_WARMUP_INTERVAL_MS = 250L
         private const val CLOCK_SYNC_STEADY_INTERVAL_MS = 5_000L
-        private const val PLAYBACK_SYNC_INTERVAL_MS = 2_000L
+
+        // State sync is a recovery path, not a metronome. Canonical transport commands are already
+        // scheduled precisely; a slower cadence prevents normal network jitter from becoming work.
+        private const val PLAYBACK_SYNC_INTERVAL_MS = 8_000L
+        private const val POSITION_SETTLE_INTERVAL_MS = 4_000L
+        private const val AUTOMATIC_SEEK_COOLDOWN_MS = 12_000L
+        private const val EMERGENCY_SEEK_DRIFT_MS = 5_000L
+        private const val ARTWORK_RETRY_SETTLE_MS = 500L
+        private const val MANUAL_DISCOVERY_WINDOW_MS = 8_000L
         private const val SNAPSHOT_PERSIST_INTERVAL_MS = 30_000L
         private const val TRANSFER_TOKEN_LIFETIME_MS = 60_000L
         private const val TRANSFER_RETRY_DELAY_MS = 1_500L

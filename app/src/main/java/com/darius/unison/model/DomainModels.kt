@@ -221,6 +221,9 @@ data class RoomUiState(
     val snapshot: RoomSnapshot? = null,
     val isCoordinator: Boolean = false,
     val discoveredRooms: List<DiscoveredRoom> = emptyList(),
+    /** True after a user-triggered discovery window finishes. Cleared by the next scan or when
+     * leaving the lobby so the UI can distinguish "not searched" from "no rooms found". */
+    val discoveryCompleted: Boolean = false,
     val transfers: Map<TrackId, TransferProgress> = emptyMap(),
     val status: UserFacingStatus = UserFacingStatus.IDLE,
     val statusMessage: String? = null,
@@ -234,7 +237,27 @@ data class RoomUiState(
     val roomPort: Int? = null,
     val hotspot: HotspotInfo? = null,
 ) {
-    val active: Boolean get() = lifecycle != RoomLifecycleState.IDLE && lifecycle != RoomLifecycleState.FAILED
+    /** Any finite room operation that needs the service to remain alive. */
+    val operationActive: Boolean
+        get() = lifecycle != RoomLifecycleState.IDLE && lifecycle != RoomLifecycleState.FAILED
+
+    /** A joined/creating room session that needs foreground networking and media controls. Manual
+     * discovery is intentionally excluded so an eight-second scan does not behave like a room. */
+    val sessionActive: Boolean
+        get() = when (lifecycle) {
+            RoomLifecycleState.PREPARING,
+            RoomLifecycleState.CONNECTING,
+            RoomLifecycleState.JOINING,
+            RoomLifecycleState.CONNECTED,
+            RoomLifecycleState.RECONNECTING,
+            RoomLifecycleState.ENDING,
+                -> true
+
+            RoomLifecycleState.IDLE,
+            RoomLifecycleState.DISCOVERING,
+            RoomLifecycleState.FAILED,
+                -> false
+        }
 }
 
 @Serializable

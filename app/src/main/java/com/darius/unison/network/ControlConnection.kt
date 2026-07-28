@@ -43,15 +43,21 @@ class ControlConnection(
         scope.launch(Dispatchers.IO) {
             try {
                 for (envelope in outgoing) codec.write(socket.getOutputStream(), envelope)
-            } catch (t: Throwable) {
-                close(t)
+            } catch (cancelled: CancellationException) {
+                close(cancelled)
+                throw cancelled
+            } catch (error: Exception) {
+                close(error)
             }
         }
         scope.launch(Dispatchers.IO) {
             try {
                 while (isActive && !socket.isClosed) onEnvelope(peerId, codec.read(socket.getInputStream()))
-            } catch (t: Throwable) {
-                close(t)
+            } catch (cancelled: CancellationException) {
+                close(cancelled)
+                throw cancelled
+            } catch (error: Exception) {
+                close(error)
             }
         }
     }
@@ -67,7 +73,7 @@ class ControlConnection(
             false
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             close(error)
             false
         }
@@ -86,6 +92,7 @@ class ControlConnection(
         when (cause) {
             null, is CancellationException ->
                 log.i(TAG, "Control connection closed peer=${peerId.value.take(8)}")
+
             else ->
                 log.e(TAG, "Control connection failed peer=${peerId.value.take(8)}", cause)
         }

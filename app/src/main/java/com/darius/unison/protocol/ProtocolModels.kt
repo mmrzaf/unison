@@ -6,8 +6,8 @@ import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RepeatMode
+import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId

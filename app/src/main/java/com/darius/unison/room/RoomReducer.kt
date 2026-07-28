@@ -59,6 +59,7 @@ object RoomReducer {
                 if (currentPosition > 4_000) seek(snapshot, 0, coordinatorNowNs, leadNs)
                 else changeItem(snapshot, -1, coordinatorNowNs, leadNs)
             }
+
             is UserCommand.PlayQueueItem -> playQueueItem(
                 snapshot,
                 command.queueItemId,
@@ -69,6 +70,7 @@ object RoomReducer {
             is UserCommand.QueueAdd -> addTracks(
                 snapshot, command.tracks, command.requestedBy, command.insertAfterCurrent
             )
+
             is UserCommand.QueueRemove -> removeQueueItem(snapshot, command.queueItemId, coordinatorNowNs, leadNs)
             is UserCommand.QueueMove -> moveQueueItem(snapshot, command.queueItemId, command.newIndex)
             is UserCommand.QueueClearPlayed -> clearPlayed(snapshot)
@@ -134,6 +136,7 @@ object RoomReducer {
                     unshuffledQueueItemIds = body.unshuffledQueueItemIds,
                 )
             }
+
             is ProtocolBody.PlayScheduled -> snapshot.copy(
                 playback = CanonicalPlaybackState(
                     queueItemId = body.queueItemId,

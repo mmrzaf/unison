@@ -39,7 +39,7 @@ class UnisonApplication : Application() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
+        if (level >= TRIM_MEMORY_UI_HIDDEN) {
             container.artworkStore.clearMemory()
         }
     }

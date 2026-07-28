@@ -6,9 +6,9 @@ import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
+import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
-import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.protocol.ProtocolBody
@@ -102,6 +102,7 @@ class PlaybackQueuePolicyTest {
         assertEquals(180_000, pause.positionMs)
         assertNull(plan.waitForQueueItemId)
     }
+
     @Test
     fun playerWindowKeepsSmallHistoryAndUpcomingRange() {
         val queue = (0 until 30).map { index ->

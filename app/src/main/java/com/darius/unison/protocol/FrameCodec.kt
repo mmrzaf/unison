@@ -17,6 +17,7 @@ class FrameCodec(
     init {
         require(this.sessionKey.size >= 16) { "Session key is too short" }
     }
+
     fun write(output: OutputStream, envelope: Envelope, channelType: ChannelType = ChannelType.CONTROL) {
         require(envelope.protocolVersion == PROTOCOL_VERSION)
         if (expectedRoomId != null) require(envelope.roomId == expectedRoomId)
