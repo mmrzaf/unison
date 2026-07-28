@@ -2,7 +2,10 @@
 
 ## Protected boundary
 
-Unison is designed for a trusted group on a private Wi-Fi or LocalOnlyHotspot network. It protects against accidental cross-room traffic, malformed peers, casual command injection, corrupted transfers, replay of consumed transfer tokens, and unbounded common inputs. It is not a replacement for a hostile-network VPN.
+Unison is designed for a trusted group on a private Wi-Fi or LocalOnlyHotspot network. It protects
+against accidental cross-room traffic, malformed peers, casual command injection, corrupted
+transfers, replay of consumed transfer tokens, and unbounded common inputs. It is not a replacement
+for a hostile-network VPN.
 
 ## Controls
 
@@ -22,8 +25,13 @@ Unison is designed for a trusted group on a private Wi-Fi or LocalOnlyHotspot ne
 
 ## Secrets
 
-Signing keys and `keystore.properties` are local-only and ignored by source control. Room secrets exist only for the active session and are not restored after process death. PINs, tokens, passphrases, and secrets are redacted from diagnostic messages where recognizable.
+Signing keys and `keystore.properties` are local-only and ignored by source control. Room secrets
+exist only for the active session and are not restored after process death. PINs, tokens,
+passphrases, and secrets are redacted from diagnostic messages where recognizable.
 
 ## Remaining trust assumptions
 
-A device that has joined the room can submit allowed collaborative commands and receive tracks assigned to it. A compromised participant device can access audio it legitimately receives. Bluetooth output latency remains hardware-dependent and cannot be authenticated or corrected by the room protocol.
+A device that has joined the room can submit allowed collaborative commands and receive tracks
+assigned to it. A compromised participant device can access audio it legitimately receives.
+Bluetooth output latency remains hardware-dependent and cannot be authenticated or corrected by the
+room protocol.

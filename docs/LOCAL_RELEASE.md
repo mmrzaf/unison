@@ -1,6 +1,7 @@
 # Local APK release
 
-Unison is distributed as a locally signed APK. It has no app-store publishing workflow and produces no Android App Bundle.
+Unison is distributed as a locally signed APK. It has no app-store publishing workflow and produces
+no Android App Bundle.
 
 ## One-time signing setup
 
@@ -8,18 +9,22 @@ Unison is distributed as a locally signed APK. It has no app-store publishing wo
 ./scripts/create-release-key.sh
 ```
 
-Back up the generated key and passwords offline. The same key is required for every upgrade installed over an existing copy.
+Back up the generated key and passwords offline. The same key is required for every upgrade
+installed over an existing copy.
 
 ## Build
 
-Preload the Android SDK, Gradle distribution, and dependency cache on the build machine, then disconnect it if desired:
+Preload the Android SDK, Gradle distribution, and dependency cache on the build machine, then
+disconnect it if desired:
 
 ```bash
 ./scripts/verify-offline-ready.sh
 ./scripts/build-release.sh
 ```
 
-The script runs repository checks, JVM/core tests, database schema checks, Android unit tests, release lint, R8/resource shrinking, APK signing verification when `apksigner` is available, and SHA-256 generation.
+The script runs repository checks, JVM/core tests, database schema checks, Android unit tests,
+release lint, R8/resource shrinking, APK signing verification when `apksigner` is available, and
+SHA-256 generation.
 
 ## Output
 

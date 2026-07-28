@@ -1,6 +1,8 @@
 # Unison 1.0.0
 
-Unison is a fully local Android application for synchronized music playback with nearby friends. Every phone plays a verified local copy. Room commands, clock synchronization, and authorized audio transfers stay on the private LAN or Android LocalOnlyHotspot.
+Unison is a fully local Android application for synchronized music playback with nearby friends.
+Every phone plays a verified local copy. Room commands, clock synchronization, and authorized audio
+transfers stay on the private LAN or Android LocalOnlyHotspot.
 
 ## Product foundation
 
@@ -12,9 +14,13 @@ Unison is a fully local Android application for synchronized music playback with
 - APK-only local distribution and local signing
 - Content-addressed SHA-256 audio library with resumable peer transfer
 - Shared queue, transport controls, shuffle, repeat, clock sync, and drift correction
+- Manual nearby-room search: each Find rooms tap performs one bounded eight-second scan
+- Embedded artwork extraction with bounded memory/disk caching and transfer-aware reload
 - File picker, share sheet, playlists, and bounded M3U/M3U8 import/export
 
-Android's `INTERNET` permission is intentionally retained because Android requires it for raw TCP sockets, including private LAN sockets. Unison rejects public addresses and contains no remote endpoint.
+Android's `INTERNET` permission is intentionally retained because Android requires it for raw TCP
+sockets, including private LAN sockets. Unison rejects public addresses and contains no remote
+endpoint.
 
 ## Build locally
 
@@ -61,7 +67,8 @@ Outputs:
 - `app/build/outputs/apk/release/app-release.apk`
 - `app/build/outputs/release-SHA256SUMS.txt`
 
-Never commit `keystore.properties` or signing keys. Future local upgrades must use the same signing identity.
+Never commit `keystore.properties` or signing keys. Future local upgrades must use the same signing
+identity.
 
 ## Validation
 
