@@ -24,6 +24,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
@@ -46,6 +48,7 @@ class UnisonRoomService : MediaSessionService() {
     private lateinit var sessionPlayer: RoomMediaSessionPlayer
     private lateinit var runtime: RoomRuntime
     private var idleStopJob: Job? = null
+    private var roomForegroundJob: Job? = null
 
     private val mediaSessionCallback = object : MediaSession.Callback {
         override fun onConnect(
@@ -63,7 +66,6 @@ class UnisonRoomService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startAsForeground()
         val mediaNotificationProvider = DefaultMediaNotificationProvider.Builder(this)
             .setChannelId(CHANNEL_ID)
             .setChannelName(R.string.room_service_channel)
@@ -97,6 +99,17 @@ class UnisonRoomService : MediaSessionService() {
         unisonContainer.diagnostics.i(TAG, "Media session registered for system controls")
 
         runtime = RoomRuntime(this, unisonContainer, playerAdapter, serviceScope)
+        roomForegroundJob = serviceScope.launch(Dispatchers.Main.immediate) {
+            unisonContainer.roomStore.state
+                .map { state -> state.active || state.hotspot != null }
+                .distinctUntilChanged()
+                .collect {
+                    // Room/network activity is external to Media3's Player state. Force Media3 to
+                    // reevaluate foreground ownership whenever that activity changes.
+                    triggerNotificationUpdate()
+                    scheduleStopWhenIdle()
+                }
+        }
         serviceScope.launch {
             unisonContainer.roomCommandBus.flow.collect { command ->
                 try {
@@ -112,6 +125,14 @@ class UnisonRoomService : MediaSessionService() {
                 scheduleStopWhenIdle()
             }
         }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Every startForegroundService() request creates a fresh promotion deadline, including
+        // requests delivered to an already-created service. Satisfy that contract here, before
+        // Media3, networking, or command processing can suspend or demote the service.
+        startAsForeground()
+        return super.onStartCommand(intent, flags, startId)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession = mediaSession
@@ -137,6 +158,7 @@ class UnisonRoomService : MediaSessionService() {
 
     override fun onDestroy() {
         idleStopJob?.cancel()
+        roomForegroundJob?.cancel()
         if (::runtime.isInitialized) runtime.close()
         if (::mediaSession.isInitialized) mediaSession.release()
         if (::playerAdapter.isInitialized) playerAdapter.close()
