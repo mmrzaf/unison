@@ -67,7 +67,6 @@ class RoomReducerTest {
         val guest = PeerId("peer-b")
         val item = QueueItem.create(track, peer)
         val room = snapshot(listOf(item)).copy(
-            options = RoomOptions(everyoneCanControl = false),
             members = listOf(MemberSnapshot(peer, "A"), MemberSnapshot(guest, "B")),
             preparedQueueItemIds = setOf(item.queueItemId),
         )
@@ -76,16 +75,16 @@ class RoomReducerTest {
     }
 
     @Test
-    fun optionsCannotCreateAnAdminOnlyRoom() {
+    fun roomOptionsContainOnlyEnforcedBehavior() {
         val item = QueueItem.create(track, peer)
-        val requested = RoomOptions(everyoneCanAdd = false, everyoneCanControl = false)
+        val requested = RoomOptions(waitAtTrackBoundary = false, preloadCount = 50)
         val result = RoomReducer.decide(
             snapshot(listOf(item)),
             UserCommand.OptionsChange(requestedBy = peer, options = requested),
             0,
         ) as RoomReducer.Decision.Accepted
-        assertTrue(result.mutations.single().snapshot.options.everyoneCanAdd)
-        assertTrue(result.mutations.single().snapshot.options.everyoneCanControl)
+        assertFalse(result.mutations.single().snapshot.options.waitAtTrackBoundary)
+        assertEquals(10, result.mutations.single().snapshot.options.preloadCount)
     }
 
     @Test

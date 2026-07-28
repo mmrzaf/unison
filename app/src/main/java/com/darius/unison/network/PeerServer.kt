@@ -33,7 +33,8 @@ class PeerServer(
     sealed interface ControlAdmission {
         data class Accepted(
             val response: HandshakeMessage.CoordinatorHello,
-            val sessionKey: ByteArray,
+            val serverWriteKey: ByteArray,
+            val serverReadKey: ByteArray,
             val endpoint: PeerEndpoint,
             val roomId: String,
             val onEnvelope: suspend (com.darius.unison.model.PeerId, Envelope) -> Unit,
@@ -108,7 +109,11 @@ class PeerServer(
                             peerId = hello.peerId,
                             endpoint = admission.endpoint,
                             socket = socket,
-                            codec = FrameCodec(admission.sessionKey, admission.roomId),
+                            codec = FrameCodec(
+                                writeKey = admission.serverWriteKey,
+                                readKey = admission.serverReadKey,
+                                expectedRoomId = admission.roomId,
+                            ),
                             parentScope = scope,
                             log = log,
                             onEnvelope = admission.onEnvelope,

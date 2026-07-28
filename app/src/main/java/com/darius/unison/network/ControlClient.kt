@@ -4,6 +4,7 @@ import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.protocol.ChannelType
+import com.darius.unison.protocol.ControlCredentialMode
 import com.darius.unison.protocol.Crypto
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.FrameCodec
@@ -23,13 +24,57 @@ class ControlClient(
     private val scope: CoroutineScope,
     private val log: DiagnosticLog,
 ) {
-    suspend fun connect(
+    suspend fun connectWithPin(
         identity: LocalIdentity,
         roomId: String,
         host: String,
         port: Int,
         listeningPort: Int,
         pin: String,
+        appVersion: String,
+        onEnvelope: suspend (PeerId, Envelope) -> Unit,
+        onClosed: suspend (ControlConnection, Throwable?) -> Unit,
+    ): ConnectedControl = connect(
+        identity = identity,
+        roomId = roomId,
+        host = host,
+        port = port,
+        listeningPort = listeningPort,
+        credential = Credential.Pin(pin),
+        appVersion = appVersion,
+        onEnvelope = onEnvelope,
+        onClosed = onClosed,
+    )
+
+    suspend fun reconnectWithRoomSecret(
+        identity: LocalIdentity,
+        roomId: String,
+        host: String,
+        port: Int,
+        listeningPort: Int,
+        roomSecret: ByteArray,
+        appVersion: String,
+        onEnvelope: suspend (PeerId, Envelope) -> Unit,
+        onClosed: suspend (ControlConnection, Throwable?) -> Unit,
+    ): ConnectedControl = connect(
+        identity = identity,
+        roomId = roomId,
+        host = host,
+        port = port,
+        listeningPort = listeningPort,
+        credential = Credential.RoomSecret(roomSecret.copyOf()),
+        appVersion = appVersion,
+        onEnvelope = onEnvelope,
+        onClosed = onClosed,
+    )
+
+    private suspend fun connect(
+        identity: LocalIdentity,
+        roomId: String,
+        host: String,
+        port: Int,
+        listeningPort: Int,
+        credential: Credential,
         appVersion: String,
         onEnvelope: suspend (PeerId, Envelope) -> Unit,
         onClosed: suspend (ControlConnection, Throwable?) -> Unit,
@@ -53,21 +98,48 @@ class ControlClient(
                 listeningPort = listeningPort,
                 roomId = roomId,
                 clientNonce = nonce,
-                pinProof = Crypto.pinProof(roomId, pin, nonce),
+                pinProof = (credential as? Credential.Pin)?.let {
+                    Crypto.pinProof(roomId, it.value, nonce)
+                },
+                reconnectProof = (credential as? Credential.RoomSecret)?.let {
+                    Crypto.reconnectProof(it.value, roomId, identity.peerId.value, nonce)
+                },
             )
             HandshakeCodec.write(socket.getOutputStream(), hello)
             when (val response = HandshakeCodec.read(socket.getInputStream())) {
                 is HandshakeMessage.Rejected -> throw ProtocolException(response.reason)
                 is HandshakeMessage.CoordinatorHello -> {
                     if (response.acceptedVersion != PROTOCOL_VERSION) throw ProtocolException("Protocol mismatch")
-                    val pinKey = Crypto.derivePinKey(roomId, pin, nonce)
+                    val unwrapKey = when (credential) {
+                        is Credential.Pin -> {
+                            if (response.credentialMode != ControlCredentialMode.PIN) {
+                                throw ProtocolException("Unexpected credential mode")
+                            }
+                            Crypto.derivePinKey(roomId, credential.value, nonce)
+                        }
+
+                        is Credential.RoomSecret -> {
+                            if (response.credentialMode != ControlCredentialMode.RECONNECT) {
+                                throw ProtocolException("Unexpected credential mode")
+                            }
+                            Crypto.deriveReconnectKey(
+                                credential.value,
+                                roomId,
+                                identity.peerId.value,
+                                nonce,
+                            )
+                        }
+                    }
                     val roomSecret = Crypto.decryptAesGcm(
-                        key = pinKey,
+                        key = unwrapKey,
                         ciphertext = Base64.getUrlDecoder().decode(response.encryptedRoomSecretBase64),
                         iv = Base64.getUrlDecoder().decode(response.roomSecretIvBase64),
                         associatedData = "$roomId:${identity.peerId.value}".encodeToByteArray(),
                     )
-                    val sessionKey = Crypto.deriveSessionKey(roomSecret, nonce, response.serverNonce)
+                    if (credential is Credential.RoomSecret && !Crypto.constantTimeEquals(roomSecret, credential.value)) {
+                        throw ProtocolException("Reconnect credential changed")
+                    }
+                    val keys = Crypto.deriveControlSessionKeys(roomSecret, nonce, response.serverNonce)
                     socket.soTimeout = 0
                     val endpoint = PeerEndpoint(
                         peerId = response.coordinatorPeerId,
@@ -80,7 +152,11 @@ class ControlClient(
                         peerId = response.coordinatorPeerId,
                         endpoint = endpoint,
                         socket = socket,
-                        codec = FrameCodec(sessionKey, roomId),
+                        codec = FrameCodec(
+                            writeKey = keys.clientToCoordinator,
+                            readKey = keys.coordinatorToClient,
+                            expectedRoomId = roomId,
+                        ),
                         parentScope = scope,
                         log = log,
                         onEnvelope = onEnvelope,
@@ -95,6 +171,11 @@ class ControlClient(
             runCatching { socket.close() }
             throw error
         }
+    }
+
+    private sealed interface Credential {
+        data class Pin(val value: String) : Credential
+        data class RoomSecret(val value: ByteArray) : Credential
     }
 }
 

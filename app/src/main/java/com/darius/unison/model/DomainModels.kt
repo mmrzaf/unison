@@ -93,6 +93,7 @@ enum class MemberTrackState {
     VERIFYING,
     PREPARING_PLAYER,
     READY,
+    CANCELLED,
     FAILED,
 }
 
@@ -112,8 +113,6 @@ enum class RepeatMode { OFF, ALL, ONE }
 
 @Serializable
 data class RoomOptions(
-    val everyoneCanAdd: Boolean = true,
-    val everyoneCanControl: Boolean = true,
     val waitAtTrackBoundary: Boolean = true,
     val preloadCount: Int = 3,
 )
@@ -158,7 +157,6 @@ data class RoomSnapshot(
     val roomName: String,
     val term: CoordinatorTerm,
     val sequence: Long,
-    val roomPin: String? = null,
     val options: RoomOptions = RoomOptions(),
     val members: List<MemberSnapshot> = emptyList(),
     val queue: List<QueueItem> = emptyList(),
@@ -232,9 +230,11 @@ data class RoomUiState(
     val localPlaybackQueueItemId: QueueItemId? = null,
     val localIsPlaying: Boolean = false,
     val localSeekRevision: Long = 0,
-    val localDriftMs: Long = 0,
+    val localDriftMs: Long? = null,
     val roomAddress: String? = null,
     val roomPort: Int? = null,
+    /** Coordinator-local invite PIN. Never serialized into canonical room state or sent to peers. */
+    val localRoomPin: String? = null,
     val hotspot: HotspotInfo? = null,
 ) {
     /** Any finite room operation that needs the service to remain alive. */

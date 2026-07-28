@@ -53,11 +53,52 @@ object Crypto {
         return output
     }
 
-    fun deriveSessionKey(roomSecret: ByteArray, clientNonce: String, serverNonce: String): ByteArray = hkdfSha256(
-        input = roomSecret,
-        salt = (clientNonce + serverNonce).encodeToByteArray(),
-        info = "unison-protocol-v1".encodeToByteArray(),
+    data class ControlSessionKeys(
+        val clientToCoordinator: ByteArray,
+        val coordinatorToClient: ByteArray,
     )
+
+    fun deriveControlSessionKeys(
+        roomSecret: ByteArray,
+        clientNonce: String,
+        serverNonce: String,
+    ): ControlSessionKeys {
+        val salt = (clientNonce + serverNonce).encodeToByteArray()
+        return ControlSessionKeys(
+            clientToCoordinator = hkdfSha256(
+                input = roomSecret,
+                salt = salt,
+                info = "unison-control-client-to-coordinator-v1".encodeToByteArray(),
+            ),
+            coordinatorToClient = hkdfSha256(
+                input = roomSecret,
+                salt = salt,
+                info = "unison-control-coordinator-to-client-v1".encodeToByteArray(),
+            ),
+        )
+    }
+
+    fun reconnectProof(roomSecret: ByteArray, roomId: String, peerId: String, clientNonce: String): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(
+            hmacSha256(
+                deriveReconnectKey(roomSecret, roomId, peerId, clientNonce),
+                "unison-reconnect-proof:$roomId:$peerId:$clientNonce".encodeToByteArray(),
+            )
+        )
+
+    fun deriveReconnectKey(roomSecret: ByteArray, roomId: String, peerId: String, clientNonce: String): ByteArray =
+        hkdfSha256(
+            input = roomSecret,
+            salt = sha256("unison-reconnect-salt:$roomId:$peerId:$clientNonce".encodeToByteArray()),
+            info = "unison-reconnect-credential-v1".encodeToByteArray(),
+        )
+
+    fun deriveFileTransferAuthenticationKey(authorizationToken: String, roomId: String, trackId: String): ByteArray =
+        hkdfSha256(
+            input = authorizationToken.encodeToByteArray(),
+            salt = sha256("unison-file-transfer-salt:$roomId:$trackId".encodeToByteArray()),
+            info = "unison-file-transfer-authentication-v1".encodeToByteArray(),
+        )
 
     fun pinProof(roomId: String, pin: String, clientNonce: String): String {
         val key = derivePinKey(roomId, pin, clientNonce)

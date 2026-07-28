@@ -440,8 +440,6 @@ object RoomReducer {
     }
 
     private fun RoomOptions.normalized() = copy(
-        everyoneCanAdd = true,
-        everyoneCanControl = true,
         preloadCount = preloadCount.coerceIn(1, 10),
     )
 }

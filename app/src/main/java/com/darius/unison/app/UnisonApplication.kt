@@ -3,6 +3,7 @@ package com.darius.unison.app
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
+import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -13,16 +14,20 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
-class UnisonApplication : Application() {
-    lateinit var container: AppContainer
-        private set
+class UnisonApplication : Application(), Configuration.Provider {
+    val container: AppContainer by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { AppContainer(this) }
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(container.workerFactory)
+            .build()
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
-        container = AppContainer(this)
         appScope.launch {
+            container.persistedUriPermissions.releaseAllUnused()
             val identity = container.settings.ensureIdentity()
             container.roomStore.update { it.copy(localIdentity = identity) }
         }

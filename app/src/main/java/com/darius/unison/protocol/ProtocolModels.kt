@@ -15,7 +15,7 @@ import com.darius.unison.model.UserCommand
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-const val PROTOCOL_VERSION = 1
+const val PROTOCOL_VERSION = 2
 const val MAX_CONTROL_PAYLOAD_BYTES = 1024 * 1024
 
 @Serializable
@@ -185,7 +185,7 @@ sealed interface ProtocolBody {
         val queueItemId: QueueItemId?,
         val positionMs: Long,
         val isPlaying: Boolean,
-        val driftMs: Long,
+        val driftMs: Long? = null,
     ) : ProtocolBody
 
     /** Ephemeral UI telemetry. It is deliberately not part of canonical room sequencing. */
@@ -196,7 +196,7 @@ sealed interface ProtocolBody {
         val queueItemId: QueueItemId?,
         val positionMs: Long,
         val isPlaying: Boolean,
-        val driftMs: Long,
+        val driftMs: Long? = null,
     ) : ProtocolBody
 
     @Serializable
@@ -246,6 +246,10 @@ sealed interface ProtocolBody {
 
 }
 
+
+@Serializable
+enum class ControlCredentialMode { PIN, RECONNECT }
+
 @Serializable
 sealed interface HandshakeMessage {
     @Serializable
@@ -260,6 +264,7 @@ sealed interface HandshakeMessage {
         val roomId: String,
         val clientNonce: String,
         val pinProof: String? = null,
+        val reconnectProof: String? = null,
         val fileRequest: FileRequest? = null,
     ) : HandshakeMessage
 
@@ -272,6 +277,7 @@ sealed interface HandshakeMessage {
         val serverNonce: String,
         val encryptedRoomSecretBase64: String,
         val roomSecretIvBase64: String,
+        val credentialMode: ControlCredentialMode = ControlCredentialMode.PIN,
         val snapshotSequence: Long,
     ) : HandshakeMessage
 

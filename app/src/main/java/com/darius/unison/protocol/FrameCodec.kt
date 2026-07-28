@@ -9,13 +9,22 @@ import java.nio.ByteOrder
 import java.util.UUID
 
 class FrameCodec(
-    sessionKey: ByteArray,
+    writeKey: ByteArray,
+    readKey: ByteArray = writeKey,
     private val expectedRoomId: String? = null,
 ) {
-    private val sessionKey = sessionKey.copyOf()
+    private val writeKey = writeKey.copyOf()
+    private val readKey = readKey.copyOf()
+
+    constructor(sessionKey: ByteArray, expectedRoomId: String?) : this(
+        writeKey = sessionKey,
+        readKey = sessionKey,
+        expectedRoomId = expectedRoomId,
+    )
 
     init {
-        require(this.sessionKey.size >= 16) { "Session key is too short" }
+        require(this.writeKey.size >= 16) { "Write key is too short" }
+        require(this.readKey.size >= 16) { "Read key is too short" }
     }
 
     fun write(output: OutputStream, envelope: Envelope, channelType: ChannelType = ChannelType.CONTROL) {
@@ -33,7 +42,7 @@ class FrameCodec(
             putLong(messageUuid.mostSignificantBits)
             putLong(messageUuid.leastSignificantBits)
         }.array()
-        val hmac = Crypto.hmacSha256(sessionKey, header + payload)
+        val hmac = Crypto.hmacSha256(writeKey, header + payload)
         DataOutputStream(output).apply {
             write(header)
             write(payload)
@@ -61,7 +70,7 @@ class FrameCodec(
         data.readFully(payload)
         val receivedHmac = ByteArray(32)
         data.readFully(receivedHmac)
-        val expectedHmac = Crypto.hmacSha256(sessionKey, header + payload)
+        val expectedHmac = Crypto.hmacSha256(readKey, header + payload)
         if (!Crypto.constantTimeEquals(
                 expectedHmac,
                 receivedHmac

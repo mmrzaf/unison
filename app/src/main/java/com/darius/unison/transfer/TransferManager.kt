@@ -19,12 +19,13 @@ import com.darius.unison.protocol.FileWireCodec
 import com.darius.unison.protocol.HandshakeCodec
 import com.darius.unison.protocol.HandshakeMessage
 import com.darius.unison.protocol.PROTOCOL_VERSION
+import com.darius.unison.storage.ManagedFileLeaseReason
 import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.util.DiagnosticLog
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -60,16 +61,28 @@ class TransferManager(
     private val authorizations = ConcurrentHashMap<String, Authorization>()
     private val outgoingSemaphore = Semaphore(1)
     private val incomingSemaphore = Semaphore(1)
-    private val activeDownloads = ConcurrentHashMap<TrackId, Job>()
+    private val cancellationRegistry = TransferCancellationRegistry()
+    private val activeUploadSockets = ConcurrentHashMap<String, Socket>()
 
+    @Synchronized
     fun authorize(trackId: TrackId, destinationPeerId: PeerId, token: String, expiresAtElapsedMs: Long) {
         val now = android.os.SystemClock.elapsedRealtime()
         authorizations.entries.removeIf { it.value.expiresAtElapsedMs <= now }
+        if (authorizations.size >= MAX_TRACKED_AUTHORIZATIONS && !authorizations.containsKey(token)) {
+            authorizations.entries.minByOrNull { it.value.expiresAtElapsedMs }?.let { eldest ->
+                authorizations.remove(eldest.key, eldest.value)
+                log.w(TAG, "Evicted oldest transfer authorization at capacity")
+            }
+        }
         authorizations[token] = Authorization(trackId, destinationPeerId, expiresAtElapsedMs)
     }
 
     suspend fun handleIncomingFileSocket(socket: Socket, hello: HandshakeMessage.ClientHello) {
         outgoingSemaphore.withPermit {
+            val uploadOperationId = hello.fileRequest?.requestId ?: UUID.randomUUID().toString()
+            activeUploadSockets.put(uploadOperationId, socket)?.let { previous ->
+                runCatching { previous.close() }
+            }
             val lastProgressMs = AtomicLong(android.os.SystemClock.elapsedRealtime())
             val watchdog = scope.launch(Dispatchers.IO) {
                 while (isActive && !socket.isClosed) {
@@ -127,51 +140,60 @@ class TransferManager(
                     )
                     return@withPermit
                 }
-                if (request.offset !in 0..file.length()) {
+                val uploadLease = fileStore.acquireLease(request.trackId, ManagedFileLeaseReason.TRANSFER_UPLOAD)
+                try {
+                    if (request.offset !in 0..file.length()) {
+                        HandshakeCodec.write(
+                            socket.getOutputStream(),
+                            HandshakeMessage.Accepted(Crypto.randomBase64(12)),
+                        )
+                        FileWireCodec.writeHeader(
+                            socket.getOutputStream(),
+                            FileResponseHeader(
+                                request.requestId,
+                                FileResponseStatus.INVALID_OFFSET,
+                                request.trackId,
+                                file.length(),
+                                0,
+                                "Invalid offset",
+                            )
+                        )
+                        return@withPermit
+                    }
                     HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Accepted(Crypto.randomBase64(12)))
                     FileWireCodec.writeHeader(
                         socket.getOutputStream(),
                         FileResponseHeader(
                             request.requestId,
-                            FileResponseStatus.INVALID_OFFSET,
+                            FileResponseStatus.OK,
                             request.trackId,
                             file.length(),
-                            0,
-                            "Invalid offset"
+                            request.offset,
                         )
                     )
-                    return@withPermit
-                }
-                HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Accepted(Crypto.randomBase64(12)))
-                FileWireCodec.writeHeader(
-                    socket.getOutputStream(),
-                    FileResponseHeader(
-                        request.requestId,
-                        FileResponseStatus.OK,
-                        request.trackId,
-                        file.length(),
-                        request.offset
-                    )
-                )
-                lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
-                file.inputStream().buffered(128 * 1024).use { input ->
-                    if (request.offset > 0) input.skipFully(request.offset)
-                    socket.getOutputStream().buffered(128 * 1024).use { output ->
-                        val buffer = ByteArray(128 * 1024)
-                        while (currentCoroutineContext().isActive) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            if (read > 0) {
-                                output.write(buffer, 0, read)
-                                lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+                    lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+                    file.inputStream().buffered(128 * 1024).use { input ->
+                        if (request.offset > 0) input.skipFully(request.offset)
+                        socket.getOutputStream().buffered(128 * 1024).use { output ->
+                            val buffer = ByteArray(128 * 1024)
+                            while (currentCoroutineContext().isActive) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                if (read > 0) {
+                                    output.write(buffer, 0, read)
+                                    lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+                                }
                             }
+                            currentCoroutineContext().ensureActive()
+                            output.flush()
                         }
-                        currentCoroutineContext().ensureActive()
-                        output.flush()
                     }
+                } finally {
+                    uploadLease.close()
                 }
             } finally {
                 watchdog.cancel()
+                activeUploadSockets.remove(uploadOperationId, socket)
                 runCatching { socket.close() }
             }
         }
@@ -183,8 +205,9 @@ class TransferManager(
         source: PeerEndpoint,
         authorizationToken: String,
     ) {
-        activeDownloads[track.trackId]?.cancel()
-        activeDownloads[track.trackId] = scope.launch(Dispatchers.IO) {
+        cancel(track.trackId)
+        val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            val lease = fileStore.acquireLease(track.trackId, ManagedFileLeaseReason.TRANSFER_DOWNLOAD)
             try {
                 if (fileStore.hasVerified(track.trackId, track.sizeBytes)) {
                     // A process may have committed the content-addressed file just before crashing,
@@ -208,6 +231,17 @@ class TransferManager(
                     }
                 }
             } catch (cancelled: CancellationException) {
+                onProgress(
+                    TransferProgress(
+                        track.trackId,
+                        fileStore.partialFile(track.trackId).length(),
+                        track.sizeBytes,
+                        source.peerId,
+                        localIdentity.peerId,
+                        MemberTrackState.CANCELLED,
+                        "Cancelled",
+                    )
+                )
                 throw cancelled
             } catch (error: Exception) {
                 log.w(TAG, "Transfer failed track=${track.trackId.value.take(8)}", error)
@@ -223,8 +257,12 @@ class TransferManager(
                     )
                 )
                 onFailed(track.trackId, source.peerId, error.message ?: "Transfer failed")
+            } finally {
+                lease.close()
             }
-        }.also { job -> job.invokeOnCompletion { activeDownloads.remove(track.trackId, job) } }
+        }
+        cancellationRegistry.registerJob(track.trackId, job)
+        job.start()
     }
 
     @Suppress("UsableSpace") // Require space already available; do not evict other apps' caches.
@@ -252,6 +290,7 @@ class TransferManager(
             connect(InetSocketAddress(address, source.port), 10_000)
             soTimeout = 20_000
         }
+        cancellationRegistry.attachSocket(track.trackId, socket)
         try {
             val request = FileRequest(UUID.randomUUID().toString(), roomId, track.trackId, offset, authorizationToken)
             HandshakeCodec.write(
@@ -342,17 +381,20 @@ class TransferManager(
             )
             onCompleted(track)
         } finally {
+            cancellationRegistry.detachSocket(track.trackId, socket)
             runCatching { socket.close() }
         }
     }
 
     fun cancel(trackId: TrackId) {
-        activeDownloads.remove(trackId)?.cancel()
+        cancellationRegistry.cancel(trackId)
     }
 
     fun cancelAll() {
-        activeDownloads.values.forEach(Job::cancel)
-        activeDownloads.clear()
+        activeUploadSockets.values.forEach { socket -> runCatching { socket.close() } }
+        activeUploadSockets.clear()
+        authorizations.clear()
+        cancellationRegistry.cancelAll()
     }
 
     private fun java.io.InputStream.skipFully(byteCount: Long) {
@@ -373,6 +415,7 @@ class TransferManager(
     companion object {
         private const val TAG = "TransferManager"
         private const val MAX_TRACK_SIZE_BYTES = 1_073_741_824L // 1 GiB
+        private const val MAX_TRACKED_AUTHORIZATIONS = 512
         private const val MIN_FREE_SPACE_BYTES = 32L * 1024L * 1024L
         private const val UPLOAD_WATCHDOG_INTERVAL_MS = 5_000L
         private const val UPLOAD_IDLE_TIMEOUT_MS = 30_000L

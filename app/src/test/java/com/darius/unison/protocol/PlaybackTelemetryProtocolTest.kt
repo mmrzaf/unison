@@ -1,0 +1,40 @@
+package com.darius.unison.protocol
+
+import com.darius.unison.model.PeerId
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class PlaybackTelemetryProtocolTest {
+    @Test
+    fun unknownParticipantDriftRemainsUnknown() {
+        val report = ProtocolBody.PlaybackStatusReport(
+            queueItemId = null,
+            positionMs = 250,
+            isPlaying = true,
+        )
+        assertNull(report.driftMs)
+    }
+
+    @Test
+    fun unknownMemberDriftRemainsUnknown() {
+        val status = ProtocolBody.MemberPlaybackStatus(
+            peerId = PeerId("peer-123456789012"),
+            queueItemId = null,
+            positionMs = 250,
+            isPlaying = true,
+        )
+        assertNull(status.driftMs)
+    }
+
+    @Test
+    fun measuredDriftIsPreserved() {
+        val report = ProtocolBody.PlaybackStatusReport(
+            queueItemId = null,
+            positionMs = 250,
+            isPlaying = true,
+            driftMs = -17,
+        )
+        assertEquals(-17L, report.driftMs)
+    }
+}
