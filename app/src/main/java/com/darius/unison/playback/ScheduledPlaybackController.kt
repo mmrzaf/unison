@@ -20,6 +20,7 @@ class ScheduledPlaybackController(
     private val scope: CoroutineScope,
     private val log: DiagnosticLog,
     private val onError: (String) -> Unit,
+    private val usesLocalCoordinatorClock: () -> Boolean = { false },
 ) {
     private var scheduled: Job? = null
 
@@ -29,7 +30,7 @@ class ScheduledPlaybackController(
             "Schedule play item=${queueItemId.value.take(8)} positionMs=$positionMs executeAtNs=$executeAtCoordinatorNs"
         )
         schedule("play", executeAtCoordinatorNs) {
-            val lateMs = ((clock.nowNs() - clockSync.toLocalTime(executeAtCoordinatorNs)).coerceAtLeast(0) / 1_000_000L)
+            val lateMs = ((clock.nowNs() - localTargetNs(executeAtCoordinatorNs)).coerceAtLeast(0) / 1_000_000L)
             if (!player.seekToItem(queueItemId, positionMs + lateMs)) {
                 fail("This song is not ready yet")
                 return@schedule
@@ -60,7 +61,7 @@ class ScheduledPlaybackController(
         )
         schedule("seek", executeAtCoordinatorNs) {
             val lateMs = if (resume) {
-                ((clock.nowNs() - clockSync.toLocalTime(executeAtCoordinatorNs)).coerceAtLeast(0) / 1_000_000L)
+                ((clock.nowNs() - localTargetNs(executeAtCoordinatorNs)).coerceAtLeast(0) / 1_000_000L)
             } else 0L
             if (!player.seekToItem(queueItemId, positionMs + lateMs)) {
                 fail("This song is not ready yet")
@@ -84,9 +85,18 @@ class ScheduledPlaybackController(
         scheduled?.cancel()
         scheduled = scope.launch(Dispatchers.Default) {
             try {
-                val localTarget = clockSync.toLocalTime(executeAtCoordinatorNs)
+                var latestLocalTarget = localTargetNs(executeAtCoordinatorNs)
                 while (isActive) {
-                    val remainingNs = localTarget - clock.nowNs()
+                    if (!usesLocalCoordinatorClock() && !clockSync.synchronized) {
+                        // Never execute from a stale guest mapping. The command remains represented
+                        // in coordinator time and resumes automatically after clock reacquisition.
+                        delay(CLOCK_RECHECK_INTERVAL_MS)
+                        continue
+                    }
+                    // Keep the command in coordinator time. Recalculate the local target on every
+                    // pass so an improving offset/rate estimate cannot leave a stale schedule.
+                    latestLocalTarget = localTargetNs(executeAtCoordinatorNs)
+                    val remainingNs = latestLocalTarget - clock.nowNs()
                     if (remainingNs <= 0) break
                     if (remainingNs > 2_000_000L) {
                         delay(((remainingNs - 1_000_000L) / 1_000_000L).coerceAtLeast(1L))
@@ -95,7 +105,10 @@ class ScheduledPlaybackController(
                         yield()
                     }
                 }
-                log.i(TAG, "Execute $name lateMs=${((clock.nowNs() - localTarget).coerceAtLeast(0) / 1_000_000L)}")
+                log.i(
+                    TAG,
+                    "Execute $name lateMs=${((clock.nowNs() - latestLocalTarget).coerceAtLeast(0) / 1_000_000L)}",
+                )
                 action()
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -106,6 +119,10 @@ class ScheduledPlaybackController(
         }
     }
 
+    private fun localTargetNs(executeAtCoordinatorNs: Long): Long =
+        if (usesLocalCoordinatorClock()) executeAtCoordinatorNs
+        else clockSync.toLocalTime(executeAtCoordinatorNs)
+
     private fun fail(message: String) {
         log.e(TAG, message)
         onError(message)
@@ -113,5 +130,6 @@ class ScheduledPlaybackController(
 
     private companion object {
         const val TAG = "UnisonScheduler"
+        const val CLOCK_RECHECK_INTERVAL_MS = 25L
     }
 }

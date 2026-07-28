@@ -100,7 +100,7 @@ class UnisonRoomService : MediaSessionService() {
 
         runtime = RoomRuntime(this, unisonContainer, playerAdapter, serviceScope)
         roomForegroundJob = serviceScope.launch(Dispatchers.Main.immediate) {
-            unisonContainer.roomStore.state
+            unisonContainer.roomStore.structure
                 .map { state -> state.sessionActive || state.hotspot != null }
                 .distinctUntilChanged()
                 .collect {
