@@ -182,6 +182,20 @@ def main() -> int:
     if app.count("AppCommand.StartDiscovery") != 1:
         problems.append("Room discovery must have exactly one explicit UI trigger")
 
+    service = (SOURCE_ROOT / "com/darius/unison/playback/UnisonRoomService.kt").read_text()
+    on_start = service[
+        service.index("override fun onStartCommand"):
+        service.index("override fun onGetSession")
+    ]
+    foreground_index = on_start.find("startAsForeground()")
+    media_refresh_index = on_start.find("triggerNotificationUpdate()")
+    if foreground_index == -1:
+        problems.append("Room service starts must immediately satisfy the foreground deadline")
+    if media_refresh_index == -1 or media_refresh_index < foreground_index:
+        problems.append("Room service starts must restore Media3 controls after the deadline notification")
+    if "currentTimeline.isEmpty" not in on_start:
+        problems.append("Media3 notification refresh must preserve the empty-queue deadline notification")
+
     changelog = (ROOT / "CHANGELOG.md").read_text().lower()
     if "discovery automatic" in changelog or "automatic while the room lobby" in changelog:
         problems.append("Changelog still documents the rejected automatic-discovery behavior")

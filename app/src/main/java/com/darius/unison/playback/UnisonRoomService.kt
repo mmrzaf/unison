@@ -132,7 +132,14 @@ class UnisonRoomService : MediaSessionService() {
         // requests delivered to an already-created service. Satisfy that contract here, before
         // Media3, networking, or command processing can suspend or demote the service.
         startAsForeground()
-        return super.onStartCommand(intent, flags, startId)
+        val result = super.onStartCommand(intent, flags, startId)
+        // The deadline notification uses Media3's notification ID, so it temporarily replaces the
+        // media-style notification. Restore Media3's version whenever a queue already exists;
+        // otherwise keep the deadline notification until the first item is published.
+        if (::mediaSession.isInitialized && !mediaSession.player.currentTimeline.isEmpty) {
+            triggerNotificationUpdate()
+        }
+        return result
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession = mediaSession
