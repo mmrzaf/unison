@@ -20,17 +20,27 @@ object PlaybackQueuePolicy {
      */
     fun playableItems(snapshot: RoomSnapshot, readableTrackIds: Set<TrackId>): List<QueueItem> {
         if (snapshot.queue.isEmpty()) return emptyList()
-        val currentIndex = snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId }
-            .let { if (it < 0) 0 else it }
-        val roomAllowed = if (snapshot.options.waitAtTrackBoundary) {
-            snapshot.queue.filter {
-                it.queueItemId == snapshot.playback.queueItemId || it.queueItemId in snapshot.preparedQueueItemIds
+        val currentIndex =
+            snapshot.queue
+                .indexOfFirst { it.queueItemId == snapshot.playback.queueItemId }
+                .let { if (it < 0) 0 else it }
+        val roomAllowed =
+            if (snapshot.options.waitAtTrackBoundary) {
+                snapshot.queue.filter {
+                    it.queueItemId == snapshot.playback.queueItemId ||
+                        it.queueItemId in snapshot.preparedQueueItemIds
+                }
+            } else {
+                val history =
+                    snapshot.queue.take(currentIndex).filter {
+                        it.track.trackId in readableTrackIds
+                    }
+                val future =
+                    snapshot.queue.drop(currentIndex).takeWhile {
+                        it.track.trackId in readableTrackIds
+                    }
+                history + future
             }
-        } else {
-            val history = snapshot.queue.take(currentIndex).filter { it.track.trackId in readableTrackIds }
-            val future = snapshot.queue.drop(currentIndex).takeWhile { it.track.trackId in readableTrackIds }
-            history + future
-        }
         return roomAllowed.filter { it.track.trackId in readableTrackIds }
     }
 
@@ -40,10 +50,13 @@ object PlaybackQueuePolicy {
         upcomingCount: Int = 12,
     ): List<QueueItem> {
         if (snapshot.queue.isEmpty()) return emptyList()
-        val currentIndex = snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId }
-            .let { if (it < 0) 0 else it }
+        val currentIndex =
+            snapshot.queue
+                .indexOfFirst { it.queueItemId == snapshot.playback.queueItemId }
+                .let { if (it < 0) 0 else it }
         val start = (currentIndex - historyCount.coerceAtLeast(0)).coerceAtLeast(0)
-        val endExclusive = (currentIndex + upcomingCount.coerceAtLeast(1) + 1).coerceAtMost(snapshot.queue.size)
+        val endExclusive =
+            (currentIndex + upcomingCount.coerceAtLeast(1) + 1).coerceAtMost(snapshot.queue.size)
         return snapshot.queue.subList(start, endExclusive)
     }
 
@@ -55,30 +68,37 @@ object PlaybackQueuePolicy {
         coordinatorNowNs: Long,
         leadNs: Long = RoomReducer.DEFAULT_COMMAND_LEAD_NS,
     ): NaturalEndPlan? {
-        if (!snapshot.playback.isPlaying || snapshot.playback.queueItemId != endedQueueItemId) return null
+        if (!snapshot.playback.isPlaying || snapshot.playback.queueItemId != endedQueueItemId)
+            return null
         val currentIndex = snapshot.queue.indexOfFirst { it.queueItemId == endedQueueItemId }
         if (currentIndex < 0) return null
-        val next = when (snapshot.repeatMode) {
-            RepeatMode.ONE -> snapshot.queue[currentIndex]
-            RepeatMode.ALL -> snapshot.queue.getOrNull(currentIndex + 1) ?: snapshot.queue.firstOrNull()
-            RepeatMode.OFF -> snapshot.queue.getOrNull(currentIndex + 1)
-        }
+        val next =
+            when (snapshot.repeatMode) {
+                RepeatMode.ONE -> snapshot.queue[currentIndex]
+                RepeatMode.ALL ->
+                    snapshot.queue.getOrNull(currentIndex + 1) ?: snapshot.queue.firstOrNull()
+                RepeatMode.OFF -> snapshot.queue.getOrNull(currentIndex + 1)
+            }
         if (next == null) {
             return NaturalEndPlan(
-                mutation = ProtocolBody.PauseScheduled(
-                    positionMs = maxOf(positionMs, durationMs).coerceAtLeast(0),
-                    executeAtCoordinatorNs = coordinatorNowNs,
-                )
+                mutation =
+                    ProtocolBody.PauseScheduled(
+                        queueItemId = endedQueueItemId,
+                        positionMs = maxOf(positionMs, durationMs).coerceAtLeast(0),
+                        executeAtCoordinatorNs = coordinatorNowNs,
+                    )
             )
         }
         val ready = next.queueItemId in snapshot.preparedQueueItemIds
         return NaturalEndPlan(
-            mutation = ProtocolBody.CurrentItemChanged(
-                queueItemId = next.queueItemId,
-                positionMs = 0,
-                executeAtCoordinatorNs = if (ready) coordinatorNowNs + leadNs else coordinatorNowNs,
-                resumePlayback = ready,
-            ),
+            mutation =
+                ProtocolBody.CurrentItemChanged(
+                    queueItemId = next.queueItemId,
+                    positionMs = 0,
+                    executeAtCoordinatorNs =
+                        if (ready) coordinatorNowNs + leadNs else coordinatorNowNs,
+                    resumePlayback = ready,
+                ),
             waitForQueueItemId = next.queueItemId.takeUnless { ready },
         )
     }
@@ -89,9 +109,10 @@ object PlaybackQueuePolicy {
         positionMs: Long,
         coordinatorNowNs: Long,
     ): ProtocolBody.CurrentItemChanged? {
-        if (snapshot.repeatMode != RepeatMode.ONE ||
-            !snapshot.playback.isPlaying ||
-            snapshot.playback.queueItemId != repeatedQueueItemId
+        if (
+            snapshot.repeatMode != RepeatMode.ONE ||
+                !snapshot.playback.isPlaying ||
+                snapshot.playback.queueItemId != repeatedQueueItemId
         ) {
             return null
         }
