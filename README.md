@@ -15,7 +15,8 @@ transfers stay on the private LAN or Android LocalOnlyHotspot.
 - Content-addressed SHA-256 audio library with resumable peer transfer
 - Shared queue, transport controls, shuffle, repeat, clock sync, and drift correction
 - Manual nearby-room search: each Find rooms tap performs one bounded eight-second scan
-- Text-only media metadata with no artwork extraction, image cache, or image worker
+- Text-only track metadata with no thumbnail extraction, image cache, or image worker; system media
+  controls receive one fixed Unison brand tile
 - File picker, share sheet, playlists, and bounded M3U/M3U8 import/export
 
 Android's `INTERNET` permission is intentionally retained because Android requires it for raw TCP

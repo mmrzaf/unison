@@ -99,7 +99,8 @@ assigned to them.
 - Room transactions for source/track cleanup consistency;
 - Paging for large libraries;
 - moving Media3 queue window plus one-shot rebuilds for large structural changes;
-- text-only media metadata and no image extraction, decoding, or image cache;
+- text-only track metadata and no music-image extraction or cache; the system media session receives
+  one fixed Unison brand image generated from application-owned geometry;
 - one MediaSessionService notification path with start-ID-safe idle shutdown;
 - position telemetry bypasses the serialized room actor;
 - replay filtering and sequence ordering;

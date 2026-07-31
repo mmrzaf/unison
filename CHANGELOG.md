@@ -14,13 +14,14 @@ Unified production foundation:
 - removed pending admission state leaks and bounded cleanup retries;
 - retained only local LAN/hotspot networking with no remote service integration;
 - expanded offline core validation coverage;
-- hardened navigation, invite failures, overlapping operation state, and cancellation handling;
+- hardened navigation, room-code failures, overlapping operation state, and cancellation handling;
 - added connection and peer-transfer feedback plus confirmations for destructive actions;
 - preserved file-picker intent across Activity recreation and improved long-track/unknown-duration
   playback UI;
 - made nearby-room discovery an explicit bounded scan with isolated listener/resolution lifecycles;
 - added duplicate-installation identity recovery, bounded join retries, and terminal reconnect cleanup;
-- removed artwork extraction, image caching, image workers, and image UI in favor of deterministic text-only media metadata;
+- removed music-thumbnail extraction, image caching, image workers, and image UI; Android system
+  media controls use one fixed dark Unison brand tile for reliable contrast;
 - consolidated playback recovery around persistent play intent, drift correction, seek cooldown, and
   emergency recovery;
 - separated short operations from active room sessions and added source sanity checks plus expanded
