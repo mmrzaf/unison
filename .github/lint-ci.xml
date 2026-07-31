@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <lint>
     <!--
-      The production project deliberately remains on API 36 until its AGP 9 / API 37 migration.
-      GitHub's Ubuntu image also installs API 37 and resolves newer AGP metadata online, making
-      these migration notices runner-dependent. Keep every actionable source, API, accessibility,
-      deprecation, and correctness check—including warnings-as-errors—enabled.
+      Runtime support is intentionally Android 11–13 (API 30–33). compileSdk 36 is a build-time
+      requirement of the pinned libraries, not a promise of Android 14+ runtime behavior. Keep
+      actionable source, API, accessibility, deprecation, and correctness checks enabled.
     -->
     <issue id="OldTargetApi" severity="ignore" />
     <issue id="AndroidGradlePluginVersion" severity="ignore" />

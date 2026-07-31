@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 ./scripts/check-static.sh
 ./scripts/check-core.sh
 ./scripts/check-data.sh
+./scripts/check-release-quality.sh
 ./gradlew --offline --no-daemon testDebugUnitTest lintRelease assembleRelease
 
 APK="$PWD/app/build/outputs/apk/release/app-release.apk"

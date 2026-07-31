@@ -4,5 +4,6 @@ cd "$(dirname "$0")/.."
 ./scripts/check-static.sh
 ./scripts/check-core.sh
 ./scripts/check-data.sh
+./scripts/check-release-quality.sh
 ./gradlew --offline --no-daemon testDebugUnitTest lintDebug assembleDebug
 printf 'APK: %s\n' "$PWD/app/build/outputs/apk/debug/app-debug.apk"
