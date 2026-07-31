@@ -3,41 +3,20 @@ package com.darius.unison.ui
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
-import androidx.core.content.IntentCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.darius.unison.app.unisonContainer
-import com.darius.unison.library.LibraryImportProgress
-import com.darius.unison.library.LibraryImportStage
 import com.darius.unison.library.LibrarySort
-import com.darius.unison.library.M3uAmbiguousEntry
-import com.darius.unison.library.M3uResolvedEntry
-import com.darius.unison.library.M3uResolutionPolicy
-import com.darius.unison.library.M3uUnresolvedEntry
-import com.darius.unison.library.M3uCodec
-import com.darius.unison.library.M3uEntry
-import com.darius.unison.library.PlaylistDetail
-import com.darius.unison.library.StorageSummary
 import com.darius.unison.model.AppCommand
-import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.RetentionPolicy
-import com.darius.unison.model.RoomUiState
-import com.darius.unison.model.RoomPlaybackTelemetry
-import com.darius.unison.model.toUiState
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
-import com.darius.unison.network.NetworkAddressPolicy
-import com.darius.unison.playback.UnisonRoomService
-import com.darius.unison.protocol.PROTOCOL_VERSION
-import com.darius.unison.room.RoomReducer
-import com.darius.unison.storage.PlaylistSummary
+import com.darius.unison.model.toUiState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -58,24 +37,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val activeOperationCount = MutableStateFlow(0)
     private val busy = activeOperationCount.map { it > 0 }.distinctUntilChanged()
     private val message = MutableStateFlow<String?>(null)
-    private val roomActions = RoomSessionActions(getApplication(), container, viewModelScope, message)
-    private val importCoordinator = LibraryImportCoordinator(
-        application = getApplication(),
-        container = container,
-        scope = viewModelScope,
-        activeOperationCount = activeOperationCount,
-        message = message,
-        roomActions = roomActions,
-    )
+    private val roomActions =
+        RoomSessionActions(getApplication(), container, viewModelScope, message)
+    private val importCoordinator =
+        LibraryImportCoordinator(
+            application = getApplication(),
+            container = container,
+            scope = viewModelScope,
+            activeOperationCount = activeOperationCount,
+            message = message,
+            roomActions = roomActions,
+        )
     private val importProgress = importCoordinator.importProgress
-    private val playlistActions = PlaylistActions(
-        application = getApplication(),
-        container = container,
-        scope = viewModelScope,
-        activeOperationCount = activeOperationCount,
-        message = message,
-        addTracksToRoom = roomActions::addTracksToRoom,
-    )
+    private val playlistActions =
+        PlaylistActions(
+            application = getApplication(),
+            container = container,
+            scope = viewModelScope,
+            activeOperationCount = activeOperationCount,
+            message = message,
+            addTracksToRoom = roomActions::addTracksToRoom,
+        )
     private val pendingM3uResolution = importCoordinator.pendingM3uResolution
     private val selectedPlaylist = playlistActions.selectedPlaylist
     private val pendingShare = importCoordinator.pendingShare
@@ -88,24 +70,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Player position changes many times per second. Keep those ticks out of [MainUiState] so the
      * library, queue, playlists, and navigation do not all recompose while a song is playing.
      */
-    private val roomPresentation = combine(
-        container.roomStore.structure,
-        container.roomStore.playback.map { playback ->
-            playback.copy(
-                localPositionMs = null,
-                localDriftMs = null,
-                memberPlayback = emptyMap(),
-            )
-        }.distinctUntilChanged(),
-        container.roomStore.transfers,
-    ) { structure, playback, transfers ->
-        structure.toUiState(playback, transfers)
-    }
+    private val roomPresentation =
+        combine(
+            container.roomStore.structure,
+            container.roomStore.playback
+                .map { playback ->
+                    playback.copy(
+                        localPositionMs = null,
+                        localDriftMs = null,
+                        memberPlayback = emptyMap(),
+                    )
+                }
+                .distinctUntilChanged(),
+            container.roomStore.transfers,
+        ) { structure, playback, transfers ->
+            structure.toUiState(playback, transfers)
+        }
 
-    val playbackPositionMs: StateFlow<Long> = container.roomStore.playback
-        .map { it.localPositionMs ?: 0L }
-        .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+    val playbackPositionMs: StateFlow<Long> =
+        container.roomStore.playback
+            .map { it.localPositionMs ?: 0L }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
 
     private val operation = combine(busy, importProgress, ::OperationState)
     private val transient =
@@ -114,14 +100,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             message,
             pendingM3uResolution,
             selectedPlaylist,
-            pendingShare
+            pendingShare,
         ) { operationState, notice, pending, playlist, share ->
-            TransientUiState(operationState, notice, pending, playlist, share)
+            TransientUiState(
+                operationState,
+                notice,
+                pending,
+                playlist,
+                share,
+            )
         }
-    private val preferences = combine(
-        container.settings.onboardingComplete,
-        container.settings.retentionPolicy,
-    ) { onboarded, retention -> onboarded to retention }
+    private val preferences =
+        combine(
+            container.settings.onboardingComplete,
+            container.settings.retentionPolicy,
+        ) { onboarded, retention ->
+            onboarded to retention
+        }
     private val debouncedLibraryQuery = libraryQuery.debounce(180).distinctUntilChanged()
     private val libraryControls = combine(libraryQuery, librarySort, ::LibraryControls)
 
@@ -130,52 +125,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .flatMapLatest { (query, sort) -> container.trackRepository.pagedLibrary(query, sort) }
             .cachedIn(viewModelScope)
 
-    val pickerTracks: Flow<PagingData<TrackDescriptor>> = _pickerQuery
-        .debounce(180)
-        .distinctUntilChanged()
-        .flatMapLatest { query -> container.trackRepository.pagedLibrary(query, LibrarySort.TITLE) }
-        .cachedIn(viewModelScope)
+    val pickerTracks: Flow<PagingData<TrackDescriptor>> =
+        _pickerQuery
+            .debounce(180)
+            .distinctUntilChanged()
+            .flatMapLatest { query ->
+                container.trackRepository.pagedLibrary(query, LibrarySort.TITLE)
+            }
+            .cachedIn(viewModelScope)
 
     private val visibleTrackCount =
         debouncedLibraryQuery.flatMapLatest(container.trackRepository::observeLibraryCount)
     private val totalTrackCount = container.trackRepository.observeLibraryCount("")
-    private val library = combine(
-        totalTrackCount,
-        visibleTrackCount,
-        container.trackRepository.temporaryTrackIds,
-        container.trackRepository.storageSummary,
-        libraryControls,
-    ) { totalCount, visibleCount, temporaryTrackIds, storageSummary, controls ->
-        LibraryUiData(totalCount, visibleCount, temporaryTrackIds, storageSummary, controls)
-    }
+    private val library =
+        combine(
+            totalTrackCount,
+            visibleTrackCount,
+            container.trackRepository.temporaryTrackIds,
+            container.trackRepository.storageSummary,
+            libraryControls,
+        ) { totalCount, visibleCount, temporaryTrackIds, storageSummary, controls ->
+            LibraryUiData(totalCount, visibleCount, temporaryTrackIds, storageSummary, controls)
+        }
 
-    val state: StateFlow<MainUiState> = combine(
-        roomPresentation,
-        library,
-        container.playlistRepository.playlists,
-        preferences,
-        transient,
-    ) { room, libraryState, playlists, preferencesState, transientState ->
-        MainUiState(
-            room = room,
-            libraryTotalCount = libraryState.totalCount,
-            libraryVisibleCount = libraryState.visibleCount,
-            libraryQuery = libraryState.controls.query,
-            librarySort = libraryState.controls.sort,
-            temporaryTrackIds = libraryState.temporaryTrackIds,
-            storageSummary = libraryState.storageSummary,
-            playlists = playlists,
-            settingsLoaded = true,
-            onboardingComplete = preferencesState.first,
-            retentionPolicy = preferencesState.second,
-            busy = transientState.operation.busy,
-            importProgress = transientState.operation.importProgress,
-            message = transientState.message,
-            pendingM3uResolution = transientState.pendingM3uResolution,
-            selectedPlaylist = transientState.selectedPlaylist,
-            pendingShare = transientState.pendingShare,
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
+    val state: StateFlow<MainUiState> =
+        combine(
+                roomPresentation,
+                library,
+                container.playlistRepository.playlists,
+                preferences,
+                transient,
+            ) { room, libraryState, playlists, preferencesState, transientState ->
+                MainUiState(
+                    room = room,
+                    libraryTotalCount = libraryState.totalCount,
+                    libraryVisibleCount = libraryState.visibleCount,
+                    libraryQuery = libraryState.controls.query,
+                    librarySort = libraryState.controls.sort,
+                    temporaryTrackIds = libraryState.temporaryTrackIds,
+                    storageSummary = libraryState.storageSummary,
+                    playlists = playlists,
+                    settingsLoaded = true,
+                    onboardingComplete = preferencesState.first,
+                    retentionPolicy = preferencesState.second,
+                    busy = transientState.operation.busy,
+                    importProgress = transientState.operation.importProgress,
+                    message = transientState.message,
+                    pendingM3uResolution = transientState.pendingM3uResolution,
+                    selectedPlaylist = transientState.selectedPlaylist,
+                    pendingShare = transientState.pendingShare,
+                )
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
 
     fun setLibraryQuery(value: String) {
         libraryQuery.value = value.take(120)
@@ -198,13 +199,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadTrackIds(query: String, onLoaded: (Set<TrackId>) -> Unit) =
         roomActions.loadTrackIds(query, onLoaded)
 
+    fun loadRoomTrackIds(query: String, onLoaded: (Set<TrackId>) -> Unit) =
+        roomActions.loadRoomTrackIds(query, onLoaded)
+
     fun saveName(name: String) {
         viewModelScope.launch {
             userResult {
-                container.settings.saveDisplayName(name)
-                val identity = container.settings.ensureIdentity()
-                container.roomStore.update { it.copy(localIdentity = identity) }
-            }.onFailure { message.value = "Could not save your name" }
+                    container.settings.saveDisplayName(name)
+                    val identity = container.settings.ensureIdentity()
+                    container.roomStore.update { it.copy(localIdentity = identity) }
+                }
+                .onFailure { message.value = "Could not save your name" }
         }
     }
 
@@ -227,29 +232,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setRetentionPolicy(policy: RetentionPolicy) {
         viewModelScope.launch {
             userResult {
-                container.settings.setRetentionPolicy(policy)
-                if (policy == RetentionPolicy.KEEP_IN_LIBRARY) {
-                    val roomTrackIds = container.roomStore.state.value.snapshot
-                        ?.queue
-                        ?.asSequence()
-                        ?.map { it.track.trackId }
-                        ?.distinct()
-                        ?.toList()
-                        .orEmpty()
-                    val verifiedTrackIds = buildList {
-                        for (trackId in roomTrackIds) {
-                            if (container.trackRepository.hasVerifiedSource(trackId)) add(trackId)
+                    container.settings.setRetentionPolicy(policy)
+                    if (policy == RetentionPolicy.KEEP_IN_LIBRARY) {
+                        val roomTrackIds =
+                            container.roomStore.structure.value.snapshot
+                                ?.queue
+                                ?.asSequence()
+                                ?.map { it.track.trackId }
+                                ?.distinct()
+                                ?.toList()
+                                .orEmpty()
+                        val verifiedTrackIds = buildList {
+                            for (trackId in roomTrackIds) {
+                                if (container.trackRepository.hasVerifiedSource(trackId))
+                                    add(trackId)
+                            }
                         }
+                        container.trackRepository.keepMany(verifiedTrackIds)
                     }
-                    container.trackRepository.keepMany(verifiedTrackIds)
                 }
-            }.onSuccess {
-                message.value = if (policy == RetentionPolicy.KEEP_IN_LIBRARY) {
-                    "Received music will be kept"
-                } else {
-                    "Received music will be removed after 24 hours"
+                .onSuccess {
+                    message.value =
+                        if (policy == RetentionPolicy.KEEP_IN_LIBRARY) {
+                            "Received music will be kept"
+                        } else {
+                            "Received music will be removed after 24 hours"
+                        }
                 }
-            }.onFailure { message.value = "Could not update music storage" }
+                .onFailure { message.value = "Could not update music storage" }
         }
     }
 
@@ -262,27 +272,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearTemporaryMusic() {
-        val activeTrackIds = container.roomStore.state.value.snapshot
-            ?.queue
-            ?.mapTo(mutableSetOf()) { it.track.trackId }
-            .orEmpty()
+        val activeTrackIds =
+            container.roomStore.structure.value.snapshot
+                ?.queue
+                ?.mapTo(mutableSetOf()) { it.track.trackId }
+                .orEmpty()
         viewModelScope.launch {
-            withBusyOperation { userResult { container.trackRepository.clearTemporary(activeTrackIds) } }
+            withBusyOperation {
+                    userResult { container.trackRepository.clearTemporary(activeTrackIds) }
+                }
                 .onSuccess { removed ->
-                    message.value = when (removed) {
-                        0 -> if (activeTrackIds.isEmpty()) "No temporary music to remove" else "Temporary music in the room was kept"
-                        1 -> "Removed 1 temporary song"
-                        else -> "Removed $removed temporary songs"
-                    }
+                    message.value =
+                        when (removed) {
+                            0 ->
+                                if (activeTrackIds.isEmpty()) "No temporary music to remove"
+                                else "Temporary music in the room was kept"
+                            1 -> "Removed 1 temporary song"
+                            else -> "Removed $removed temporary songs"
+                        }
                 }
                 .onFailure { message.value = "Could not clear temporary music" }
         }
     }
 
     fun removeTemporaryTrack(trackId: TrackId) {
-        val activeQueueUsesTrack = container.roomStore.state.value.snapshot
-            ?.queue
-            ?.any { it.track.trackId == trackId } == true
+        val activeQueueUsesTrack =
+            container.roomStore.structure.value.snapshot?.queue?.any {
+                it.track.trackId == trackId
+            } == true
         if (activeQueueUsesTrack) {
             message.value = "Remove this song after leaving the room"
             return
@@ -299,7 +316,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resolvePendingShare(destination: ShareDestination?) =
         importCoordinator.resolvePendingShare(destination)
 
-    fun createPlaylist(name: String, trackIds: List<TrackId>) = playlistActions.create(name, trackIds)
+    fun createPlaylist(name: String, trackIds: List<TrackId>) =
+        playlistActions.create(name, trackIds)
 
     fun openPlaylist(playlistId: String) = playlistActions.open(playlistId)
 
@@ -313,11 +331,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addTracksToPlaylist(playlistId: String, trackIds: List<TrackId>) =
         playlistActions.addTracks(playlistId, trackIds)
 
+    fun movePlaylistTrack(playlistId: String, fromIndex: Int, toIndex: Int) =
+        playlistActions.moveTrack(playlistId, fromIndex, toIndex)
+
+    fun removePlaylistTracks(playlistId: String, indices: Collection<Int>) =
+        playlistActions.removeTracks(playlistId, indices)
+
     fun deletePlaylist(playlistId: String) = playlistActions.delete(playlistId)
 
     fun addPlaylistToRoom(playlistId: String) = playlistActions.addToRoom(playlistId)
 
-    fun exportPlaylist(playlistId: String, destination: Uri) = playlistActions.export(playlistId, destination)
+    fun exportPlaylist(playlistId: String, destination: Uri) =
+        playlistActions.export(playlistId, destination)
 
     private suspend fun <T> withBusyOperation(block: suspend () -> T): T {
         activeOperationCount.update { it + 1 }
@@ -332,13 +357,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Kotlin's standard runCatching also captures CancellationException. UI operations must let
      * structured cancellation propagate so Activity/ViewModel teardown never becomes a fake error.
      */
-    private suspend fun <T> userResult(block: suspend () -> T): Result<T> = try {
-        Result.success(block())
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Exception) {
-        Result.failure(error)
-    }
+    private suspend fun <T> userResult(block: suspend () -> T): Result<T> =
+        try {
+            Result.success(block())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
 
     fun showMessage(value: String) {
         message.value = value
@@ -350,7 +376,5 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearRoomError(expected: String) = roomActions.clearRoomError(expected)
 
-    fun joinLink(): String? = roomActions.joinLink()
-
-
+    fun retryRoomIssue() = roomActions.retryRoomIssue()
 }

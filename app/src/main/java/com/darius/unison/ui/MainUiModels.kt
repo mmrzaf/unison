@@ -13,8 +13,17 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.storage.PlaylistSummary
 
-enum class ShareDestination { ROOM, LIBRARY, BOTH }
-internal enum class ImportCompletion { ROOM, LIBRARY, BOTH }
+enum class ShareDestination {
+    ROOM,
+    LIBRARY,
+    BOTH,
+}
+
+internal enum class ImportCompletion {
+    ROOM,
+    LIBRARY,
+    BOTH,
+}
 
 data class ImportProgress(
     val completed: Int,
@@ -22,7 +31,8 @@ data class ImportProgress(
     val headline: String = "Adding music",
     val detail: String? = null,
 ) {
-    val fraction: Float get() = if (total <= 0) 0f else completed.toFloat() / total
+    val fraction: Float
+        get() = if (total <= 0) 0f else completed.toFloat() / total
 }
 
 data class PendingShare(
