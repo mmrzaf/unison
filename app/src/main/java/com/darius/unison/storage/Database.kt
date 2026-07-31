@@ -20,14 +20,16 @@ import kotlinx.coroutines.flow.Flow
 
 @Entity(
     tableName = "tracks",
-    indices = [
-        Index("createdAt"),
-        Index("lastPlayedAt"),
-        Index("title"),
-        Index("artist"),
-        Index("album"),
-        Index("originalFileName"),
-    ],
+    indices =
+        [
+            Index("createdAt"),
+            Index("lastPlayedAt"),
+            Index("title"),
+            Index("artist"),
+            Index("album"),
+            Index("originalFileName"),
+            Index("searchText"),
+        ],
 )
 data class TrackEntity(
     @PrimaryKey val trackId: String,
@@ -38,18 +40,22 @@ data class TrackEntity(
     val artist: String?,
     val album: String?,
     val originalFileName: String?,
+    val searchText: String,
     val createdAt: Long,
     val lastPlayedAt: Long?,
 )
 
 @Entity(
     tableName = "track_sources",
-    foreignKeys = [ForeignKey(
-        entity = TrackEntity::class,
-        parentColumns = ["trackId"],
-        childColumns = ["trackId"],
-        onDelete = ForeignKey.CASCADE,
-    )],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = TrackEntity::class,
+                parentColumns = ["trackId"],
+                childColumns = ["trackId"],
+                onDelete = ForeignKey.CASCADE,
+            )
+        ],
     indices = [Index("trackId"), Index("expiresAt")],
 )
 data class TrackSourceEntity(
@@ -82,21 +88,27 @@ data class PlaylistSummary(
 
 @Entity(
     tableName = "playlist_entries",
-    foreignKeys = [
-        ForeignKey(
-            entity = PlaylistEntity::class,
-            parentColumns = ["playlistId"],
-            childColumns = ["playlistId"],
-            onDelete = ForeignKey.CASCADE
-        ),
-        ForeignKey(
-            entity = TrackEntity::class,
-            parentColumns = ["trackId"],
-            childColumns = ["trackId"],
-            onDelete = ForeignKey.CASCADE
-        ),
-    ],
-    indices = [Index("playlistId"), Index("trackId"), Index(value = ["playlistId", "position"], unique = true)],
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = PlaylistEntity::class,
+                parentColumns = ["playlistId"],
+                childColumns = ["playlistId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+            ForeignKey(
+                entity = TrackEntity::class,
+                parentColumns = ["trackId"],
+                childColumns = ["trackId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+        ],
+    indices =
+        [
+            Index("playlistId"),
+            Index("trackId"),
+            Index(value = ["playlistId", "position"], unique = true),
+        ],
 )
 data class PlaylistEntryEntity(
     @PrimaryKey val entryId: String,
@@ -117,11 +129,7 @@ interface TrackDao {
     @Query(
         """
         SELECT * FROM tracks
-        WHERE :query = ''
-           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
         ORDER BY COALESCE(lastPlayedAt, createdAt) DESC, trackId ASC
         """
     )
@@ -130,11 +138,7 @@ interface TrackDao {
     @Query(
         """
         SELECT * FROM tracks
-        WHERE :query = ''
-           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
         ORDER BY LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
         """
     )
@@ -143,11 +147,7 @@ interface TrackDao {
     @Query(
         """
         SELECT * FROM tracks
-        WHERE :query = ''
-           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
         ORDER BY LOWER(COALESCE(artist, '')) ASC, LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
         """
     )
@@ -156,11 +156,7 @@ interface TrackDao {
     @Query(
         """
         SELECT * FROM tracks
-        WHERE :query = ''
-           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
         ORDER BY LOWER(COALESCE(album, '')) ASC, LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
         """
     )
@@ -169,11 +165,7 @@ interface TrackDao {
     @Query(
         """
         SELECT COUNT(*) FROM tracks
-        WHERE :query = ''
-           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
         """
     )
     fun observeLibraryCount(query: String): Flow<Int>
@@ -181,15 +173,12 @@ interface TrackDao {
     @Query(
         """
         SELECT trackId FROM tracks
-        WHERE :query = ''
-           OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(:query) || '%'
-           OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(:query) || '%'
+        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
         ORDER BY LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        LIMIT :limit
         """
     )
-    suspend fun libraryTrackIds(query: String): List<String>
+    suspend fun libraryTrackIds(query: String, limit: Int): List<String>
 
     @Query(
         """
@@ -207,14 +196,15 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE trackId IN (:trackIds)")
     suspend fun getMany(trackIds: List<String>): List<TrackEntity>
 
-    @Upsert
-    suspend fun upsert(track: TrackEntity)
+    @Upsert suspend fun upsert(track: TrackEntity)
 
     @Query("UPDATE tracks SET lastPlayedAt = :timestamp WHERE trackId = :trackId")
     suspend fun markPlayed(trackId: String, timestamp: Long)
 
-    @Query("DELETE FROM tracks WHERE trackId = :trackId")
-    suspend fun delete(trackId: String)
+    @Query("DELETE FROM tracks WHERE trackId = :trackId") suspend fun delete(trackId: String)
+
+    @Query("DELETE FROM tracks WHERE trackId IN (:trackIds)")
+    suspend fun deleteMany(trackIds: List<String>)
 }
 
 @Dao
@@ -237,6 +227,28 @@ interface TrackSourceDao {
 
     @Query("SELECT * FROM track_sources WHERE retentionPolicy = 'TEMPORARY_24_HOURS'")
     suspend fun temporarySources(): List<TrackSourceEntity>
+
+    @Query(
+        "SELECT DISTINCT trackId FROM track_sources " +
+            "WHERE retentionPolicy = 'TEMPORARY_24_HOURS' AND trackId > :afterTrackId " +
+            "ORDER BY trackId LIMIT :limit"
+    )
+    suspend fun temporaryTrackIdsAfter(afterTrackId: String, limit: Int): List<String>
+
+    @Query(
+        "DELETE FROM track_sources WHERE retentionPolicy = 'TEMPORARY_24_HOURS' " +
+            "AND trackId IN (:trackIds)"
+    )
+    suspend fun deleteTemporaryForTracks(trackIds: List<String>)
+
+    @Query("SELECT DISTINCT trackId FROM track_sources WHERE trackId IN (:trackIds)")
+    suspend fun remainingTrackIds(trackIds: List<String>): List<String>
+
+    @Query(
+        "SELECT DISTINCT trackId FROM track_sources " +
+            "WHERE trackId IN (:trackIds) AND managedRelativePath IS NOT NULL"
+    )
+    suspend fun remainingManagedTrackIds(trackIds: List<String>): List<String>
 
     @Query("SELECT * FROM track_sources WHERE managedRelativePath IS NOT NULL")
     suspend fun managedSources(): List<TrackSourceEntity>
@@ -277,10 +289,11 @@ interface TrackSourceDao {
     )
     fun observeTemporaryBytes(): Flow<Long>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsert(source: TrackSourceEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(source: TrackSourceEntity)
 
-    @Query("UPDATE track_sources SET retentionPolicy = :policy, expiresAt = :expiresAt WHERE sourceId = :sourceId")
+    @Query(
+        "UPDATE track_sources SET retentionPolicy = :policy, expiresAt = :expiresAt WHERE sourceId = :sourceId"
+    )
     suspend fun updateRetention(sourceId: String, policy: String, expiresAt: Long?)
 
     @Query(
@@ -296,16 +309,19 @@ interface TrackSourceDao {
         policy: String,
     )
 
-    @Query("UPDATE track_sources SET expiresAt = :expiresAt WHERE trackId = :trackId AND retentionPolicy = 'TEMPORARY_24_HOURS'")
+    @Query(
+        "UPDATE track_sources SET expiresAt = :expiresAt WHERE trackId = :trackId AND retentionPolicy = 'TEMPORARY_24_HOURS'"
+    )
     suspend fun extendTemporary(trackId: String, expiresAt: Long)
 
-    @Delete
-    suspend fun delete(source: TrackSourceEntity)
+    @Delete suspend fun delete(source: TrackSourceEntity)
 
     @Query("SELECT COUNT(*) FROM track_sources WHERE trackId = :trackId")
     suspend fun countForTrack(trackId: String): Int
 
-    @Query("SELECT COUNT(*) FROM track_sources WHERE trackId = :trackId AND managedRelativePath IS NOT NULL")
+    @Query(
+        "SELECT COUNT(*) FROM track_sources WHERE trackId = :trackId AND managedRelativePath IS NOT NULL"
+    )
     suspend fun managedCountForTrack(trackId: String): Int
 }
 
@@ -325,8 +341,7 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE playlistId = :playlistId")
     suspend fun get(playlistId: String): PlaylistEntity?
 
-    @Upsert
-    suspend fun upsert(playlist: PlaylistEntity)
+    @Upsert suspend fun upsert(playlist: PlaylistEntity)
 
     @Query("DELETE FROM playlists WHERE playlistId = :playlistId")
     suspend fun delete(playlistId: String)
@@ -340,6 +355,27 @@ interface PlaylistDao {
     @Query("DELETE FROM playlist_entries WHERE playlistId = :playlistId")
     suspend fun clearEntries(playlistId: String)
 
+    @Query("SELECT COUNT(*) FROM playlist_entries WHERE playlistId = :playlistId")
+    suspend fun entryCount(playlistId: String): Int
+
+    @Query("UPDATE playlist_entries SET position = :position WHERE entryId = :entryId")
+    suspend fun updateEntryPosition(entryId: String, position: Int)
+
+    @Query("DELETE FROM playlist_entries WHERE playlistId = :playlistId AND position = :position")
+    suspend fun deleteEntryAt(playlistId: String, position: Int)
+
+    @Query(
+        "UPDATE playlist_entries SET position = -position - 1 " +
+            "WHERE playlistId = :playlistId AND position > :removedPosition"
+    )
+    suspend fun parkEntriesAfterRemoval(playlistId: String, removedPosition: Int)
+
+    @Query(
+        "UPDATE playlist_entries SET position = -position - 2 " +
+            "WHERE playlistId = :playlistId AND position < 0"
+    )
+    suspend fun restoreEntriesAfterRemoval(playlistId: String)
+
     @Transaction
     suspend fun replaceEntries(playlistId: String, entries: List<PlaylistEntryEntity>) {
         clearEntries(playlistId)
@@ -349,26 +385,37 @@ interface PlaylistDao {
 
 @Dao
 interface RoomSnapshotDao {
-    @Query("DELETE FROM room_snapshots")
-    suspend fun deleteAll()
+    @Query("DELETE FROM room_snapshots") suspend fun deleteAll()
 }
 
 @Database(
-    entities = [TrackEntity::class, TrackSourceEntity::class, PlaylistEntity::class, PlaylistEntryEntity::class, RoomSnapshotEntity::class],
+    entities =
+        [
+            TrackEntity::class,
+            TrackSourceEntity::class,
+            PlaylistEntity::class,
+            PlaylistEntryEntity::class,
+            RoomSnapshotEntity::class,
+        ],
     version = 1,
     exportSchema = true,
 )
 abstract class UnisonDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
+
     abstract fun trackSourceDao(): TrackSourceDao
+
     abstract fun playlistDao(): PlaylistDao
+
     abstract fun roomSnapshotDao(): RoomSnapshotDao
 
     companion object {
-        fun create(context: Context): UnisonDatabase = Room.databaseBuilder(
-            context.applicationContext,
-            UnisonDatabase::class.java,
-            "unison.db",
-        ).build()
+        fun create(context: Context): UnisonDatabase =
+            Room.databaseBuilder(
+                    context.applicationContext,
+                    UnisonDatabase::class.java,
+                    "unison.db",
+                )
+                .build()
     }
 }
