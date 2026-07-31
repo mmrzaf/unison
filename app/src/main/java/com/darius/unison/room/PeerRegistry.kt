@@ -15,6 +15,8 @@ internal class PeerRegistry<C> {
     val lastSeenElapsedMs = ConcurrentHashMap<PeerId, Long>()
     val announcedTrackIds = ConcurrentHashMap.newKeySet<TrackId>()
     val clockReadyPeers = ConcurrentHashMap.newKeySet<PeerId>()
+    val clockRoundTripNs = ConcurrentHashMap<PeerId, Long>()
+    val clockUncertaintyNs = ConcurrentHashMap<PeerId, Long>()
     val transferFailureCounts = ConcurrentHashMap<String, Int>()
     val pendingTransferAssignments = ConcurrentHashMap<String, ProtocolBody.TrackSourceAssigned>()
 
@@ -32,6 +34,8 @@ internal class PeerRegistry<C> {
         endpoints.remove(peerId)
         lastSeenElapsedMs.remove(peerId)
         clockReadyPeers.remove(peerId)
+        clockRoundTripNs.remove(peerId)
+        clockUncertaintyNs.remove(peerId)
         availability.values.forEach { it.remove(peerId) }
         waitingForSource.values.forEach { it.remove(peerId) }
         transferFailureCounts.keys.removeAll { it.contains(":$peerId") }
@@ -46,6 +50,8 @@ internal class PeerRegistry<C> {
         lastSeenElapsedMs.clear()
         announcedTrackIds.clear()
         clockReadyPeers.clear()
+        clockRoundTripNs.clear()
+        clockUncertaintyNs.clear()
         transferFailureCounts.clear()
         pendingTransferAssignments.clear()
     }
