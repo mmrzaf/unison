@@ -41,10 +41,83 @@ class CryptoTest {
     }
 
     @Test
-    fun pinProofChangesWithNonce() {
-        val first = Crypto.pinProof("room", "123456", "nonce-one")
-        val second = Crypto.pinProof("room", "123456", "nonce-two")
-        assertFalse(first == second)
-        assertTrue(first.isNotBlank())
+    fun fileTransferProofIsBoundToTheFullRequestTranscript() {
+        val token = "transfer-secret"
+        val proof =
+            Crypto.fileTransferProof(
+                token,
+                "room",
+                "track",
+                "request",
+                "source",
+                "destination",
+                128,
+                "client-nonce",
+                "server-nonce",
+            )
+        val same =
+            Crypto.fileTransferProof(
+                token,
+                "room",
+                "track",
+                "request",
+                "source",
+                "destination",
+                128,
+                "client-nonce",
+                "server-nonce",
+            )
+        val otherOffset =
+            Crypto.fileTransferProof(
+                token,
+                "room",
+                "track",
+                "request",
+                "source",
+                "destination",
+                129,
+                "client-nonce",
+                "server-nonce",
+            )
+        val otherDestination =
+            Crypto.fileTransferProof(
+                token,
+                "room",
+                "track",
+                "request",
+                "source",
+                "other",
+                128,
+                "client-nonce",
+                "server-nonce",
+            )
+
+        assertEquals(proof, same)
+        assertFalse(proof == otherOffset)
+        assertFalse(proof == otherDestination)
+    }
+
+    @Test
+    fun fileTransferSessionKeysAreFreshAndAuthorizationIdDoesNotRevealToken() {
+        val token = "very-secret-token"
+        val id = Crypto.fileTransferAuthorizationId(token)
+        val first = Crypto.deriveFileTransferSessionKey(token, "room", "track", "client", "server")
+        val same = Crypto.deriveFileTransferSessionKey(token, "room", "track", "client", "server")
+        val fresh =
+            Crypto.deriveFileTransferSessionKey(token, "room", "track", "client", "server-2")
+
+        assertTrue(id.isNotBlank())
+        assertFalse(id.contains(token))
+        assertTrue(first.contentEquals(same))
+        assertFalse(first.contentEquals(fresh))
+    }
+
+    @Test
+    fun generatedRoomCodeAlwaysHasFourDigits() {
+        repeat(200) {
+            val code = Crypto.randomFourDigitPin()
+            assertEquals(4, code.length)
+            assertTrue(code.all(Char::isDigit))
+        }
     }
 }

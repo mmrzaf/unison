@@ -12,22 +12,27 @@ object HandshakeCodec {
 
     fun write(output: OutputStream, message: HandshakeMessage) {
         val bytes = ProtocolJson.encodeToString<HandshakeMessage>(message).encodeToByteArray()
-        require(bytes.size <= MAX_HANDSHAKE) { "Handshake too large" }
-        DataOutputStream(output).apply {
-            writeInt(MAGIC)
-            writeInt(bytes.size)
-            write(bytes)
-            flush()
+        try {
+            require(bytes.size <= MAX_HANDSHAKE) { "Handshake too large" }
+            DataOutputStream(output).apply {
+                writeInt(MAGIC)
+                writeInt(bytes.size)
+                write(bytes)
+                flush()
+            }
+        } finally {
+            bytes.fill(0)
         }
     }
 
     fun read(input: InputStream): HandshakeMessage {
         val data = DataInputStream(input)
-        val magic = try {
-            data.readInt()
-        } catch (e: EOFException) {
-            throw ProtocolException("Handshake closed", e)
-        }
+        val magic =
+            try {
+                data.readInt()
+            } catch (e: EOFException) {
+                throw ProtocolException("Handshake closed", e)
+            }
         if (magic != MAGIC) throw ProtocolException("Invalid handshake magic")
         val length = data.readInt()
         if (length !in 1..MAX_HANDSHAKE) throw ProtocolException("Invalid handshake size: $length")
@@ -37,8 +42,8 @@ object HandshakeCodec {
             ProtocolJson.decodeFromString<HandshakeMessage>(bytes.decodeToString())
         } catch (e: Exception) {
             throw ProtocolException("Invalid handshake JSON", e)
+        } finally {
+            bytes.fill(0)
         }
     }
 }
-
-class ProtocolException(message: String, cause: Throwable? = null) : Exception(message, cause)

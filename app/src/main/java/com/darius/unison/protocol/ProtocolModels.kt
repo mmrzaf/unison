@@ -11,15 +11,20 @@ import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
+import com.darius.unison.model.TransportAction
+import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.model.UserCommand
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-const val PROTOCOL_VERSION = 2
-const val MAX_CONTROL_PAYLOAD_BYTES = 1024 * 1024
+const val PROTOCOL_VERSION = 1
+const val MAX_CONTROL_PAYLOAD_BYTES = 4 * 1024 * 1024
 
 @Serializable
-enum class ChannelType { CONTROL, FILE }
+enum class ChannelType {
+    CONTROL,
+    FILE,
+}
 
 @Serializable
 data class Envelope(
@@ -38,7 +43,8 @@ data class Envelope(
 sealed interface ProtocolBody {
     @Serializable
     @SerialName("join_accepted")
-    data class JoinAccepted(val snapshot: RoomSnapshot, val peerDirectory: List<PeerEndpoint>) : ProtocolBody
+    data class JoinAccepted(val snapshot: RoomSnapshot, val peerDirectory: List<PeerEndpoint>) :
+        ProtocolBody
 
     @Serializable
     @SerialName("peer_joined")
@@ -48,9 +54,7 @@ sealed interface ProtocolBody {
     @SerialName("peer_updated")
     data class PeerUpdated(val member: MemberSnapshot) : ProtocolBody
 
-    @Serializable
-    @SerialName("peer_left")
-    data class PeerLeft(val peerId: PeerId) : ProtocolBody
+    @Serializable @SerialName("peer_left") data class PeerLeft(val peerId: PeerId) : ProtocolBody
 
     @Serializable
     @SerialName("peer_directory")
@@ -93,24 +97,47 @@ sealed interface ProtocolBody {
     data class UserCommandRequest(val command: UserCommand) : ProtocolBody
 
     @Serializable
+    @SerialName("command_status")
+    data class CommandStatus(
+        val commandId: String,
+        val action: TransportAction,
+        val phase: TransportCommandPhase,
+        val queueItemId: QueueItemId? = null,
+        val requestedPositionMs: Long? = null,
+        val message: String? = null,
+    ) : ProtocolBody
+
+    @Serializable
     @SerialName("command_rejected")
     data class CommandRejected(val commandId: String, val reason: String) : ProtocolBody
 
     @Serializable
-    @SerialName("queue_item_added")
-    data class QueueItemAdded(val item: QueueItem, val index: Int? = null) : ProtocolBody
+    @SerialName("queue_items_added")
+    data class QueueItemsAdded(
+        val items: List<QueueItem>,
+        val index: Int? = null,
+    ) : ProtocolBody
 
     @Serializable
-    @SerialName("queue_item_removed")
-    data class QueueItemRemoved(val queueItemId: QueueItemId) : ProtocolBody
+    @SerialName("queue_items_removed")
+    data class QueueItemsRemoved(val queueItemIds: List<QueueItemId>) : ProtocolBody
 
     @Serializable
     @SerialName("queue_item_moved")
     data class QueueItemMoved(val queueItemId: QueueItemId, val newIndex: Int) : ProtocolBody
 
+    @Serializable @SerialName("queue_cleared") data object QueueCleared : ProtocolBody
+
     @Serializable
-    @SerialName("queue_item_preparation")
-    data class QueueItemPreparation(val queueItemId: QueueItemId, val prepared: Boolean) : ProtocolBody
+    @SerialName("queue_prepared_set_changed")
+    data class QueuePreparedSetChanged(val preparedQueueItemIds: Set<QueueItemId>) : ProtocolBody
+
+    @Serializable
+    @SerialName("queue_item_preparation_requested")
+    data class QueueItemPreparationRequested(
+        val queueItemId: QueueItemId,
+        val commandId: String? = null,
+    ) : ProtocolBody
 
     @Serializable
     @SerialName("room_options_changed")
@@ -131,13 +158,16 @@ sealed interface ProtocolBody {
         val queueItemId: QueueItemId,
         val positionMs: Long,
         val executeAtCoordinatorNs: Long,
+        val commandId: String? = null,
     ) : ProtocolBody
 
     @Serializable
     @SerialName("pause_scheduled")
     data class PauseScheduled(
+        val queueItemId: QueueItemId,
         val positionMs: Long,
         val executeAtCoordinatorNs: Long,
+        val commandId: String? = null,
     ) : ProtocolBody
 
     @Serializable
@@ -147,6 +177,7 @@ sealed interface ProtocolBody {
         val positionMs: Long,
         val resumePlayback: Boolean,
         val executeAtCoordinatorNs: Long,
+        val commandId: String? = null,
     ) : ProtocolBody
 
     @Serializable
@@ -156,6 +187,7 @@ sealed interface ProtocolBody {
         val positionMs: Long,
         val executeAtCoordinatorNs: Long,
         val resumePlayback: Boolean,
+        val commandId: String? = null,
     ) : ProtocolBody
 
     @Serializable
@@ -173,7 +205,11 @@ sealed interface ProtocolBody {
 
     @Serializable
     @SerialName("clock_ready")
-    data class ClockReady(val synchronized: Boolean = true) : ProtocolBody
+    data class ClockReady(
+        val synchronized: Boolean = true,
+        val roundTripNs: Long? = null,
+        val uncertaintyNs: Long? = null,
+    ) : ProtocolBody
 
     @Serializable
     @SerialName("playback_state_sync")
@@ -243,12 +279,27 @@ sealed interface ProtocolBody {
     @Serializable
     @SerialName("transfer_cancelled")
     data class TransferCancelled(val trackId: TrackId, val reason: String? = null) : ProtocolBody
-
 }
 
+@Serializable
+enum class ControlCredentialMode {
+    PIN,
+    RECONNECT,
+}
 
 @Serializable
-enum class ControlCredentialMode { PIN, RECONNECT }
+enum class HandshakeRejectionCode {
+    UNKNOWN,
+    ROOM_INACTIVE,
+    COORDINATOR_MOVED,
+    WRONG_ROOM,
+    PROTOCOL_MISMATCH,
+    IDENTITY_COLLISION,
+    INVALID_REQUEST,
+    RATE_LIMITED,
+    AUTHENTICATION_FAILED,
+    ROOM_FULL,
+}
 
 @Serializable
 sealed interface HandshakeMessage {
@@ -263,10 +314,22 @@ sealed interface HandshakeMessage {
         val listeningPort: Int,
         val roomId: String,
         val clientNonce: String,
-        val pinProof: String? = null,
+        val pinPublicValueBase64: String? = null,
         val reconnectProof: String? = null,
         val fileRequest: FileRequest? = null,
     ) : HandshakeMessage
+
+    @Serializable
+    @SerialName("pin_challenge")
+    data class PinChallenge(
+        val saltBase64: String,
+        val serverPublicValueBase64: String,
+        val serverNonce: String,
+    ) : HandshakeMessage
+
+    @Serializable
+    @SerialName("pin_response")
+    data class PinResponse(val proofBase64: String) : HandshakeMessage
 
     @Serializable
     @SerialName("coordinator_hello")
@@ -278,6 +341,7 @@ sealed interface HandshakeMessage {
         val encryptedRoomSecretBase64: String,
         val roomSecretIvBase64: String,
         val credentialMode: ControlCredentialMode = ControlCredentialMode.PIN,
+        val pinServerProofBase64: String? = null,
         val snapshotSequence: Long,
     ) : HandshakeMessage
 
@@ -286,8 +350,23 @@ sealed interface HandshakeMessage {
     data class Accepted(val serverNonce: String) : HandshakeMessage
 
     @Serializable
+    @SerialName("file_challenge")
+    data class FileChallenge(val requestId: String, val serverNonce: String) : HandshakeMessage
+
+    @Serializable
+    @SerialName("file_proof")
+    data class FileProof(val requestId: String, val proofBase64: String) : HandshakeMessage
+
+    @Serializable
+    @SerialName("file_ready")
+    data class FileReady(val requestId: String, val baseNonceBase64: String) : HandshakeMessage
+
+    @Serializable
     @SerialName("rejected")
-    data class Rejected(val reason: String) : HandshakeMessage
+    data class Rejected(
+        val reason: String,
+        val code: HandshakeRejectionCode = HandshakeRejectionCode.UNKNOWN,
+    ) : HandshakeMessage
 }
 
 @Serializable
@@ -296,11 +375,18 @@ data class FileRequest(
     val roomId: String,
     val trackId: TrackId,
     val offset: Long,
-    val authorizationToken: String,
+    val authorizationId: String,
 )
 
 @Serializable
-enum class FileResponseStatus { OK, NOT_FOUND, UNAUTHORIZED, INVALID_OFFSET, BUSY, ERROR }
+enum class FileResponseStatus {
+    OK,
+    NOT_FOUND,
+    UNAUTHORIZED,
+    INVALID_OFFSET,
+    BUSY,
+    ERROR,
+}
 
 @Serializable
 data class FileResponseHeader(

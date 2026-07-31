@@ -4,9 +4,9 @@ import com.darius.unison.model.PeerId
 import java.util.UUID
 
 /**
- * Per-peer replay, term, sequence, and scheduled-command acceptance state.
- * RoomRuntime calls this from its serialized event loop, but methods remain synchronized so tests
- * and future callers cannot accidentally race the bounded windows.
+ * Per-peer replay, term, sequence, and scheduled-command acceptance state. RoomRuntime calls this
+ * from its serialized event loop, but methods remain synchronized so tests and future callers
+ * cannot accidentally race the bounded windows.
  */
 class EnvelopeReplayProtector(
     private val maxRecentMessageIdsPerPeer: Int = 512,
@@ -29,20 +29,30 @@ class EnvelopeReplayProtector(
         coordinatorNowNs: Long? = null,
     ): EnvelopeAcceptance {
         if (envelope.senderPeerId != socketPeerId) {
-            return EnvelopeAcceptance.Rejected("Authenticated socket identity does not match envelope sender")
+            return EnvelopeAcceptance.Rejected(
+                "Authenticated socket identity does not match envelope sender"
+            )
         }
         if (runCatching { UUID.fromString(envelope.messageId) }.isFailure) {
             return EnvelopeAcceptance.Rejected("Invalid message identifier")
         }
-        if (envelope.sentAtElapsedNs <= 0) return EnvelopeAcceptance.Rejected("Invalid monotonic timestamp")
+        if (envelope.sentAtElapsedNs <= 0)
+            return EnvelopeAcceptance.Rejected("Invalid monotonic timestamp")
 
         val state = peers.getOrPut(socketPeerId) { PeerAcceptanceState() }
         if (envelope.messageId in state.recentMessageIds) return EnvelopeAcceptance.Duplicate
 
         if (acceptedTerm != null) {
-            if (envelope.term < acceptedTerm) return EnvelopeAcceptance.Rejected("Envelope belongs to an older term")
-            if (envelope.term > acceptedTerm && envelope.body !is ProtocolBody.JoinAccepted && envelope.body !is ProtocolBody.Snapshot) {
-                return EnvelopeAcceptance.Rejected("Higher-term state must arrive as an authenticated snapshot")
+            if (envelope.term < acceptedTerm)
+                return EnvelopeAcceptance.Rejected("Envelope belongs to an older term")
+            if (
+                envelope.term > acceptedTerm &&
+                    envelope.body !is ProtocolBody.JoinAccepted &&
+                    envelope.body !is ProtocolBody.Snapshot
+            ) {
+                return EnvelopeAcceptance.Rejected(
+                    "Higher-term state must arrive as an authenticated snapshot"
+                )
             }
         }
         if (envelope.term < state.highestObservedTerm) {
@@ -70,7 +80,8 @@ class EnvelopeReplayProtector(
         }
 
         state.highestObservedTerm = maxOf(state.highestObservedTerm, envelope.term)
-        if (sequence != null) state.highestOrderedSequence = maxOf(state.highestOrderedSequence, sequence)
+        if (sequence != null)
+            state.highestOrderedSequence = maxOf(state.highestOrderedSequence, sequence)
         state.recentMessageIds += envelope.messageId
         while (state.recentMessageIds.size > maxRecentMessageIdsPerPeer) {
             state.recentMessageIds.remove(state.recentMessageIds.first())
@@ -88,18 +99,22 @@ class EnvelopeReplayProtector(
         peers.clear()
     }
 
-    private fun ProtocolBody.scheduledExecutionNs(): Long? = when (this) {
-        is ProtocolBody.PlayScheduled -> executeAtCoordinatorNs
-        is ProtocolBody.PauseScheduled -> executeAtCoordinatorNs
-        is ProtocolBody.SeekScheduled -> executeAtCoordinatorNs
-        is ProtocolBody.CurrentItemChanged -> executeAtCoordinatorNs
-        else -> null
-    }
+    private fun ProtocolBody.scheduledExecutionNs(): Long? =
+        when (this) {
+            is ProtocolBody.PlayScheduled -> executeAtCoordinatorNs
+            is ProtocolBody.PauseScheduled -> executeAtCoordinatorNs
+            is ProtocolBody.SeekScheduled -> executeAtCoordinatorNs
+            is ProtocolBody.CurrentItemChanged -> executeAtCoordinatorNs
+            else -> null
+        }
 }
 
 sealed interface EnvelopeAcceptance {
     data object Accepted : EnvelopeAcceptance
+
     data object Duplicate : EnvelopeAcceptance
+
     data class SequenceGap(val expected: Long, val actual: Long) : EnvelopeAcceptance
+
     data class Rejected(val reason: String) : EnvelopeAcceptance
 }
