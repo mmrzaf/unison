@@ -5,6 +5,8 @@ import com.darius.unison.model.PeerId
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.FrameCodec
 import com.darius.unison.util.DiagnosticLog
+import java.net.Socket
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,8 +20,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withTimeoutOrNull
-import java.net.Socket
-import java.util.concurrent.atomic.AtomicBoolean
 
 class ControlConnection(
     val peerId: PeerId,
@@ -32,16 +32,20 @@ class ControlConnection(
     private val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
 ) {
     private val callbackScope = parentScope
-    private val scope = CoroutineScope(parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job]))
+    private val supervisorJob = SupervisorJob(parentScope.coroutineContext[Job])
+    private val scope = CoroutineScope(parentScope.coroutineContext + supervisorJob)
 
-    /** Ordered state and commands. Saturation is fatal because dropping one creates a history gap. */
+    /**
+     * Ordered state and commands. Saturation is fatal because dropping one creates a history gap.
+     */
     private val guaranteed = Channel<Envelope>(capacity = GUARANTEED_CAPACITY)
 
     /** Pings, pongs, heartbeats, and ACKs. Old timing samples are less useful than current ones. */
-    private val clock = Channel<Envelope>(
-        capacity = CLOCK_CAPACITY,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    private val clock =
+        Channel<Envelope>(
+            capacity = CLOCK_CAPACITY,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
 
     /** Only the latest canonical playback reference matters to a lagging peer. */
     private val playbackReference = Channel<Envelope>(capacity = Channel.CONFLATED)
@@ -72,7 +76,10 @@ class ControlConnection(
         }
         scope.launch(Dispatchers.IO) {
             try {
-                while (isActive && !socket.isClosed) onEnvelope(peerId, codec.read(socket.getInputStream()))
+                while (isActive && !socket.isClosed) onEnvelope(
+                    peerId,
+                    codec.read(socket.getInputStream()),
+                )
             } catch (cancelled: CancellationException) {
                 close(cancelled)
                 throw cancelled
@@ -85,28 +92,33 @@ class ControlConnection(
     suspend fun send(envelope: Envelope) {
         if (closed.get()) return
         val trafficClass = ControlTrafficClassifier.classify(envelope)
-        val delivered = try {
-            when (trafficClass) {
-                ControlTrafficClass.GUARANTEED -> timedSend(guaranteed, envelope, GUARANTEED_SEND_TIMEOUT_MS)
-                ControlTrafficClass.CLOCK -> clock.trySend(envelope).isSuccess
-                ControlTrafficClass.PLAYBACK_REFERENCE -> playbackReference.trySend(envelope).isSuccess
-                ControlTrafficClass.TELEMETRY -> telemetry.trySend(envelope).isSuccess
-                ControlTrafficClass.TRANSFER -> timedSend(transfer, envelope, TRANSFER_SEND_TIMEOUT_MS)
+        val delivered =
+            try {
+                when (trafficClass) {
+                    ControlTrafficClass.GUARANTEED ->
+                        timedSend(guaranteed, envelope, GUARANTEED_SEND_TIMEOUT_MS)
+                    ControlTrafficClass.CLOCK -> clock.trySend(envelope).isSuccess
+                    ControlTrafficClass.PLAYBACK_REFERENCE ->
+                        playbackReference.trySend(envelope).isSuccess
+                    ControlTrafficClass.TELEMETRY -> telemetry.trySend(envelope).isSuccess
+                    ControlTrafficClass.TRANSFER ->
+                        timedSend(transfer, envelope, TRANSFER_SEND_TIMEOUT_MS)
+                }
+            } catch (_: ClosedSendChannelException) {
+                false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                close(error)
+                false
             }
-        } catch (_: ClosedSendChannelException) {
-            false
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            close(error)
-            false
-        }
         if (!delivered && !closed.get()) {
-            val reason = when (trafficClass) {
-                ControlTrafficClass.GUARANTEED -> "Guaranteed control queue is full"
-                ControlTrafficClass.TRANSFER -> "Transfer control queue is full"
-                else -> "Control queue is closed"
-            }
+            val reason =
+                when (trafficClass) {
+                    ControlTrafficClass.GUARANTEED -> "Guaranteed control queue is full"
+                    ControlTrafficClass.TRANSFER -> "Transfer control queue is full"
+                    else -> "Control queue is closed"
+                }
             close(IllegalStateException(reason))
         }
     }
@@ -122,7 +134,11 @@ class ControlConnection(
         }
     }
 
-    private suspend fun timedSend(channel: Channel<Envelope>, envelope: Envelope, timeoutMs: Long): Boolean =
+    private suspend fun timedSend(
+        channel: Channel<Envelope>,
+        envelope: Envelope,
+        timeoutMs: Long,
+    ): Boolean =
         withTimeoutOrNull(timeoutMs) {
             channel.send(envelope)
             true
@@ -133,11 +149,21 @@ class ControlConnection(
      * every ordered envelope uses the same single-consumer [guaranteed] channel.
      */
     private suspend fun nextOutgoing(): Envelope? {
-        guaranteed.tryReceive().getOrNull()?.let { return it }
-        clock.tryReceive().getOrNull()?.let { return it }
-        playbackReference.tryReceive().getOrNull()?.let { return it }
-        transfer.tryReceive().getOrNull()?.let { return it }
-        telemetry.tryReceive().getOrNull()?.let { return it }
+        guaranteed.tryReceive().getOrNull()?.let {
+            return it
+        }
+        clock.tryReceive().getOrNull()?.let {
+            return it
+        }
+        playbackReference.tryReceive().getOrNull()?.let {
+            return it
+        }
+        transfer.tryReceive().getOrNull()?.let {
+            return it
+        }
+        telemetry.tryReceive().getOrNull()?.let {
+            return it
+        }
 
         return select {
             guaranteed.onReceiveCatching { it.getOrNull() }
@@ -149,6 +175,19 @@ class ControlConnection(
     }
 
     fun close(cause: Throwable? = null) {
+        shutdown(cause, notifyClosed = true)
+    }
+
+    fun closeSilently() {
+        shutdown(cause = null, notifyClosed = false)
+    }
+
+    suspend fun closeAndJoin(notifyClosed: Boolean = false) {
+        shutdown(cause = null, notifyClosed = notifyClosed)
+        withTimeoutOrNull(CLOSE_JOIN_TIMEOUT_MS) { supervisorJob.join() }
+    }
+
+    private fun shutdown(cause: Throwable?, notifyClosed: Boolean) {
         if (!closed.compareAndSet(false, true)) return
         guaranteed.close()
         clock.close()
@@ -157,14 +196,17 @@ class ControlConnection(
         transfer.close()
         runCatching { socket.close() }
         scope.cancel()
+        codec.close()
         when (cause) {
-            null, is CancellationException ->
+            null,
+            is CancellationException ->
                 log.i(TAG, "Control connection closed peer=${peerId.value.take(8)}")
 
-            else ->
-                log.e(TAG, "Control connection failed peer=${peerId.value.take(8)}", cause)
+            else -> log.e(TAG, "Control connection failed peer=${peerId.value.take(8)}", cause)
         }
-        callbackScope.launch(Dispatchers.Default) { onClosed(this@ControlConnection, cause) }
+        if (notifyClosed) {
+            callbackScope.launch(Dispatchers.Default) { onClosed(this@ControlConnection, cause) }
+        }
     }
 
     companion object {
@@ -174,5 +216,6 @@ class ControlConnection(
         private const val TRANSFER_CAPACITY = 64
         private const val GUARANTEED_SEND_TIMEOUT_MS = 2_000L
         private const val TRANSFER_SEND_TIMEOUT_MS = 1_000L
+        private const val CLOSE_JOIN_TIMEOUT_MS = 2_000L
     }
 }

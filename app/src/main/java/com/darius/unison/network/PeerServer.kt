@@ -6,18 +6,21 @@ import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.FrameCodec
 import com.darius.unison.protocol.HandshakeCodec
 import com.darius.unison.protocol.HandshakeMessage
+import com.darius.unison.protocol.HandshakeRejectionCode
 import com.darius.unison.protocol.ProtocolException
 import com.darius.unison.util.DiagnosticLog
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
-import java.net.InetSocketAddress
-import java.net.ServerSocket
-import java.net.Socket
+import kotlinx.coroutines.withTimeoutOrNull
 
 class PeerServer(
     private val scope: CoroutineScope,
@@ -25,8 +28,13 @@ class PeerServer(
     private val handler: Handler,
 ) {
     interface Handler {
-        suspend fun admitControl(hello: HandshakeMessage.ClientHello, remoteAddress: String): ControlAdmission
+        suspend fun admitControl(
+            hello: HandshakeMessage.ClientHello,
+            remoteAddress: String,
+        ): ControlAdmission
+
         suspend fun onControlConnected(connection: ControlConnection)
+
         suspend fun onFileConnection(socket: Socket, hello: HandshakeMessage.ClientHello)
     }
 
@@ -41,43 +49,52 @@ class PeerServer(
             val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
         ) : ControlAdmission
 
-        data class Rejected(val reason: String) : ControlAdmission
+        data class PinChallenge(
+            val response: HandshakeMessage.PinChallenge,
+            val complete: suspend (HandshakeMessage.PinResponse) -> ControlAdmission,
+        ) : ControlAdmission
+
+        data class Rejected(val reason: String, val code: HandshakeRejectionCode) : ControlAdmission
     }
 
     private var serverSocket: ServerSocket? = null
     private var acceptJob: Job? = null
     private val incomingSlots = Semaphore(MAX_CONCURRENT_INCOMING)
-    val port: Int get() = serverSocket?.localPort ?: 0
+    val port: Int
+        get() = serverSocket?.localPort ?: 0
 
     @Synchronized
     fun start(): Int {
         if (serverSocket != null) return port
-        val server = ServerSocket().apply {
-            reuseAddress = true
-            bind(InetSocketAddress(0), 16)
-        }
+        val server =
+            ServerSocket().apply {
+                reuseAddress = true
+                bind(InetSocketAddress(0), 16)
+            }
         serverSocket = server
-        acceptJob = scope.launch(Dispatchers.IO) {
-            while (isActive && !server.isClosed) {
-                val socket = try {
-                    server.accept()
-                } catch (error: Exception) {
-                    if (!server.isClosed) log.w(TAG, "Accept failed", error)
-                    break
-                }
-                if (!incomingSlots.tryAcquire()) {
-                    runCatching { socket.close() }
-                    continue
-                }
-                launch {
-                    try {
-                        handle(socket)
-                    } finally {
-                        incomingSlots.release()
+        acceptJob =
+            scope.launch(Dispatchers.IO) {
+                while (isActive && !server.isClosed) {
+                    val socket =
+                        try {
+                            server.accept()
+                        } catch (error: Exception) {
+                            if (!server.isClosed) log.w(TAG, "Accept failed", error)
+                            break
+                        }
+                    if (!incomingSlots.tryAcquire()) {
+                        runCatching { socket.close() }
+                        continue
+                    }
+                    launch {
+                        try {
+                            handle(socket)
+                        } finally {
+                            incomingSlots.release()
+                        }
                     }
                 }
             }
-        }
         log.i(TAG, "Peer server listening port=${server.localPort}")
         return server.localPort
     }
@@ -93,35 +110,25 @@ class PeerServer(
         }
         try {
             val message = HandshakeCodec.read(socket.getInputStream())
-            val hello = message as? HandshakeMessage.ClientHello ?: throw ProtocolException("Expected client hello")
+            val hello =
+                message as? HandshakeMessage.ClientHello
+                    ?: throw ProtocolException("Expected client hello")
             when (hello.channel) {
                 ChannelType.FILE -> handler.onFileConnection(socket, hello)
-                ChannelType.CONTROL -> when (val admission = handler.admitControl(hello, remote.hostAddress ?: "")) {
-                    is ControlAdmission.Rejected -> {
-                        HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Rejected(admission.reason))
-                        socket.close()
-                    }
-
-                    is ControlAdmission.Accepted -> {
-                        HandshakeCodec.write(socket.getOutputStream(), admission.response)
-                        socket.soTimeout = 0
-                        val connection = ControlConnection(
-                            peerId = hello.peerId,
-                            endpoint = admission.endpoint,
-                            socket = socket,
-                            codec = FrameCodec(
-                                writeKey = admission.serverWriteKey,
-                                readKey = admission.serverReadKey,
-                                expectedRoomId = admission.roomId,
-                            ),
-                            parentScope = scope,
-                            log = log,
-                            onEnvelope = admission.onEnvelope,
-                            onClosed = admission.onClosed,
-                        )
-                        handler.onControlConnected(connection)
-                        connection.start()
-                    }
+                ChannelType.CONTROL -> {
+                    val initial = handler.admitControl(hello, remote.hostAddress ?: "")
+                    val admission =
+                        if (initial is ControlAdmission.PinChallenge) {
+                            HandshakeCodec.write(socket.getOutputStream(), initial.response)
+                            val response =
+                                HandshakeCodec.read(socket.getInputStream())
+                                    as? HandshakeMessage.PinResponse
+                                    ?: throw ProtocolException("Expected PIN response")
+                            initial.complete(response)
+                        } else {
+                            initial
+                        }
+                    finishControlAdmission(socket, hello, admission)
                 }
             }
         } catch (cancelled: CancellationException) {
@@ -133,16 +140,91 @@ class PeerServer(
         }
     }
 
-    @Synchronized
+    private suspend fun finishControlAdmission(
+        socket: Socket,
+        hello: HandshakeMessage.ClientHello,
+        admission: ControlAdmission,
+    ) {
+        when (admission) {
+            is ControlAdmission.Rejected -> {
+                HandshakeCodec.write(
+                    socket.getOutputStream(),
+                    HandshakeMessage.Rejected(admission.reason, admission.code),
+                )
+                socket.close()
+            }
+
+            is ControlAdmission.PinChallenge -> throw ProtocolException("Nested PIN challenge")
+
+            is ControlAdmission.Accepted ->
+                try {
+                    HandshakeCodec.write(socket.getOutputStream(), admission.response)
+                    socket.soTimeout = 0
+                    val codec =
+                        FrameCodec(
+                            writeKey = admission.serverWriteKey,
+                            readKey = admission.serverReadKey,
+                            expectedRoomId = admission.roomId,
+                        )
+                    val connection =
+                        try {
+                            ControlConnection(
+                                peerId = hello.peerId,
+                                endpoint = admission.endpoint,
+                                socket = socket,
+                                codec = codec,
+                                parentScope = scope,
+                                log = log,
+                                onEnvelope = admission.onEnvelope,
+                                onClosed = admission.onClosed,
+                            )
+                        } catch (error: Exception) {
+                            codec.close()
+                            throw error
+                        }
+                    try {
+                        handler.onControlConnected(connection)
+                        connection.start()
+                    } catch (error: Exception) {
+                        connection.closeSilently()
+                        throw error
+                    }
+                } finally {
+                    admission.serverWriteKey.fill(0)
+                    admission.serverReadKey.fill(0)
+                }
+        }
+    }
+
+    private fun detachForStop(): Job? =
+        synchronized(this) {
+            val job = acceptJob
+            acceptJob = null
+            runCatching { serverSocket?.close() }
+            serverSocket = null
+            job
+        }
+
     fun stop() {
-        acceptJob?.cancel()
-        acceptJob = null
-        runCatching { serverSocket?.close() }
-        serverSocket = null
+        detachForStop()?.cancel()
+    }
+
+    suspend fun stopAndJoin(timeoutMs: Long = STOP_TIMEOUT_MS): Boolean {
+        val job = detachForStop() ?: return true
+        job.cancel()
+        return withTimeoutOrNull(timeoutMs) {
+            job.join()
+            true
+        }
+            ?: run {
+                job.cancelAndJoin()
+                false
+            }
     }
 
     companion object {
         private const val TAG = "PeerServer"
         private const val MAX_CONCURRENT_INCOMING = 24
+        private const val STOP_TIMEOUT_MS = 2_000L
     }
 }

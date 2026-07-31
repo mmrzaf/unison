@@ -20,14 +20,12 @@ object ControlTrafficClassifier {
             is ProtocolBody.ClockPong,
             is ProtocolBody.ClockReady,
             is ProtocolBody.Heartbeat,
-            is ProtocolBody.AckSequence,
-                -> ControlTrafficClass.CLOCK
+            is ProtocolBody.AckSequence -> ControlTrafficClass.CLOCK
 
             is ProtocolBody.PlaybackStateSync -> ControlTrafficClass.PLAYBACK_REFERENCE
 
             is ProtocolBody.PlaybackStatusReport,
-            is ProtocolBody.MemberPlaybackStatus,
-                -> ControlTrafficClass.TELEMETRY
+            is ProtocolBody.MemberPlaybackStatus -> ControlTrafficClass.TELEMETRY
 
             is ProtocolBody.TrackDescriptorMessage,
             is ProtocolBody.TrackHave,
@@ -36,8 +34,7 @@ object ControlTrafficClassifier {
             is ProtocolBody.TrackSourceAuthorized,
             is ProtocolBody.TrackReady,
             is ProtocolBody.TrackFailed,
-            is ProtocolBody.TransferCancelled,
-                -> ControlTrafficClass.TRANSFER
+            is ProtocolBody.TransferCancelled -> ControlTrafficClass.TRANSFER
 
             else -> ControlTrafficClass.GUARANTEED
         }
