@@ -1,26 +1,23 @@
 # Implementation status
 
-The current Unison engineering tree includes:
+The current engineering tree includes:
 
-- local library, playlists, cancellable/observable M3U import, explicit ambiguous-match review, bounded M3U export, and content-addressed managed audio;
-- local room discovery, QR/direct join, and LocalOnlyHotspot support;
-- coordinator-local invite PINs, reconnect proof, directional authenticated control framing, and
-  encrypted room-secret delivery;
-- deterministic collaborative queue and scheduled transport state;
-- resumable, authorized peer-to-peer transfer with SHA-256 verification, explicit cancellation, and
-  active-file leases;
-- Media3 playback, wake mode, media-session controls, affine clock synchronization, filtered drift
-  correction, discontinuity recovery, and coordinator recovery;
-- serialized room-event ownership, validated bounded snapshots, separated control-traffic queues,
-  replay/term/sequence protection, and focused peer/routing/admission/role components and legacy snapshot cleanup;
-- one injected Room database for UI/runtime/workers, Paging persistence, temporary retention,
-  operation-scoped SAF grants, and lease-aware local cleanup;
-- Android 13+ notification-permission handling and understandable denial behavior;
-- independently published structural, playback, and transfer state;
-- Compose UI split by library, playlist, room, and shared-component boundaries, with a focused
-  flow-composition ViewModel and delegated room/playlist/import actions;
-- background/cached QR generation plus bounded artwork memory, disk usage, and retry work.
+- content-addressed local audio, Paging-backed library, playlists, and bounded M3U import/export;
+- Android NSD discovery, private IPv4/IPv6 sockets, LocalOnlyHotspot, cancellation-friendly joining,
+  reconnect pacing, and screen-off lifecycle ownership;
+- one host-visible four-digit SRP-6a join-code flow, room-secret reconnect, encrypted directional control frames,
+  replay protection, and encrypted/authenticated resumable file transfer;
+- a deterministic 1,000-item collaborative queue with batched add/remove, atomic clear, Play Next,
+  persistent shuffle, repeat, compact search, and drag-edge auto-scroll;
+- bounded prefetch of current plus three upcoming unique tracks, two concurrent incoming downloads,
+  obsolete-transfer cancellation, and active-file leases;
+- Media3 playback with one system player-control notification, no general notification permission flow, bounded drift correction, latest-intent
+  scheduled transport, terminal preparation timeouts, local audio-safety suppression, and coordinator recovery;
+- serialized canonical state, high-frequency playback telemetry outside the actor, batched reconnect
+  availability, bounded snapshots, and deterministic teardown;
+- text-only UI and media metadata with no artwork extraction, cache, worker, image dependency, or
+  image presentation.
 
-The finalized deterministic core and static suites pass in the source-review environment. Full
-Android compilation and physical-device lifecycle tests require a provisioned Android/Gradle build
-machine.
+The Kotlin/JVM test and compile gates, schema checks, source sanity checks, static invariants, and
+large-library benchmark run without Android SDK downloads. Android SDK compilation, lint, APK
+assembly, and physical-device lifecycle/audio testing remain mandatory release gates.
