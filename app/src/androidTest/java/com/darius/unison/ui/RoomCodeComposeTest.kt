@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.Lifecycle
@@ -14,31 +15,29 @@ import com.darius.unison.model.RoomUiState
 import org.junit.Rule
 import org.junit.Test
 
-class RoomInviteComposeTest {
+class RoomCodeComposeTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun temporaryDisplayAfterCreation() {
-        showRoom(host = true)
+    fun codeIsNotShownAutomatically() {
+        showRoom(codeAvailable = true)
 
-        composeRule.onNodeWithText(PIN).assertExists()
+        composeRule.onNodeWithText(PIN).assertDoesNotExist()
     }
 
     @Test
-    fun automaticDismissal() {
-        composeRule.mainClock.autoAdvance = false
-        showRoom(host = true)
+    fun roomCodeOpensFromRoomMenu() {
+        showRoom(codeAvailable = true)
+
+        openRoomCode()
+
         composeRule.onNodeWithText(PIN).assertExists()
-
-        composeRule.mainClock.advanceTimeBy(15_100L)
-        composeRule.waitForIdle()
-
-        composeRule.onNodeWithText(PIN).assertDoesNotExist()
     }
 
     @Test
     fun manualDismissal() {
-        showRoom(host = true)
+        showRoom(codeAvailable = true)
+        openRoomCode()
 
         composeRule.onNodeWithText("Done").performClick()
 
@@ -46,19 +45,9 @@ class RoomInviteComposeTest {
     }
 
     @Test
-    fun reopeningThroughInvite() {
-        showRoom(host = true)
-        composeRule.onNodeWithText("Done").performClick()
-
-        composeRule.onNodeWithText("Invite").performClick()
-
-        composeRule.onNodeWithText(PIN).assertExists()
-    }
-
-    @Test
-    fun backgroundHidesInvite() {
-        showRoom(host = true)
-        composeRule.onNodeWithText(PIN).assertExists()
+    fun backgroundHidesRoomCode() {
+        showRoom(codeAvailable = true)
+        openRoomCode()
 
         composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
 
@@ -66,24 +55,24 @@ class RoomInviteComposeTest {
     }
 
     @Test
-    fun hostCanOpenInvite() {
-        showRoom(host = true)
+    fun memberWithoutLocalCredentialDoesNotSeeRoomCodeAction() {
+        showRoom(codeAvailable = false)
 
-        composeRule.onNodeWithText("Invite").assertExists()
-    }
+        composeRule.onNodeWithContentDescription("Room actions").performClick()
 
-    @Test
-    fun joinedGuestNeverSeesInviteOrCode() {
-        showRoom(host = false)
-
-        composeRule.onNodeWithText("Invite").assertDoesNotExist()
+        composeRule.onNodeWithText("Room code").assertDoesNotExist()
         composeRule.onNodeWithText(PIN).assertDoesNotExist()
     }
 
-    private fun showRoom(host: Boolean) {
+    private fun openRoomCode() {
+        composeRule.onNodeWithContentDescription("Room actions").performClick()
+        composeRule.onNodeWithText("Room code").performClick()
+    }
+
+    private fun showRoom(codeAvailable: Boolean) {
         composeRule.setContent {
             RoomScreen(
-                state = roomState(host),
+                state = roomState(codeAvailable),
                 playbackPositionState = remember { mutableStateOf(0L) },
                 onPlay = {},
                 onPause = {},
@@ -111,7 +100,7 @@ class RoomInviteComposeTest {
         }
     }
 
-    private fun roomState(host: Boolean): MainUiState {
+    private fun roomState(codeAvailable: Boolean): MainUiState {
         val coordinator = PeerId("peer-000000000001")
         return MainUiState(
             room =
@@ -123,10 +112,7 @@ class RoomInviteComposeTest {
                             term = CoordinatorTerm(1L, coordinator),
                             sequence = 1L,
                         ),
-                    isCoordinator = host,
-                    // A guest must not reveal the value even if stale process state still contains
-                    // it.
-                    localRoomPin = PIN,
+                    localRoomPin = PIN.takeIf { codeAvailable },
                 )
         )
     }
