@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small dependency-free Kotlin source sanity checks for patch regressions.
+"""Small dependency-free Kotlin source sanity checks.
 
 This is not a compiler. It catches high-value mistakes that the offline core harness does not
 compile, especially duplicate named arguments in Android/Compose source.
@@ -160,11 +160,39 @@ def duplicate_named_arguments(path: Path) -> list[str]:
     return problems
 
 
+
+def misplaced_imports(path: Path) -> list[str]:
+    problems: list[str] = []
+    seen_declaration = False
+    in_block_comment = False
+    for line_number, line in enumerate(path.read_text(errors="ignore").splitlines(), 1):
+        stripped = line.strip()
+        if in_block_comment:
+            if "*/" in stripped:
+                in_block_comment = False
+            continue
+        if stripped.startswith("/*"):
+            in_block_comment = "*/" not in stripped
+            continue
+        if not stripped or stripped.startswith("//") or stripped.startswith("@file:"):
+            continue
+        if stripped.startswith("package "):
+            continue
+        if stripped.startswith("import "):
+            if seen_declaration:
+                problems.append(
+                    f"{path.relative_to(ROOT)}:{line_number}: import appears after a declaration"
+                )
+            continue
+        seen_declaration = True
+    return problems
+
 def main() -> int:
     problems: list[str] = []
     for path in SOURCE_ROOT.rglob("*.kt"):
         problems.extend(delimiter_problems(path))
         problems.extend(duplicate_named_arguments(path))
+        problems.extend(misplaced_imports(path))
 
     app = (SOURCE_ROOT / "com/darius/unison/ui/UnisonApp.kt").read_text()
     used_icons = set(re.findall(r"Icons\.Default\.([A-Za-z0-9_]+)", app))
@@ -175,26 +203,146 @@ def main() -> int:
         problems.append(f"UnisonApp.kt: missing filled icon import for {icon}")
 
     runtime = (SOURCE_ROOT / "com/darius/unison/room/RoomRuntime.kt").read_text()
+    wifi_locks = (SOURCE_ROOT / "com/darius/unison/network/WifiLocks.kt").read_text()
+    room_power = (SOURCE_ROOT / "com/darius/unison/room/RoomPowerPolicy.kt").read_text()
+    control_client = (SOURCE_ROOT / "com/darius/unison/network/ControlClient.kt").read_text()
+    address_policy = (SOURCE_ROOT / "com/darius/unison/network/NetworkAddressPolicy.kt").read_text()
+    room_screen = (SOURCE_ROOT / "com/darius/unison/ui/room/RoomScreens.kt").read_text()
+    room_playback_components = (
+        SOURCE_ROOT / "com/darius/unison/ui/room/RoomPlaybackComponents.kt"
+    ).read_text()
+    diagnostic_log = (SOURCE_ROOT / "com/darius/unison/util/DiagnosticLog.kt").read_text()
+    scheduled_playback = (SOURCE_ROOT / "com/darius/unison/playback/ScheduledPlaybackController.kt").read_text()
+    player_mutations = (SOURCE_ROOT / "com/darius/unison/playback/PlayerMutationCoordinator.kt").read_text()
+    transport_lead = (SOURCE_ROOT / "com/darius/unison/room/TransportLeadTimePolicy.kt").read_text()
+    transport_target = (SOURCE_ROOT / "com/darius/unison/room/TransportTargetPolicy.kt").read_text()
+    command_bus = (SOURCE_ROOT / "com/darius/unison/app/RoomCommandBus.kt").read_text()
+
+    required_runtime_markers = {
+        "JoinRetryPolicy.decide": "Initial join retries are no longer policy-driven",
+        "RoomEvent.InitialJoinConnected": "Initial socket admission is no longer actor-safe",
+        "HeartbeatLivenessPolicy": "Sleep-aware heartbeat grace is missing",
+        "RoomReconnectPolicy.MAX_ATTEMPTS": "Reconnect attempts are no longer bounded by policy",
+        "launchSnapshotPreparation": "Snapshot file preparation can block the room actor again",
+    }
+    for marker, message in required_runtime_markers.items():
+        if marker not in runtime:
+            problems.append(message)
+
+    production_text = "\n".join(
+        path.read_text(errors="ignore") for path in SOURCE_ROOT.rglob("*.kt")
+    )
+    forbidden_artwork_markers = (
+        "TrackArtwork",
+        "ArtworkStore",
+        "artworkStore",
+        "setArtworkUri",
+        "artworkFile",
+    )
+    for marker in forbidden_artwork_markers:
+        if marker in production_text:
+            problems.append(f"Artwork pipeline was reintroduced: {marker}")
+    service = (SOURCE_ROOT / "com/darius/unison/playback/UnisonRoomService.kt").read_text()
+    media_adapter = (SOURCE_ROOT / "com/darius/unison/playback/Media3PlayerAdapter.kt").read_text()
+    if "startAsForeground" in service or "NotificationCompat.Builder" in service:
+        problems.append("Generic foreground notification path was reintroduced")
+    if "DefaultMediaNotificationProvider" not in service:
+        problems.append("Media3 player-control notification provider is missing")
+    if "val scheduledForStartId = latestStartId" not in service or "stopSelfResult(scheduledForStartId)" not in service:
+        problems.append("Idle service shutdown is not bound to its scheduled start ID")
+    if "lifecycleScope" not in service or "Dispatchers.Main.immediate" not in service:
+        problems.append("Service lifecycle mutation is no longer serialized on the main dispatcher")
+    if "RoomServicePolicy.playbackActive" not in service:
+        problems.append("Service lifetime can be retained by stale playWhenReady without a media item")
+    if not re.search(r"playbackSpeedGate\s*\.select", runtime):
+        problems.append("Playback-speed actuator commands are no longer gated")
+    if "PlaybackSynchronizationPolicy" in production_text or "SOLO_COORDINATOR" in production_text:
+        problems.append("Participant-count playback synchronization bypass was reintroduced")
+    if not re.search(
+        r"val\s+canonical\s*=\s*if\s*\(coordinator\)\s*snapshot\.playback\s*"
+        r"else\s*latestPlaybackStateSync\s*\?:\s*snapshot\.playback",
+        runtime,
+    ):
+        problems.append("Coordinator and participants no longer follow the same canonical room timeline")
+    if "PlaybackReferencePolicy" in production_text:
+        problems.append("A physical player was reintroduced as the canonical room clock")
+    if "outputLatencyOffsetMs = if (coordinator)" in runtime:
+        problems.append("Coordinator route latency bypass was reintroduced")
+    if "SHOW_NOTIFICATION_FOR_IDLE_PLAYER_NEVER" not in service:
+        problems.append("Idle playback can resurrect a stale media notification after the room is cleared")
+    if "onLocalInterruption" in media_adapter:
+        problems.append("Local audio focus changes can become room-wide transport commands again")
+    if "locallySuppressed" not in media_adapter or "PlaybackIntentReconciliationPolicy.decide" not in runtime:
+        problems.append("Device-local audio safety pauses are no longer isolated from room transport")
+    if "PlaybackIntentReconciliationPolicy.decidePlayRequest" not in runtime:
+        problems.append("A locally suppressed phone can reschedule the whole room when Play is pressed")
+    room_store = (SOURCE_ROOT / "com/darius/unison/app/RoomStore.kt").read_text()
+    if "MutableStateFlow(RoomUiState())" in room_store:
+        problems.append("Full aggregate room state is rebuilt on playback telemetry again")
+    if "exoPlayer.playWhenReady = false" not in media_adapter or "exoPlayer.clearMediaItems()" not in media_adapter:
+        problems.append("Clearing the player can retain stale playback intent")
+    if "stopSelf()" in service:
+        problems.append("Unbound service shutdown was reintroduced; use start-ID-safe delayed stop")
+    if "roomCommandBus.hasOutstandingCommands" not in service:
+        problems.append("Accepted room commands no longer block idle service shutdown")
+    if "if (!isCoordinator()) submitSessionEvent(generation, RoomEvent.ClockSyncTick)" not in runtime:
+        problems.append("Coordinator rooms enqueue redundant clock-sync actor work again")
+    if "replaceMediaItem" in media_adapter:
+        problems.append("Unchanged logical queue items are being replaced in Media3 again")
+    if "withContext(Dispatchers.Default) { items.map(::toMediaItem) }" not in media_adapter:
+        problems.append("Queue metadata construction moved back onto the player main thread")
+    if "setArtworkUri" in media_adapter:
+        problems.append("Player metadata exposes artwork again")
+    pause_start = scheduled_playback.find("fun schedulePause(")
+    pause_end = scheduled_playback.find("fun scheduleSeek(", pause_start)
+    pause_block = scheduled_playback[pause_start:pause_end] if pause_start >= 0 and pause_end > pause_start else ""
+    if "seekTo" in pause_block or "seekToItem" in pause_block:
+        problems.append("Pause seeks the decoder again")
+    if "PLAY_POSITION_TOLERANCE_MS" not in scheduled_playback:
+        problems.append("Play no longer avoids unnecessary same-item seeks")
+    if "maintenanceIfTransportIdle" not in player_mutations or "hasPendingTransport" not in player_mutations:
+        problems.append("Timeline maintenance can interleave with explicit transport again")
+    if "MIN_LEAD_NS = 150_000_000L" not in transport_lead or "MAX_LEAD_NS = 1_200_000_000L" not in transport_lead:
+        problems.append("Adaptive transport lead escaped its responsive safety bounds")
+    if "pendingResumePlayback" not in transport_target:
+        problems.append("Pending Next/Previous no longer preserves playback intent")
+    if "Channel<AppCommand.Transport>(capacity = TRANSPORT_CAPACITY)" not in command_bus:
+        problems.append("Transport commands lost their independent mailbox capacity")
+    if (
+        "TransportCommandPhase.SCHEDULED" not in room_playback_components
+        or "TransportCommandPhase.EXECUTING" not in room_playback_components
+    ):
+        problems.append("Transport UI no longer renders the real command lifecycle")
+    writer_block = diagnostic_log.find("writer.execute")
+    logcat_block = diagnostic_log.find("if (writeToLogcat)")
+    if writer_block < 0 or logcat_block < writer_block:
+        problems.append("Logcat output moved back onto application callers")
+
+    if "PowerManager.PARTIAL_WAKE_LOCK" not in wifi_locks:
+        problems.append("Active rooms no longer keep CPU execution available with the screen off")
+    if "WIFI_MODE_FULL_HIGH_PERF" not in wifi_locks or "WIFI_MODE_FULL_LOW_LATENCY" not in wifi_locks:
+        problems.append("Screen-on/screen-off Wi-Fi lock coverage is incomplete")
+    if "Demand(wifi = true, cpu = true)" not in room_power:
+        problems.append("Every active peer must retain CPU and Wi-Fi ownership")
+    if "runInterruptible(Dispatchers.IO)" not in control_client:
+        problems.append("Room admission sockets are no longer cancellation-friendly")
+    if "parseAllowedAddress" not in address_policy or "isUniqueLocalAddress" not in address_policy:
+        problems.append("Private IPv4/IPv6 endpoint support is incomplete")
+    if "onCancelConnection" not in room_screen or "Connection interrupted" not in room_screen:
+        problems.append("Join/reconnect UI no longer exposes recovery and cancellation")
+    duplicate_join_status = (
+        'Text(\n                                    state.room.statusMessage ?: "Connecting…",\n'
+        '                                    state.room.statusMessage'
+    )
+    if duplicate_join_status in room_screen:
+        problems.append("Joining status Text contains a duplicate positional argument")
+
     if "withTimeoutOrNull(MANUAL_DISCOVERY_WINDOW_MS)" not in runtime:
         problems.append("Room discovery is no longer bounded by the manual scan window")
     if "MANUAL_DISCOVERY_WINDOW_MS = 8_000L" not in runtime:
         problems.append("Manual room discovery must remain an 8-second user-triggered scan")
     if app.count("AppCommand.StartDiscovery") != 1:
         problems.append("Room discovery must have exactly one explicit UI trigger")
-
-    service = (SOURCE_ROOT / "com/darius/unison/playback/UnisonRoomService.kt").read_text()
-    on_start = service[
-        service.index("override fun onStartCommand"):
-        service.index("override fun onGetSession")
-    ]
-    foreground_index = on_start.find("startAsForeground()")
-    media_refresh_index = on_start.find("triggerNotificationUpdate()")
-    if foreground_index == -1:
-        problems.append("Room service starts must immediately satisfy the foreground deadline")
-    if media_refresh_index == -1 or media_refresh_index < foreground_index:
-        problems.append("Room service starts must restore Media3 controls after the deadline notification")
-    if "currentTimeline.isEmpty" not in on_start:
-        problems.append("Media3 notification refresh must preserve the empty-queue deadline notification")
 
     changelog = (ROOT / "CHANGELOG.md").read_text().lower()
     if "discovery automatic" in changelog or "automatic while the room lobby" in changelog:
@@ -203,7 +351,7 @@ def main() -> int:
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
-    print("Kotlin patch-regression checks passed.")
+    print("Kotlin source sanity checks passed.")
     return 0
 
 

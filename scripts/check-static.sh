@@ -9,17 +9,23 @@ required=(
   gradle/libs.versions.toml
   gradle/wrapper/gradle-wrapper.jar
   scripts/build-release.sh
+  scripts/check-risky-kotlin.sh
+  scripts/check-network-lifecycle-kotlin.sh
+  scripts/check-release-quality.sh
 )
 for path in "${required[@]}"; do
   [[ -f "$path" ]] || { echo "Missing required file: $path" >&2; exit 1; }
 done
 [[ -x gradlew ]] || { echo "gradlew is not executable" >&2; exit 1; }
+[[ -x scripts/check-risky-kotlin.sh ]] || { echo "check-risky-kotlin.sh is not executable" >&2; exit 1; }
+[[ -x scripts/check-network-lifecycle-kotlin.sh ]] || { echo "check-network-lifecycle-kotlin.sh is not executable" >&2; exit 1; }
+[[ -x scripts/check-release-quality.sh ]] || { echo "check-release-quality.sh is not executable" >&2; exit 1; }
 
 grep -q 'applicationId = "com.darius.unison"' app/build.gradle.kts
 grep -q 'appVersionName = "1.0.0"' gradle/libs.versions.toml
 grep -q 'appVersionCode = "1"' gradle/libs.versions.toml
 grep -q 'minSdk = "30"' gradle/libs.versions.toml
-grep -q 'targetSdk = "36"' gradle/libs.versions.toml
+grep -q 'targetSdk = "33"' gradle/libs.versions.toml
 grep -q 'compileSdk = "36"' gradle/libs.versions.toml
 grep -q 'JavaVersion.VERSION_17' app/build.gradle.kts
 grep -q 'JvmTarget.JVM_17' app/build.gradle.kts
@@ -34,16 +40,29 @@ grep -q 'app/build/outputs/apk/release/app-release-unsigned.apk' .github/workflo
 # Runtime architecture and safety invariants.
 grep -q 'PagingSource<Int, TrackEntity>' app/src/main/java/com/darius/unison/storage/Database.kt
 grep -q 'Pager(' app/src/main/java/com/darius/unison/library/TrackRepository.kt
-grep -q 'collectAsLazyPagingItems' app/src/main/java/com/darius/unison/ui/library/LibraryScreen.kt
-grep -q 'const val PROTOCOL_VERSION = 2' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
+grep -q 'collectAsLazyPagingItems' app/src/main/java/com/darius/unison/ui/UnisonApp.kt
+grep -q 'const val PROTOCOL_VERSION = 1' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
+grep -q 'wire protocol 1' README.md
+grep -q 'Protocol 1 uses AES-GCM' app/src/main/java/com/darius/unison/protocol/FrameCodec.kt
+grep -q 'FLAG_ENCRYPTED' app/src/main/java/com/darius/unison/protocol/FrameCodec.kt
+grep -q 'plaintext.fill(0)' app/src/main/java/com/darius/unison/protocol/FrameCodec.kt
+grep -q 'bytes.fill(0)' app/src/main/java/com/darius/unison/protocol/HandshakeCodec.kt
+grep -q 'serverWriteKey.fill(0)' app/src/main/java/com/darius/unison/network/PeerServer.kt
+grep -q 'AuthenticatedFileStreamCodec' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
+grep -q 'data class FileChallenge' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
+! sed -n '/data class FileRequest(/,/^)/p' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt | grep -q 'authorizationToken'
 grep -q 'MAX_QUEUE_ITEMS = 1_000' app/src/main/java/com/darius/unison/room/RoomReducer.kt
 grep -q 'MAX_CONCURRENT_INCOMING = 24' app/src/main/java/com/darius/unison/network/PeerServer.kt
-grep -q 'sha256Hex(target) == target.name' app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt
+grep -q 'private val verificationCache' app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt
+grep -q 'suspend fun deepVerify' app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt
+grep -q 'commitVerifiedStaging' app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt
 grep -q 'MAX_FILE_BYTES = 4 \* 1024 \* 1024' app/src/main/java/com/darius/unison/library/M3uCodec.kt
-grep -q 'NetworkAddressPolicy.parseAllowedIpv4' app/src/main/java/com/darius/unison/ui/RoomSessionActions.kt
 grep -q 'playerWindow(' app/src/main/java/com/darius/unison/room/PlaybackQueuePolicy.kt
-grep -q 'capacity = 64' app/src/main/java/com/darius/unison/app/RoomCommandBus.kt
-grep -q 'capacity = 128' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'const val GENERAL_CAPACITY = 64' app/src/main/java/com/darius/unison/app/RoomCommandBus.kt
+grep -q 'const val TRANSPORT_CAPACITY = 256' app/src/main/java/com/darius/unison/app/RoomCommandBus.kt
+! grep -q 'val flow: Flow<AppCommand>' app/src/main/java/com/darius/unison/app/RoomCommandBus.kt
+grep -q 'CanonicalPlaybackDispatcher(' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'DEFAULT_CAPACITY = 64' app/src/main/java/com/darius/unison/playback/CanonicalPlaybackDispatcher.kt
 grep -q 'SerializedEventLoop<RoomEvent>' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
 ! grep -q 'canonicalMutationMutex' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
 grep -q 'RoomSnapshotValidator' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
@@ -54,6 +73,8 @@ grep -q 'private val playbackReference = Channel<Envelope>' app/src/main/java/co
 # Data, credential, and lifecycle invariants.
 ! sed -n '/data class RoomSnapshot(/,/^)/p' app/src/main/java/com/darius/unison/model/DomainModels.kt | grep -q 'roomPin'
 grep -q 'val localRoomPin: String?' app/src/main/java/com/darius/unison/model/DomainModels.kt
+grep -q 'PinPake.ServerSession.start' app/src/main/java/com/darius/unison/room/ControlAdmissionController.kt
+grep -q 'PinPake.ClientSession.start' app/src/main/java/com/darius/unison/network/ControlClient.kt
 grep -q 'Crypto.reconnectProof' app/src/main/java/com/darius/unison/room/ControlAdmissionController.kt
 grep -q 'AdmissionGuard()' app/src/main/java/com/darius/unison/room/ControlAdmissionController.kt
 grep -q 'maxTrackedNonces: Int = 1_024' app/src/main/java/com/darius/unison/room/AdmissionGuard.kt
@@ -64,21 +85,65 @@ grep -q 'serverWriteKey = keys.coordinatorToClient' app/src/main/java/com/darius
 grep -q 'sha256Hex(file) == trackId.value' app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt
 grep -q 'fun acquireLease' app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt
 grep -q 'store.isLeased(trackId)' app/src/main/java/com/darius/unison/storage/CacheCleanupWorker.kt
+grep -q 'Local cleanup failed attempt=' app/src/main/java/com/darius/unison/storage/CacheCleanupWorker.kt
 ! grep -q 'UnisonDatabase.create' app/src/main/java/com/darius/unison/storage/CacheCleanupWorker.kt
 grep -q 'UnisonWorkerFactory' app/src/main/java/com/darius/unison/app/AppContainer.kt
 grep -q 'Configuration.Provider' app/src/main/java/com/darius/unison/app/UnisonApplication.kt
 grep -q 'TransferCancellationRegistry' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
 grep -q 'cancellationRegistry.attachSocket' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
 grep -q 'setWakeMode(C.WAKE_MODE_LOCAL)' app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt
-grep -q 'android.permission.POST_NOTIFICATIONS' app/src/main/AndroidManifest.xml
+! grep -q 'android.permission.POST_NOTIFICATIONS' app/src/main/AndroidManifest.xml
+! grep -R -q 'POST_NOTIFICATIONS\|notificationPermission()' app/src/main/java
+grep -q 'version = 1,' app/src/main/java/com/darius/unison/storage/Database.kt
+! grep -R -q -E 'PROTOCOL_VERSION = [2-9]|Protocol [2-9]|wire protocol [2-9]' \
+    app/src/main/java README.md CHANGELOG.md docs
+! grep -R -q -E 'UPSIDE_DOWN_CAKE|VANILLA_ICE_CREAM|BAKLAVA|Android 14|Android 15|Android 16' \
+    app/src/main/java scripts/network-lifecycle-kotlin-check docs/ARCHITECTURE.md
+[[ ! -e gradle/gradle-daemon-jvm.properties ]]
+! grep -R -q 'api.foojay.io' . --exclude-dir=.git
+grep -q 'override fun onUpdateNotification' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'MediaNotificationUpdatePolicy.decide' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'NOTIFICATION_UPDATE_INTERVAL_MS = 300L' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'notificationDeduplicatedCount' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'localRoomPin?.takeIf { state.room.isCoordinator }' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+grep -q 'INVITE_AUTO_HIDE_MS = 15_000L' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+! grep -q 'item(key = "room-join-code")' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+grep -q 'PENDING_TRACK_PREPARATION_TIMEOUT_MS = 10_000L' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'PendingTrackTransitionTimedOut' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'PendingPlayTimedOut' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+! grep -R -q -i 'artwork extraction with' README.md CHANGELOG.md docs
 grep -q 'resetSynchronizationAfterDiscontinuity' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
 grep -q 'val driftMs: Long? = null' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
 ! grep -q 'decision.rawDriftMs ?: 0L' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
 grep -q 'suspend fun deleteAll()' app/src/main/java/com/darius/unison/storage/Database.kt
-grep -q 'persistence.discardLegacySnapshots()' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'persistence.discardPersistedSnapshots()' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
 ! grep -q 'persistence.save' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
 grep -q 'MAX_TRACKED_AUTHORIZATIONS = 512' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
+grep -q 'TransferAuthorizationRegistry' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
+grep -q 'fun consume(authorizationId: String' app/src/main/java/com/darius/unison/transfer/TransferAuthorizationRegistry.kt
+grep -q 'receivePartialAndHash' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
+! grep -q 'verifyPartial' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
+grep -q 'cancelAllAndJoin' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
 grep -q 'authorizations.clear()' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
+grep -q 'closeAndJoin' app/src/main/java/com/darius/unison/network/ControlConnection.kt
+grep -q 'SessionJobRegistry(scope)' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'advanceAndCancel' app/src/main/java/com/darius/unison/room/SessionJobRegistry.kt
+grep -q 'fun isCurrent(candidate: Long)' app/src/main/java/com/darius/unison/room/SessionJobRegistry.kt
+grep -q 'ArrayBlockingQueue' app/src/main/java/com/darius/unison/util/DiagnosticLog.kt
+grep -q 'DiagnosticSanitizer.sanitize' app/src/main/java/com/darius/unison/util/DiagnosticLog.kt
+grep -q 'private val maxEntries: Int = 2_000' app/src/main/java/com/darius/unison/sync/SynchronizationDiagnostics.kt
+grep -q 'ROUTINE_SAMPLE_INTERVAL_NS = 20_000_000_000L' app/src/main/java/com/darius/unison/sync/SynchronizationDiagnostics.kt
+grep -q 'CORRECTION_SAMPLE_INTERVAL_NS = 2_000_000_000L' app/src/main/java/com/darius/unison/sync/SynchronizationDiagnostics.kt
+grep -q 'RoomJoinCredential.Pin' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+! grep -R -q -i -E 'QrCode|InviteSecret|unison://join|zxing' app/src/main/java app/src/test/java app/build.gradle.kts gradle/libs.versions.toml
+grep -q 'rejectionCode = finalResponse.code' app/src/main/java/com/darius/unison/network/ControlClient.kt
+! grep -q 'secret=.{0,20}localRoomPin' app/src/main/java/com/darius/unison/ui/RoomSessionActions.kt
+
+# Locale-independent identity, protocol, and path normalization.
+if grep -R -n '\.lowercase()' app/src/main/java; then
+  echo 'Locale-sensitive lowercase() found in application logic.' >&2
+  exit 1
+fi
 
 # Library and performance invariants.
 grep -q 'releasePersistableUriPermission' app/src/main/java/com/darius/unison/library/PersistedUriPermissionManager.kt
@@ -89,13 +154,62 @@ grep -q 'findReferenceCandidates' app/src/main/java/com/darius/unison/storage/Da
 ! sed -n '/findReferenceCandidates/,/suspend fun get/p' app/src/main/java/com/darius/unison/storage/Database.kt | grep -q 'LIMIT 1'
 grep -q 'currentCoroutineContext().ensureActive()' app/src/main/java/com/darius/unison/library/ImportManager.kt
 grep -q 'LibraryImportProgress' app/src/main/java/com/darius/unison/ui/LibraryImportCoordinator.kt
-grep -q 'withContext(Dispatchers.Default)' app/src/main/java/com/darius/unison/ui/QrCode.kt
-grep -q 'CACHE_KIB = 2 \* 1024' app/src/main/java/com/darius/unison/ui/QrCode.kt
-grep -q 'DISK_CACHE_BYTES = 64L \* 1024L \* 1024L' app/src/main/java/com/darius/unison/storage/ArtworkStore.kt
-grep -q 'ArtworkRetryPolicy.delayMs' app/src/main/java/com/darius/unison/storage/ArtworkStore.kt
+[[ ! -e app/src/main/java/com/darius/unison/ui/QrCode.kt ]]
+grep -q 'take(4)' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+grep -q 'Room code must contain four digits' app/src/main/java/com/darius/unison/protocol/PinPake.kt
+! grep -R -q -E 'TrackArtwork|ArtworkStore|ArtworkRetryPolicy|artworkStore|setArtworkUri|artworkFile' \
+    app/src/main/java app/src/test/java
+grep -q 'AppCommand.ClearQueue' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'RoomEvent.TracksPrepared' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'RoomEvent.RepositoryCommandCompleted' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'playbackPositionState = playbackPositionState' app/src/main/java/com/darius/unison/ui/UnisonApp.kt
+! grep -q 'playbackPositionMs by viewModel.playbackPositionMs' app/src/main/java/com/darius/unison/ui/UnisonApp.kt
+grep -q 'QueueSearchIndex(snapshot.queue)' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+grep -q 'BasicTextField(' app/src/main/java/com/darius/unison/ui/room/RoomPlaybackComponents.kt
+grep -q 'QueueDragPolicy.autoScrollPerFrame' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+grep -q 'data class Pin(val value: String) : RoomJoinCredential' app/src/main/java/com/darius/unison/model/Commands.kt
+grep -q 'QueueItemsAdded' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
+grep -q 'QueueItemsRemoved' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
+grep -q 'data object QueueCleared' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
+grep -q 'QueueMoveAfterCurrent' app/src/main/java/com/darius/unison/model/Commands.kt
+grep -q 'TrackPrefetchPolicy.prioritizedDesiredItems' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'MAX_CONCURRENT_DOWNLOADS = 2' app/src/main/java/com/darius/unison/transfer/TransferManager.kt
+grep -q 'canReorder = !snapshot.shuffleEnabled && !queueSearchActive' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+grep -q 'PlaybackTimelinePlan.decide' app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt
+sed -n '/playbackSpeedGate/,+3p' app/src/main/java/com/darius/unison/room/RoomRuntime.kt | grep -q '\.select('
+grep -q 'DefaultMediaNotificationProvider' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'UnisonRoomService.ensureStarted' app/src/main/java/com/darius/unison/ui/RoomSessionActions.kt
+grep -q 'val scheduledForStartId = latestStartId' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'stopSelfResult(scheduledForStartId)' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'RoomServicePolicy.shouldStop' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+# Transport responsiveness and lifecycle invariants.
+grep -q 'enum class TransportCommandPhase' app/src/main/java/com/darius/unison/model/DomainModels.kt
+for phase in SUBMITTED ACCEPTED SCHEDULED EXECUTING SETTLED SUPERSEDED REJECTED; do
+  grep -q "^[[:space:]]*$phase" app/src/main/java/com/darius/unison/model/DomainModels.kt
+done
+grep -q 'data class CommandStatus' app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
+grep -q 'TransportIntentCoordinator()' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'maintenanceIfTransportIdle' app/src/main/java/com/darius/unison/playback/PlayerMutationCoordinator.kt
+grep -q 'const val MIN_LEAD_NS = 150_000_000L' app/src/main/java/com/darius/unison/room/TransportLeadTimePolicy.kt
+grep -q 'const val MAX_LEAD_NS = 1_200_000_000L' app/src/main/java/com/darius/unison/room/TransportLeadTimePolicy.kt
+grep -q 'pendingResumePlayback' app/src/main/java/com/darius/unison/room/TransportTargetPolicy.kt
+grep -q 'priorityQueueItemId = body.queueItemId' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'TransportStatusLine(' app/src/main/java/com/darius/unison/ui/room/RoomPlaybackComponents.kt
+grep -q 'collectIsPressedAsState' app/src/main/java/com/darius/unison/ui/room/RoomPlaybackComponents.kt
+grep -q 'CLEANUP_SCHEDULING_DELAY_MS = 30_000L' app/src/main/java/com/darius/unison/app/UnisonApplication.kt
+
+grep -q 'PlayerStateEventPolicy.key' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+grep -q 'RoomEvent.PlayerTransitionObserved' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
+! grep -q 'NotificationCompat.Builder' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+! grep -q 'startAsForeground' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+! grep -q 'startForegroundService' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'searchText LIKE' app/src/main/java/com/darius/unison/storage/Database.kt
+grep -q 'version = 1' app/src/main/java/com/darius/unison/storage/Database.kt
+[[ "$(find app/schemas/com.darius.unison.storage.UnisonDatabase -maxdepth 1 -name '*.json' | wc -l)" -eq 1 ]]
+[[ -f app/schemas/com.darius.unison.storage.UnisonDatabase/1.json ]]
 [[ -x scripts/benchmark-library-search.py ]]
-grep -q 'complete IPv6 endpoint exchange is not' docs/ARCHITECTURE.md
-grep -q 'advisory host-side library-search benchmark' docs/VALIDATION.md
+grep -q 'private IPv4 and IPv6 endpoints' docs/ARCHITECTURE.md
+grep -q 'normalized large-library search benchmark' docs/VALIDATION.md
 
 # Architecture boundaries.
 grep -q 'val structure: StateFlow<RoomStructureState>' app/src/main/java/com/darius/unison/app/RoomStore.kt
@@ -173,7 +287,7 @@ assert '0.1.0' not in ''.join(
     for p in Path('.').rglob('*')
     if p.is_file() and not {'.git', '.gradle', '.kotlin', '.idea', 'build'}.intersection(p.parts)
     and p.suffix in text_suffixes and p.as_posix() != 'scripts/check-static.sh'
-), 'Legacy application version found'
+), 'Unexpected application version found'
 print('XML, manifest, version, and local-runtime policy checks passed.')
 PY
 
@@ -186,6 +300,8 @@ if grep -R -n -E 'TODO([: (]|$)|FIXME([: (]|$)|HACK([: (]|$)|XXX([: (]|$)|NotImp
   exit 1
 fi
 
+[[ -x scripts/check-player-kotlin.sh ]]
+[[ -x scripts/check-session-player-kotlin.sh ]]
 ./scripts/check-kotlin-source.py
 
 echo 'Static repository checks passed.'
