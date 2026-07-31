@@ -5,6 +5,7 @@ import com.darius.unison.playback.AudioOutputRoute
 import com.darius.unison.playback.PlaybackActivityState
 import com.darius.unison.playback.PlaybackSample
 import java.util.ArrayDeque
+import java.util.Locale
 import kotlin.math.abs
 
 /** Tunable synchronization policy. Keep every stability-sensitive value in one place. */
@@ -12,6 +13,7 @@ data class PlaybackSyncConfig(
     val tickIntervalMs: Long = 500,
     val referenceIntervalMs: Long = 1_000,
     val ignoreThresholdMs: Long = 80,
+    val correctionReleaseThresholdMs: Long = 20,
     val hardSeekThresholdMs: Long = 500,
     val maxSpeedDelta: Float = 0.005f,
     val requiredConsistentSamples: Int = 3,
@@ -27,6 +29,7 @@ data class PlaybackSyncConfig(
         require(tickIntervalMs > 0)
         require(referenceIntervalMs >= tickIntervalMs)
         require(ignoreThresholdMs >= 0)
+        require(correctionReleaseThresholdMs in 0..ignoreThresholdMs)
         require(hardSeekThresholdMs > ignoreThresholdMs)
         require(maxSpeedDelta in 0f..0.05f)
         require(requiredConsistentSamples >= 2)
@@ -75,7 +78,9 @@ enum class SyncHoldReason {
 
 sealed interface SyncAction {
     data class SetSpeed(val speed: Float) : SyncAction
+
     data class Seek(val positionMs: Long) : SyncAction
+
     data class Hold(val reason: SyncHoldReason, val baselineSpeed: Float) : SyncAction
 }
 
@@ -103,14 +108,17 @@ data class PlaybackSyncDecision(
 )
 
 /**
- * One instance owns all automatic synchronization commands for one local player.
- * User and canonical scheduled commands remain outside this controller.
+ * One instance owns all automatic synchronization commands for one local player. User and canonical
+ * scheduled commands remain outside this controller.
  */
-class PlaybackSyncController(
-    val config: PlaybackSyncConfig = PlaybackSyncConfig(),
-) {
+class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig()) {
     private data class DriftPoint(val atLocalNs: Long, val driftMs: Long)
-    private data class LearningAnchor(val atLocalNs: Long, val driftMs: Long, val appliedSpeed: Float)
+
+    private data class LearningAnchor(
+        val atLocalNs: Long,
+        val driftMs: Long,
+        val appliedSpeed: Float,
+    )
 
     private val recent = ArrayDeque<DriftPoint>()
     private var trackedQueueItemId: QueueItemId? = null
@@ -126,16 +134,23 @@ class PlaybackSyncController(
     var state: PlaybackSyncState = PlaybackSyncState.DISABLED
         private set
 
-    val baselineSpeed: Float get() = learnedBaselineSpeed
-    val automaticHardSeekCount: Int get() = hardSeekCount
+    val baselineSpeed: Float
+        get() = learnedBaselineSpeed
+
+    val automaticHardSeekCount: Int
+        get() = hardSeekCount
 
     fun evaluate(input: PlaybackSyncInput): PlaybackSyncDecision {
         val sample = input.sample
         val nowNs = sample.sampledAtLocalNs
 
         if (!input.connected) return hold(PlaybackSyncState.DISABLED, SyncHoldReason.DISCONNECTED)
-        val canonicalItem = input.canonicalQueueItemId
-            ?: return hold(PlaybackSyncState.WAITING_FOR_MEDIA, SyncHoldReason.NO_CANONICAL_ITEM)
+        val canonicalItem =
+            input.canonicalQueueItemId
+                ?: return hold(
+                    PlaybackSyncState.WAITING_FOR_MEDIA,
+                    SyncHoldReason.NO_CANONICAL_ITEM,
+                )
 
         if (trackedOutputRoute != null && trackedOutputRoute != sample.outputRoute) {
             resetInternal(preserveBaseline = false)
@@ -167,30 +182,36 @@ class PlaybackSyncController(
         }
 
         when (sample.activityState) {
-            PlaybackActivityState.IDLE -> return hold(
-                PlaybackSyncState.WAITING_FOR_MEDIA,
-                SyncHoldReason.PLAYER_IDLE,
-            )
-            PlaybackActivityState.PREPARING -> return hold(
-                PlaybackSyncState.WAITING_FOR_MEDIA,
-                SyncHoldReason.PREPARING,
-            )
-            PlaybackActivityState.BUFFERING -> return hold(
-                PlaybackSyncState.BUFFERING,
-                SyncHoldReason.BUFFERING,
-            )
-            PlaybackActivityState.READY_PAUSED -> return hold(
-                PlaybackSyncState.PAUSED,
-                SyncHoldReason.PAUSED,
-            )
-            PlaybackActivityState.ENDED -> return hold(
-                PlaybackSyncState.WAITING_FOR_MEDIA,
-                SyncHoldReason.ENDED,
-            )
-            PlaybackActivityState.FAILED -> return hold(
-                PlaybackSyncState.FAILED,
-                SyncHoldReason.PLAYER_FAILED,
-            )
+            PlaybackActivityState.IDLE ->
+                return hold(
+                    PlaybackSyncState.WAITING_FOR_MEDIA,
+                    SyncHoldReason.PLAYER_IDLE,
+                )
+            PlaybackActivityState.PREPARING ->
+                return hold(
+                    PlaybackSyncState.WAITING_FOR_MEDIA,
+                    SyncHoldReason.PREPARING,
+                )
+            PlaybackActivityState.BUFFERING ->
+                return hold(
+                    PlaybackSyncState.BUFFERING,
+                    SyncHoldReason.BUFFERING,
+                )
+            PlaybackActivityState.READY_PAUSED ->
+                return hold(
+                    PlaybackSyncState.PAUSED,
+                    SyncHoldReason.PAUSED,
+                )
+            PlaybackActivityState.ENDED ->
+                return hold(
+                    PlaybackSyncState.WAITING_FOR_MEDIA,
+                    SyncHoldReason.ENDED,
+                )
+            PlaybackActivityState.FAILED ->
+                return hold(
+                    PlaybackSyncState.FAILED,
+                    SyncHoldReason.PLAYER_FAILED,
+                )
             PlaybackActivityState.READY_PLAYING -> Unit
         }
 
@@ -206,10 +227,17 @@ class PlaybackSyncController(
         val rawDriftMs = input.expectedPositionMs - audiblePositionMs
         appendPoint(DriftPoint(nowNs, rawDriftMs))
 
-        val consistent = consistentTail()
+        val correctionWasActive = state == PlaybackSyncState.SOFT_CORRECTING
+        val activeThresholdMs =
+            if (correctionWasActive) {
+                config.correctionReleaseThresholdMs
+            } else {
+                config.ignoreThresholdMs
+            }
+        val consistent = consistentTail(activeThresholdMs)
         val filtered = median(recent.map { it.driftMs })
         if (consistent == null) {
-            val insideIgnoreZone = abs(rawDriftMs) < config.ignoreThresholdMs
+            val insideIgnoreZone = abs(rawDriftMs) < activeThresholdMs
             if (insideIgnoreZone) {
                 learnBaseline(nowNs, rawDriftMs, sample.playbackSpeed)
                 state = PlaybackSyncState.TRACKING
@@ -221,11 +249,12 @@ class PlaybackSyncController(
                 )
             }
             state = PlaybackSyncState.ACQUIRING
-            val holdReason = if (recent.size >= config.requiredConsistentSamples) {
-                SyncHoldReason.UNSTABLE_DIRECTION
-            } else {
-                SyncHoldReason.ACQUIRING_SAMPLES
-            }
+            val holdReason =
+                if (recent.size >= config.requiredConsistentSamples) {
+                    SyncHoldReason.UNSTABLE_DIRECTION
+                } else {
+                    SyncHoldReason.ACQUIRING_SAMPLES
+                }
             return holdWithDrift(holdReason, rawDriftMs, filtered)
         }
 
@@ -255,7 +284,13 @@ class PlaybackSyncController(
         }
 
         val magnitude = abs(confirmedDriftMs)
-        if (magnitude < config.ignoreThresholdMs) {
+        val trackingThresholdMs =
+            if (correctionWasActive) {
+                config.correctionReleaseThresholdMs
+            } else {
+                config.ignoreThresholdMs
+            }
+        if (magnitude < trackingThresholdMs) {
             state = PlaybackSyncState.TRACKING
             return speedDecision(
                 learnedBaselineSpeed,
@@ -266,17 +301,20 @@ class PlaybackSyncController(
         }
 
         val softRange = (config.hardSeekThresholdMs - config.ignoreThresholdMs).coerceAtLeast(1)
-        val normalized = ((magnitude - config.ignoreThresholdMs).toDouble() / softRange)
-            .coerceIn(0.0, 1.0)
-            .toFloat()
+        val normalized =
+            ((magnitude - config.ignoreThresholdMs).toDouble() / softRange)
+                .coerceIn(0.0, 1.0)
+                .toFloat()
         val minimumUsefulDelta = minOf(0.0005f, config.maxSpeedDelta)
-        val delta = (minimumUsefulDelta + (config.maxSpeedDelta - minimumUsefulDelta) * normalized)
-            .coerceAtMost(config.maxSpeedDelta)
-        val target = if (confirmedDriftMs > 0) {
-            learnedBaselineSpeed + delta
-        } else {
-            learnedBaselineSpeed - delta
-        }
+        val delta =
+            (minimumUsefulDelta + (config.maxSpeedDelta - minimumUsefulDelta) * normalized)
+                .coerceAtMost(config.maxSpeedDelta)
+        val target =
+            if (confirmedDriftMs > 0) {
+                learnedBaselineSpeed + delta
+            } else {
+                learnedBaselineSpeed - delta
+            }
         state = PlaybackSyncState.SOFT_CORRECTING
         return speedDecision(target, rawDriftMs, confirmedDriftMs, "continuous_soft_correction")
     }
@@ -294,10 +332,10 @@ class PlaybackSyncController(
         while (recent.size > config.filterWindowSize) recent.removeFirst()
     }
 
-    private fun consistentTail(): List<DriftPoint>? {
+    private fun consistentTail(thresholdMs: Long): List<DriftPoint>? {
         if (recent.size < config.requiredConsistentSamples) return null
         val tail = recent.toList().takeLast(config.requiredConsistentSamples)
-        if (tail.any { abs(it.driftMs) < config.ignoreThresholdMs }) return null
+        if (tail.any { abs(it.driftMs) < thresholdMs }) return null
         val direction = tail.first().driftMs.sign()
         if (direction == 0 || tail.any { it.driftMs.sign() != direction }) return null
         return tail
@@ -344,7 +382,7 @@ class PlaybackSyncController(
             selectedSpeed = learnedBaselineSpeed,
             baselineSpeed = learnedBaselineSpeed,
             hardSeekCount = hardSeekCount,
-            reason = reason.name.lowercase(),
+            reason = reason.name.lowercase(Locale.ROOT),
         )
     }
 
@@ -362,7 +400,7 @@ class PlaybackSyncController(
             selectedSpeed = learnedBaselineSpeed,
             baselineSpeed = learnedBaselineSpeed,
             hardSeekCount = hardSeekCount,
-            reason = reason.name.lowercase(),
+            reason = reason.name.lowercase(Locale.ROOT),
         )
     }
 
@@ -387,13 +425,17 @@ class PlaybackSyncController(
             return
         }
         val driftSlope = (driftMs - anchor.driftMs) / elapsedMs
-        val candidate = (anchor.appliedSpeed + driftSlope.toFloat())
-            .coerceIn(1f - config.baselineLimit, 1f + config.baselineLimit)
+        val candidate =
+            (anchor.appliedSpeed + driftSlope.toFloat()).coerceIn(
+                1f - config.baselineLimit,
+                1f + config.baselineLimit,
+            )
         learnedBaselineSpeed += (candidate - learnedBaselineSpeed) * 0.1f
-        learnedBaselineSpeed = learnedBaselineSpeed.coerceIn(
-            1f - config.baselineLimit,
-            1f + config.baselineLimit,
-        )
+        learnedBaselineSpeed =
+            learnedBaselineSpeed.coerceIn(
+                1f - config.baselineLimit,
+                1f + config.baselineLimit,
+            )
         learningAnchor = LearningAnchor(nowNs, driftMs, appliedSpeed)
     }
 
@@ -411,11 +453,12 @@ class PlaybackSyncController(
     private fun PlaybackSyncInput.configuredMaxClockUncertaintyNs(): Long =
         config.maxClockUncertaintyMs * 1_000_000L
 
-    private fun Long.sign(): Int = when {
-        this > 0L -> 1
-        this < 0L -> -1
-        else -> 0
-    }
+    private fun Long.sign(): Int =
+        when {
+            this > 0L -> 1
+            this < 0L -> -1
+            else -> 0
+        }
 
     private fun median(values: List<Long>): Long {
         if (values.isEmpty()) return 0L
@@ -425,6 +468,3 @@ class PlaybackSyncController(
         else (sorted[middle - 1] / 2L) + (sorted[middle] / 2L)
     }
 }
-
-/** Source-compatible name for older call sites while the app migrates to the controller wording. */
-typealias PlaybackSyncEngine = PlaybackSyncController

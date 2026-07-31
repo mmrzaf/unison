@@ -60,8 +60,8 @@ data class ClockSyncConfig(
 }
 
 /**
- * Robust NTP-style monotonic clock mapper using an affine model:
- * coordinatorTime = anchorCoordinator + rate * (localTime - anchorLocal).
+ * Robust NTP-style monotonic clock mapper using an affine model: coordinatorTime =
+ * anchorCoordinator + rate * (localTime - anchorLocal).
  */
 class ClockSyncEngine(
     private val clock: MonotonicClock,
@@ -88,15 +88,26 @@ class ClockSyncEngine(
     private var lastGoodSampleLocalNs: Long? = null
     private var rejected = 0
 
-    val state: ClockSyncState get() = estimate().state
-    val synchronized: Boolean get() = state == ClockSyncState.LOCKED
-    val offsetNs: Long get() {
-        val now = clock.nowNs()
-        return toCoordinatorTime(now) - now
-    }
-    val rate: Double get() = fittedRate
-    val roundTripNs: Long get() = fittedRttNs
-    val uncertaintyNs: Long get() = estimate().uncertaintyNs
+    val state: ClockSyncState
+        get() = estimate().state
+
+    val synchronized: Boolean
+        get() = state == ClockSyncState.LOCKED
+
+    val offsetNs: Long
+        get() {
+            val now = clock.nowNs()
+            return toCoordinatorTime(now) - now
+        }
+
+    val rate: Double
+        get() = fittedRate
+
+    val roundTripNs: Long
+        get() = fittedRttNs
+
+    val uncertaintyNs: Long
+        get() = estimate().uncertaintyNs
 
     fun createPing(): PendingPing {
         val ping = PendingPing(UUID.randomUUID().toString(), clock.nowNs())
@@ -115,7 +126,9 @@ class ClockSyncEngine(
         val localSendNs = pending.remove(pingId) ?: return reject()
         if (localSendNs != echoedGuestSendNs) return reject()
         val previousGoodSample = lastGoodSampleLocalNs
-        if (previousGoodSample != null && localReceiveNs - previousGoodSample > config.staleAfterNs) {
+        if (
+            previousGoodSample != null && localReceiveNs - previousGoodSample > config.staleAfterNs
+        ) {
             // A sleep/wake or long disconnect invalidates the old regression window. Reacquire
             // instead of combining pre-gap and post-gap timing into a misleading clock rate.
             samples.clear()
@@ -138,18 +151,20 @@ class ClockSyncEngine(
         val localMidpointNs = midpoint(localSendNs, localReceiveNs)
         val coordinatorMidpointNs = midpoint(coordinatorReceiveNs, coordinatorSendNs)
         val offsetNs = coordinatorMidpointNs - localMidpointNs
-        val sample = Sample(
-            localMidpointNs = localMidpointNs,
-            coordinatorMidpointNs = coordinatorMidpointNs,
-            offsetNs = offsetNs,
-            roundTripNs = roundTripNs,
-            createdLocalNs = localReceiveNs,
-        )
+        val sample =
+            Sample(
+                localMidpointNs = localMidpointNs,
+                coordinatorMidpointNs = coordinatorMidpointNs,
+                offsetNs = offsetNs,
+                roundTripNs = roundTripNs,
+                createdLocalNs = localReceiveNs,
+            )
 
         if (samples.size >= config.minimumLockSamples) {
             val predicted = toCoordinatorTime(localMidpointNs)
             val residual = abs(coordinatorMidpointNs - predicted)
-            val tolerance = max(config.minimumOutlierToleranceNs, safeMultiply(baseUncertaintyNs, 4L))
+            val tolerance =
+                max(config.minimumOutlierToleranceNs, safeMultiply(baseUncertaintyNs, 4L))
             // High-delay samples are especially vulnerable to asymmetry. Reject them when their
             // implied offset sharply disagrees with the established low-RTT model.
             if (residual > tolerance) return reject()
@@ -178,7 +193,11 @@ class ClockSyncEngine(
 
     fun toCoordinatorTimeWithUncertainty(localTimeNs: Long): ClockConversion {
         val estimate = estimate(localTimeNs)
-        return ClockConversion(toCoordinatorTime(localTimeNs), estimate.uncertaintyNs, estimate.state)
+        return ClockConversion(
+            toCoordinatorTime(localTimeNs),
+            estimate.uncertaintyNs,
+            estimate.state,
+        )
     }
 
     fun toLocalTimeWithUncertainty(coordinatorTimeNs: Long): ClockConversion {
@@ -190,16 +209,19 @@ class ClockSyncEngine(
     fun estimate(atLocalNs: Long = clock.nowNs()): ClockEstimate {
         val last = lastGoodSampleLocalNs
         val age = last?.let { (atLocalNs - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE
-        val state = when {
-            samples.isEmpty() -> ClockSyncState.UNSYNCHRONIZED
-            age > config.staleAfterNs -> ClockSyncState.STALE
-            samples.size < config.minimumLockSamples -> ClockSyncState.ACQUIRING
-            else -> ClockSyncState.LOCKED
-        }
-        val ageUncertainty = if (age == Long.MAX_VALUE) Long.MAX_VALUE else {
-            // Clock-rate error accumulated since the last accepted sample.
-            (age.toDouble() * abs(fittedRate - 1.0)).toLong()
-        }
+        val state =
+            when {
+                samples.isEmpty() -> ClockSyncState.UNSYNCHRONIZED
+                age > config.staleAfterNs -> ClockSyncState.STALE
+                samples.size < config.minimumLockSamples -> ClockSyncState.ACQUIRING
+                else -> ClockSyncState.LOCKED
+            }
+        val ageUncertainty =
+            if (age == Long.MAX_VALUE) Long.MAX_VALUE
+            else {
+                // Clock-rate error accumulated since the last accepted sample.
+                (age.toDouble() * abs(fittedRate - 1.0)).toLong()
+            }
         val uncertainty = safeAdd(baseUncertaintyNs, ageUncertainty)
         return ClockEstimate(
             offsetNs = if (last == null) 0L else toCoordinatorTime(atLocalNs) - atLocalNs,
@@ -232,10 +254,12 @@ class ClockSyncEngine(
     private fun recompute(nowLocalNs: Long) {
         if (samples.isEmpty()) return
         val orderedByRtt = samples.sortedBy { it.roundTripNs }
-        val selectedCount = max(
-            config.minimumLockSamples.coerceAtMost(orderedByRtt.size),
-            ceil(orderedByRtt.size * 0.6).toInt(),
-        ).coerceAtMost(orderedByRtt.size)
+        val selectedCount =
+            max(
+                    config.minimumLockSamples.coerceAtMost(orderedByRtt.size),
+                    ceil(orderedByRtt.size * 0.6).toInt(),
+                )
+                .coerceAtMost(orderedByRtt.size)
         val selected = orderedByRtt.take(selectedCount).sortedBy { it.localMidpointNs }
 
         val medianRtt = median(selected.map { it.roundTripNs })
@@ -246,11 +270,13 @@ class ClockSyncEngine(
         val firstX = lowRtt.first().localMidpointNs
         val lastX = lowRtt.last().localMidpointNs
         val spanNs = lastX - firstX
-        val rawRate = if (lowRtt.size >= config.minimumLockSamples && spanNs >= config.minimumRateFitSpanNs) {
-            linearRate(lowRtt).coerceIn(1.0 - config.maximumRateError, 1.0 + config.maximumRateError)
-        } else {
-            1.0
-        }
+        val rawRate =
+            if (lowRtt.size >= config.minimumLockSamples && spanNs >= config.minimumRateFitSpanNs) {
+                linearRate(lowRtt)
+                    .coerceIn(1.0 - config.maximumRateError, 1.0 + config.maximumRateError)
+            } else {
+                1.0
+            }
         val rawAnchorLocal = lowRtt.last().localMidpointNs
         val rawAnchorCoordinator = predictCoordinator(lowRtt, rawRate, rawAnchorLocal)
 
@@ -261,17 +287,19 @@ class ClockSyncEngine(
             fittedRate = rawRate
         } else {
             val currentAtNow = toCoordinatorTime(nowLocalNs)
-            val rawAtNow = rawAnchorCoordinator +
-                ((nowLocalNs - rawAnchorLocal).toDouble() * rawRate).toLong()
-            val boundedStep = (rawAtNow - currentAtNow).coerceIn(
-                -config.maximumLockedMappingStepNs,
-                config.maximumLockedMappingStepNs,
-            )
+            val rawAtNow =
+                rawAnchorCoordinator + ((nowLocalNs - rawAnchorLocal).toDouble() * rawRate).toLong()
+            val boundedStep =
+                (rawAtNow - currentAtNow).coerceIn(
+                    -config.maximumLockedMappingStepNs,
+                    config.maximumLockedMappingStepNs,
+                )
             fittedRate += (rawRate - fittedRate) * config.lockedRateSmoothing
-            fittedRate = fittedRate.coerceIn(
-                1.0 - config.maximumRateError,
-                1.0 + config.maximumRateError,
-            )
+            fittedRate =
+                fittedRate.coerceIn(
+                    1.0 - config.maximumRateError,
+                    1.0 + config.maximumRateError,
+                )
             anchorLocalNs = nowLocalNs
             anchorCoordinatorNs = currentAtNow + boundedStep
         }
@@ -282,10 +310,11 @@ class ClockSyncEngine(
         val residualMedian = median(residuals)
         fittedRttNs = medianRtt
         fittedRttVariationNs = rttMad
-        baseUncertaintyNs = safeAdd(
-            medianRtt / 2L,
-            safeAdd(residualMedian, rttMad / 2L),
-        )
+        baseUncertaintyNs =
+            safeAdd(
+                medianRtt / 2L,
+                safeAdd(residualMedian, rttMad / 2L),
+            )
     }
 
     private fun linearRate(samples: List<Sample>): Double {

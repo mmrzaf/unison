@@ -48,7 +48,6 @@ class PlaybackSyncEngineTest {
         assertEquals(PlaybackSyncState.SETTLING, settling.state)
     }
 
-
     @Test
     fun hardSeekCooldownPreventsRepeatedSeeking() {
         val controller = PlaybackSyncController()
@@ -68,15 +67,20 @@ class PlaybackSyncEngineTest {
     @Test
     fun bufferingRestoresBaselineAndNeverCorrects() {
         val controller = PlaybackSyncController()
-        val decision = controller.evaluate(
-            input(0, 10_000, 9_000).copy(
-                sample = input(0, 10_000, 9_000).sample.copy(
-                    activityState = PlaybackActivityState.BUFFERING,
-                    isPlaying = false,
-                    playbackSpeed = 1.004f,
-                )
+        val decision =
+            controller.evaluate(
+                input(0, 10_000, 9_000)
+                    .copy(
+                        sample =
+                            input(0, 10_000, 9_000)
+                                .sample
+                                .copy(
+                                    activityState = PlaybackActivityState.BUFFERING,
+                                    isPlaying = false,
+                                    playbackSpeed = 1.004f,
+                                )
+                    )
             )
-        )
         assertTrue(decision.action is SyncAction.Hold)
         decision.action as SyncAction.Hold
         assertEquals(1f, decision.action.baselineSpeed)
@@ -94,6 +98,30 @@ class PlaybackSyncEngineTest {
     }
 
     @Test
+    fun `coordinator applies route latency against the canonical timeline`() {
+        val controller = PlaybackSyncController()
+        repeat(2) { index ->
+            controller.evaluate(
+                input(
+                        atMs = index * 500L,
+                        expectedMs = 10_000L + index * 500L,
+                        actualMs = 10_000L + index * 500L,
+                    )
+                    .copy(outputLatencyOffsetMs = 120L)
+            )
+        }
+        val decision =
+            controller.evaluate(
+                input(atMs = 1_000L, expectedMs = 11_000L, actualMs = 11_000L)
+                    .copy(outputLatencyOffsetMs = 120L)
+            )
+
+        assertEquals(120L, decision.rawDriftMs)
+        assertEquals(PlaybackSyncState.SOFT_CORRECTING, decision.state)
+        assertTrue(decision.action is SyncAction.SetSpeed)
+    }
+
+    @Test
     fun routeChangeClearsMeasurementHistoryAndBaseline() {
         val controller = PlaybackSyncController()
         controller.evaluate(input(0, 10_000, 9_850))
@@ -101,11 +129,14 @@ class PlaybackSyncEngineTest {
         val correcting = controller.evaluate(input(1_000, 11_000, 10_850))
         assertTrue(correcting.action is SyncAction.SetSpeed)
 
-        val changedRoute = input(1_500, 11_500, 11_350).copy(
-            sample = input(1_500, 11_500, 11_350).sample.copy(
-                outputRoute = AudioOutputRoute.BLUETOOTH,
-            )
-        )
+        val changedRoute =
+            input(1_500, 11_500, 11_350)
+                .copy(
+                    sample =
+                        input(1_500, 11_500, 11_350)
+                            .sample
+                            .copy(outputRoute = AudioOutputRoute.BLUETOOTH)
+                )
         val reacquiring = controller.evaluate(changedRoute)
         assertEquals(PlaybackSyncState.ACQUIRING, reacquiring.state)
         assertTrue(reacquiring.action is SyncAction.Hold)
@@ -114,18 +145,24 @@ class PlaybackSyncEngineTest {
 
     @Test
     fun pauseAndDisconnectSuppressAllAutomaticCorrection() {
-        val pausedInput = input(0, 10_000, 9_000).copy(
-            sample = input(0, 10_000, 9_000).sample.copy(
-                activityState = PlaybackActivityState.READY_PAUSED,
-                isPlaying = false,
-                playWhenReady = false,
-            )
-        )
+        val pausedInput =
+            input(0, 10_000, 9_000)
+                .copy(
+                    sample =
+                        input(0, 10_000, 9_000)
+                            .sample
+                            .copy(
+                                activityState = PlaybackActivityState.READY_PAUSED,
+                                isPlaying = false,
+                                playWhenReady = false,
+                            )
+                )
         val paused = PlaybackSyncController().evaluate(pausedInput)
         assertEquals(PlaybackSyncState.PAUSED, paused.state)
         assertTrue(paused.action is SyncAction.Hold)
 
-        val disconnected = PlaybackSyncController().evaluate(input(0, 10_000, 9_000).copy(connected = false))
+        val disconnected =
+            PlaybackSyncController().evaluate(input(0, 10_000, 9_000).copy(connected = false))
         assertEquals(PlaybackSyncState.DISABLED, disconnected.state)
         assertTrue(disconnected.action is SyncAction.Hold)
     }
@@ -133,27 +170,28 @@ class PlaybackSyncEngineTest {
     @Test
     fun clockUncertaintySuppressesParticipantCorrection() {
         val controller = PlaybackSyncController()
-        val decision = controller.evaluate(
-            input(0, 10_000, 9_000).copy(
-                coordinatorUsesLocalClock = false,
-                clockUncertaintyNs = 100_000_000L,
+        val decision =
+            controller.evaluate(
+                input(0, 10_000, 9_000)
+                    .copy(
+                        coordinatorUsesLocalClock = false,
+                        clockUncertaintyNs = 100_000_000L,
+                    )
             )
-        )
         assertEquals(PlaybackSyncState.WAITING_FOR_CLOCK, decision.state)
         assertTrue(decision.action is SyncAction.Hold)
     }
 
     @Test
     fun baselineLearningUsesTheActuallyAppliedPlayerSpeed() {
-        val controller = PlaybackSyncController(
-            PlaybackSyncConfig(baselineLearningWindowMs = 1_000L)
-        )
-        val first = input(0, 10_000, 9_990).copy(
-            sample = input(0, 10_000, 9_990).sample.copy(playbackSpeed = 0.999f),
-        )
-        val second = input(1_000, 11_000, 10_990).copy(
-            sample = input(1_000, 11_000, 10_990).sample.copy(playbackSpeed = 0.999f),
-        )
+        val controller =
+            PlaybackSyncController(PlaybackSyncConfig(baselineLearningWindowMs = 1_000L))
+        val first =
+            input(0, 10_000, 9_990)
+                .copy(sample = input(0, 10_000, 9_990).sample.copy(playbackSpeed = 0.999f))
+        val second =
+            input(1_000, 11_000, 10_990)
+                .copy(sample = input(1_000, 11_000, 10_990).sample.copy(playbackSpeed = 0.999f))
 
         controller.evaluate(first)
         val learned = controller.evaluate(second)
@@ -162,29 +200,58 @@ class PlaybackSyncEngineTest {
         assertTrue(learned.baselineSpeed > 0.9998f)
     }
 
+    @Test
+    fun softCorrectionUsesAReleaseDeadbandInsteadOfTogglingAtTheAcquireThreshold() {
+        val controller = PlaybackSyncController()
+        controller.evaluate(input(0, 10_000, 9_850))
+        controller.evaluate(input(500, 10_500, 10_350))
+        val correcting = controller.evaluate(input(1_000, 11_000, 10_850))
+        assertEquals(PlaybackSyncState.SOFT_CORRECTING, correcting.state)
+
+        // Repeated 60 ms samples are below the 80 ms acquisition threshold but above the 20 ms
+        // release threshold. Once correction is active, they must not toggle the player back to
+        // normal speed merely because the drift crossed the acquisition boundary.
+        repeat(3) { index ->
+            val atMs = 1_500L + index * 500L
+            val expected = 11_500L + index * 500L
+            val stillCorrecting = controller.evaluate(input(atMs, expected, expected - 60L))
+            assertEquals(PlaybackSyncState.SOFT_CORRECTING, stillCorrecting.state)
+            assertTrue(stillCorrecting.action is SyncAction.SetSpeed)
+        }
+
+        repeat(3) { index ->
+            val atMs = 3_000L + index * 500L
+            val expected = 13_000L + index * 500L
+            controller.evaluate(input(atMs, expected, expected - 10L))
+        }
+        assertEquals(PlaybackSyncState.TRACKING, controller.state)
+    }
+
     private fun input(
         atMs: Long,
         expectedMs: Long,
         actualMs: Long,
         seekRevision: Long = 0,
-    ) = PlaybackSyncInput(
-        canonicalQueueItemId = item,
-        expectedPositionMs = expectedMs,
-        sample = PlaybackSample(
-            queueItemId = item,
-            positionMs = actualMs,
-            durationMs = 120_000,
-            sampledAtLocalNs = atMs * 1_000_000L,
-            playWhenReady = true,
-            isPlaying = true,
-            activityState = PlaybackActivityState.READY_PLAYING,
-            playbackSpeed = 1f,
-            outputRoute = AudioOutputRoute.BUILT_IN_SPEAKER,
-            seekRevision = seekRevision,
-        ),
-        connected = true,
-        clockState = ClockSyncState.LOCKED,
-        clockUncertaintyNs = 0,
-        coordinatorUsesLocalClock = true,
-    )
+    ) =
+        PlaybackSyncInput(
+            canonicalQueueItemId = item,
+            expectedPositionMs = expectedMs,
+            sample =
+                PlaybackSample(
+                    queueItemId = item,
+                    positionMs = actualMs,
+                    durationMs = 120_000,
+                    sampledAtLocalNs = atMs * 1_000_000L,
+                    playWhenReady = true,
+                    isPlaying = true,
+                    activityState = PlaybackActivityState.READY_PLAYING,
+                    playbackSpeed = 1f,
+                    outputRoute = AudioOutputRoute.BUILT_IN_SPEAKER,
+                    seekRevision = seekRevision,
+                ),
+            connected = true,
+            clockState = ClockSyncState.LOCKED,
+            clockUncertaintyNs = 0,
+            coordinatorUsesLocalClock = true,
+        )
 }

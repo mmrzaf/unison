@@ -1,11 +1,11 @@
 package com.darius.unison.sync
 
 import com.darius.unison.util.MonotonicClock
+import kotlin.math.abs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.abs
 
 class ClockSyncEngineTest {
     private class FakeClock(var value: Long = 0) : MonotonicClock {
@@ -54,14 +54,19 @@ class ClockSyncEngineTest {
             val coordinatorReceive = ping.localSendNs + 50_000_000L
             val coordinatorSend = coordinatorReceive + 1_000_000L
             clock.value = ping.localSendNs + 21_000_000L
-            engine.recordPong(ping.pingId, ping.localSendNs, coordinatorReceive, coordinatorSend, clock.value)
+            engine.recordPong(
+                ping.pingId,
+                ping.localSendNs,
+                coordinatorReceive,
+                coordinatorSend,
+                clock.value,
+            )
             clock.value += 1_000_000_000L
         }
         assertEquals(ClockSyncState.LOCKED, engine.state)
         clock.value += 13_000_000_000L
         assertEquals(ClockSyncState.STALE, engine.state)
     }
-
 
     @Test
     fun staleGapForcesFreshAcquisitionWindow() {
@@ -72,7 +77,13 @@ class ClockSyncEngineTest {
             val coordinatorReceive = ping.localSendNs + 40_000_000L
             val coordinatorSend = coordinatorReceive + 1_000_000L
             clock.value = ping.localSendNs + 21_000_000L
-            engine.recordPong(ping.pingId, ping.localSendNs, coordinatorReceive, coordinatorSend, clock.value)
+            engine.recordPong(
+                ping.pingId,
+                ping.localSendNs,
+                coordinatorReceive,
+                coordinatorSend,
+                clock.value,
+            )
             clock.value += 1_000_000_000L
         }
         assertEquals(ClockSyncState.LOCKED, engine.state)
@@ -81,7 +92,13 @@ class ClockSyncEngineTest {
         val coordinatorReceive = ping.localSendNs + 40_000_000L
         val coordinatorSend = coordinatorReceive + 1_000_000L
         clock.value = ping.localSendNs + 21_000_000L
-        engine.recordPong(ping.pingId, ping.localSendNs, coordinatorReceive, coordinatorSend, clock.value)
+        engine.recordPong(
+            ping.pingId,
+            ping.localSendNs,
+            coordinatorReceive,
+            coordinatorSend,
+            clock.value,
+        )
         assertEquals(ClockSyncState.ACQUIRING, engine.state)
         assertEquals(1, engine.estimate().acceptedSampleCount)
     }
@@ -95,19 +112,26 @@ class ClockSyncEngineTest {
             val coordinatorReceive = ping.localSendNs + 50_000_000L
             val coordinatorSend = coordinatorReceive + 1_000_000L
             clock.value = ping.localSendNs + 21_000_000L
-            engine.recordPong(ping.pingId, ping.localSendNs, coordinatorReceive, coordinatorSend, clock.value)
+            engine.recordPong(
+                ping.pingId,
+                ping.localSendNs,
+                coordinatorReceive,
+                coordinatorSend,
+                clock.value,
+            )
             clock.value += 1_000_000_000L
         }
         val acceptedBefore = engine.estimate().acceptedSampleCount
         val outlier = engine.createPing()
         clock.value = outlier.localSendNs + 100_000_000L
-        val result = engine.recordPong(
-            outlier.pingId,
-            outlier.localSendNs,
-            outlier.localSendNs + 220_000_000L,
-            outlier.localSendNs + 221_000_000L,
-            clock.value,
-        )
+        val result =
+            engine.recordPong(
+                outlier.pingId,
+                outlier.localSendNs,
+                outlier.localSendNs + 220_000_000L,
+                outlier.localSendNs + 221_000_000L,
+                clock.value,
+            )
         assertNull(result)
         assertEquals(acceptedBefore, engine.estimate().acceptedSampleCount)
     }
@@ -134,18 +158,19 @@ class ClockSyncEngineTest {
 
     @Test
     fun remainsAccurateThroughDeterministicJitterAndAsymmetry() {
-        val clock = AffineGuestClock(
-            coordinatorNowNs = 2_000_000_000L,
-            localRate = 0.99975,
-            localOffsetNs = -65_000_000L,
-        )
+        val clock =
+            AffineGuestClock(
+                coordinatorNowNs = 2_000_000_000L,
+                localRate = 0.99975,
+                localOffsetNs = -65_000_000L,
+            )
         val scenario = ClockNetworkScenario(clock)
         scenario.exchangeSeries(count = 90) { index ->
             when {
                 index % 19 == 0 -> 90_000_000L to 8_000_000L
                 index % 7 == 0 -> 18_000_000L to 6_000_000L
-                else -> (4_000_000L + (index % 5) * 700_000L) to
-                    (5_000_000L + (index % 4) * 600_000L)
+                else ->
+                    (4_000_000L + (index % 5) * 700_000L) to (5_000_000L + (index % 4) * 600_000L)
             }
         }
 
@@ -158,11 +183,12 @@ class ClockSyncEngineTest {
 
     @Test
     fun sleepWakeAndResetRequireClockReacquisition() {
-        val clock = AffineGuestClock(
-            coordinatorNowNs = 1_000_000_000L,
-            localRate = 1.0003,
-            localOffsetNs = 25_000_000L,
-        )
+        val clock =
+            AffineGuestClock(
+                coordinatorNowNs = 1_000_000_000L,
+                localRate = 1.0003,
+                localOffsetNs = 25_000_000L,
+            )
         val scenario = ClockNetworkScenario(clock)
         scenario.exchangeSeries(count = 8) { 6_000_000L to 7_000_000L }
         assertEquals(ClockSyncState.LOCKED, scenario.engine.state)
@@ -184,11 +210,12 @@ class ClockSyncEngineTest {
 
     @Test
     fun futureCoordinatorDeadlineUsesImprovingMapping() {
-        val clock = AffineGuestClock(
-            coordinatorNowNs = 5_000_000_000L,
-            localRate = 1.001,
-            localOffsetNs = 80_000_000L,
-        )
+        val clock =
+            AffineGuestClock(
+                coordinatorNowNs = 5_000_000_000L,
+                localRate = 1.001,
+                localOffsetNs = 80_000_000L,
+            )
         val scenario = ClockNetworkScenario(clock)
         scenario.exchangeSeries(count = 5) { index ->
             (12_000_000L + index * 1_000_000L) to 5_000_000L
@@ -197,13 +224,14 @@ class ClockSyncEngineTest {
         val earlyLocalTarget = scenario.engine.toLocalTime(deadlineCoordinatorNs)
 
         scenario.exchangeSeries(count = 40) { index ->
-            (4_000_000L + (index % 3) * 400_000L) to
-                (5_000_000L + (index % 2) * 300_000L)
+            (4_000_000L + (index % 3) * 400_000L) to (5_000_000L + (index % 2) * 300_000L)
         }
         val improvedLocalTarget = scenario.engine.toLocalTime(deadlineCoordinatorNs)
         val trueLocalTarget = (deadlineCoordinatorNs.toDouble() * 1.001).toLong() + 80_000_000L
 
-        assertTrue(abs(improvedLocalTarget - trueLocalTarget) < abs(earlyLocalTarget - trueLocalTarget))
+        assertTrue(
+            abs(improvedLocalTarget - trueLocalTarget) < abs(earlyLocalTarget - trueLocalTarget)
+        )
         assertTrue(abs(improvedLocalTarget - trueLocalTarget) < 15_000_000L)
     }
 

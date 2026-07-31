@@ -29,12 +29,14 @@ class SynchronizationSimulationTest {
         listOf(0.9995, 1.001).forEach { hardwareRate ->
             val controller = PlaybackSyncController()
             val player = FakeSynchronizedPlayer(item, hardwareRate)
-            val result = PlaybackScenarioRunner(
-                controller = controller,
-                player = player,
-                queueItemId = item,
-                speedGate = PlaybackSpeedCommandGate(),
-            ).run(2 * 60 * 60 * 1_000L)
+            val result =
+                PlaybackScenarioRunner(
+                        controller = controller,
+                        player = player,
+                        queueItemId = item,
+                        speedGate = PlaybackSpeedCommandGate(),
+                    )
+                    .run(2 * 60 * 60 * 1_000L)
 
             assertTrue(result.p95AbsoluteDriftMs < 120)
             assertTrue(result.maximumAbsoluteDriftMs < 250)
@@ -45,18 +47,21 @@ class SynchronizationSimulationTest {
 
     @Test
     fun coordinatorAndGuestsIndependentlyFollowTheSameTimeline() {
-        val devices = listOf(
-            Triple(0.9995, true, "coordinator"),
-            Triple(1.00025, false, "guest-a"),
-            Triple(1.001, false, "guest-b"),
-        )
+        val devices =
+            listOf(
+                Triple(0.9995, true, "coordinator"),
+                Triple(1.00025, false, "guest-a"),
+                Triple(1.001, false, "guest-b"),
+            )
         devices.forEach { (hardwareRate, coordinator, _) ->
             val controller = PlaybackSyncController()
             val player = FakeSynchronizedPlayer(item, hardwareRate)
-            val result = PlaybackScenarioRunner(controller, player, item).run(
-                durationMs = 2 * 60 * 60 * 1_000L,
-                coordinatorUsesLocalClock = coordinator,
-            )
+            val result =
+                PlaybackScenarioRunner(controller, player, item)
+                    .run(
+                        durationMs = 2 * 60 * 60 * 1_000L,
+                        coordinatorUsesLocalClock = coordinator,
+                    )
             assertTrue(result.p95AbsoluteDriftMs < 100)
             assertTrue(result.maximumAbsoluteDriftMs < 200)
             assertTrue(result.hardSeekCount == 0)
@@ -68,10 +73,12 @@ class SynchronizationSimulationTest {
         val controller = PlaybackSyncController()
         val player = FakeSynchronizedPlayer(item, 1.0004)
         val noise = listOf(0L, 18L, -12L, 35L, -25L, 8L, 70L, -55L)
-        val result = PlaybackScenarioRunner(controller, player, item).run(
-            durationMs = 30 * 60 * 1_000L,
-            expectedPositionNoiseMs = { tick -> noise[tick % noise.size] },
-        )
+        val result =
+            PlaybackScenarioRunner(controller, player, item)
+                .run(
+                    durationMs = 30 * 60 * 1_000L,
+                    expectedPositionNoiseMs = { tick -> noise[tick % noise.size] },
+                )
         assertTrue(result.p95AbsoluteDriftMs < 200)
         assertTrue(result.hardSeekCount == 0)
         assertTrue(result.maximumSpeed <= 1.0051f)
@@ -82,13 +89,15 @@ class SynchronizationSimulationTest {
     fun bufferingNeverAppliesCorrectionAndRecoversWithoutSeekLoop() {
         val controller = PlaybackSyncController()
         val player = FakeSynchronizedPlayer(item, 1.0005)
-        val result = PlaybackScenarioRunner(controller, player, item).run(10 * 60 * 1_000L) { tick, fake ->
-            fake.activityState = if (tick in 300..319) {
-                PlaybackActivityState.BUFFERING
-            } else {
-                PlaybackActivityState.READY_PLAYING
+        val result =
+            PlaybackScenarioRunner(controller, player, item).run(10 * 60 * 1_000L) { tick, fake ->
+                fake.activityState =
+                    if (tick in 300..319) {
+                        PlaybackActivityState.BUFFERING
+                    } else {
+                        PlaybackActivityState.READY_PLAYING
+                    }
             }
-        }
         assertTrue(result.hardSeekCount <= 1)
         assertTrue(result.maximumSpeed <= 1.0051f)
     }

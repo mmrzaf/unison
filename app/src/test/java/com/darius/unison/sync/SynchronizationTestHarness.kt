@@ -10,7 +10,10 @@ import kotlin.math.abs
 
 class FakeMonotonicClock(var now: Long = 0L) : MonotonicClock {
     override fun nowNs(): Long = now
-    fun advanceNs(deltaNs: Long) { now += deltaNs }
+
+    fun advanceNs(deltaNs: Long) {
+        now += deltaNs
+    }
 }
 
 class FakeSynchronizedPlayer(
@@ -25,6 +28,7 @@ class FakeSynchronizedPlayer(
     var seekRevision: Long = 0L
     var hardSeekCount: Int = 0
         private set
+
     var speedCommandCount: Int = 0
         private set
 
@@ -34,18 +38,19 @@ class FakeSynchronizedPlayer(
         }
     }
 
-    fun sample(atLocalNs: Long): PlaybackSample = PlaybackSample(
-        queueItemId = queueItemId,
-        positionMs = positionMs.toLong(),
-        durationMs = Long.MAX_VALUE,
-        sampledAtLocalNs = atLocalNs,
-        playWhenReady = playWhenReady,
-        isPlaying = activityState == PlaybackActivityState.READY_PLAYING && playWhenReady,
-        activityState = activityState,
-        playbackSpeed = playbackSpeed,
-        outputRoute = outputRoute,
-        seekRevision = seekRevision,
-    )
+    fun sample(atLocalNs: Long): PlaybackSample =
+        PlaybackSample(
+            queueItemId = queueItemId,
+            positionMs = positionMs.toLong(),
+            durationMs = Long.MAX_VALUE,
+            sampledAtLocalNs = atLocalNs,
+            playWhenReady = playWhenReady,
+            isPlaying = activityState == PlaybackActivityState.READY_PLAYING && playWhenReady,
+            activityState = activityState,
+            playbackSpeed = playbackSpeed,
+            outputRoute = outputRoute,
+            seekRevision = seekRevision,
+        )
 
     fun apply(
         decision: PlaybackSyncDecision,
@@ -69,11 +74,12 @@ class FakeSynchronizedPlayer(
         speedGate: PlaybackSpeedCommandGate?,
         nowNs: Long,
     ) {
-        val selected = if (speedGate == null) {
-            requestedSpeed
-        } else {
-            speedGate.select(requestedSpeed, playbackSpeed, nowNs) ?: return
-        }
+        val selected =
+            if (speedGate == null) {
+                requestedSpeed
+            } else {
+                speedGate.select(requestedSpeed, playbackSpeed, nowNs) ?: return
+            }
         if (selected != playbackSpeed) {
             playbackSpeed = selected
             speedCommandCount++
@@ -85,6 +91,7 @@ class SyncMetricsCollector {
     private val absoluteDrifts = mutableListOf<Long>()
     var minSpeed: Float = Float.MAX_VALUE
         private set
+
     var maxSpeed: Float = -Float.MAX_VALUE
         private set
 
@@ -140,17 +147,18 @@ class PlaybackScenarioRunner(
             if (tick > 0) player.advance(tickMs)
             onTick(tick, player)
             val nowMs = tick * tickMs
-            val decision = controller.evaluate(
-                PlaybackSyncInput(
-                    canonicalQueueItemId = queueItemId,
-                    expectedPositionMs = nowMs + expectedPositionNoiseMs(tick),
-                    sample = player.sample(nowMs * 1_000_000L),
-                    connected = true,
-                    clockState = ClockSyncState.LOCKED,
-                    clockUncertaintyNs = clockUncertaintyNs,
-                    coordinatorUsesLocalClock = coordinatorUsesLocalClock,
+            val decision =
+                controller.evaluate(
+                    PlaybackSyncInput(
+                        canonicalQueueItemId = queueItemId,
+                        expectedPositionMs = nowMs + expectedPositionNoiseMs(tick),
+                        sample = player.sample(nowMs * 1_000_000L),
+                        connected = true,
+                        clockState = ClockSyncState.LOCKED,
+                        clockUncertaintyNs = clockUncertaintyNs,
+                        coordinatorUsesLocalClock = coordinatorUsesLocalClock,
+                    )
                 )
-            )
             player.apply(decision, speedGate, nowMs * 1_000_000L)
             metrics.record(decision)
         }
@@ -207,5 +215,6 @@ class ClockNetworkScenario(
         }
     }
 
-    fun mappingErrorNs(): Long = abs(engine.toCoordinatorTime(clock.nowNs()) - clock.coordinatorNowNs)
+    fun mappingErrorNs(): Long =
+        abs(engine.toCoordinatorTime(clock.nowNs()) - clock.coordinatorNowNs)
 }
