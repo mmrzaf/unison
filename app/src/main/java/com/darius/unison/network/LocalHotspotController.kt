@@ -10,63 +10,92 @@ import com.darius.unison.util.DiagnosticLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
 class LocalHotspotController(
     context: Context,
     private val log: DiagnosticLog,
 ) {
     private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
+    private val stateLock = Any()
     private var reservation: WifiManager.LocalOnlyHotspotReservation? = null
-    private val starting = AtomicBoolean(false)
-    private val generation = AtomicLong(0)
+    private var starting = false
+    private var generation = 0L
     private val _state = MutableStateFlow<HotspotInfo?>(null)
     val state: StateFlow<HotspotInfo?> = _state.asStateFlow()
 
     @Suppress("MissingPermission")
     fun start(onError: (String) -> Unit = {}) {
-        if (reservation != null || !starting.compareAndSet(false, true)) return
-        val requestGeneration = generation.incrementAndGet()
+        val requestGeneration =
+            synchronized(stateLock) {
+                if (reservation != null || starting) return
+                starting = true
+                ++generation
+            }
 
         try {
             wifi.startLocalOnlyHotspot(
                 object : WifiManager.LocalOnlyHotspotCallback() {
                     override fun onStarted(value: WifiManager.LocalOnlyHotspotReservation) {
-                        if (requestGeneration != generation.get()) {
-                            value.close()
+                        val accepted =
+                            synchronized(stateLock) {
+                                if (requestGeneration != generation) {
+                                    false
+                                } else {
+                                    starting = false
+                                    reservation = value
+                                    val config = value.softApConfiguration
+                                    _state.value =
+                                        HotspotInfo(
+                                            ssid =
+                                                if (
+                                                    Build.VERSION.SDK_INT >=
+                                                        Build.VERSION_CODES.TIRAMISU
+                                                ) {
+                                                    config.wifiSsid?.toString()
+                                                } else {
+                                                    @Suppress("DEPRECATION") config.ssid
+                                                } ?: "Unison",
+                                            passphrase = config.passphrase,
+                                            securityType = config.securityType,
+                                        )
+                                    true
+                                }
+                            }
+                        if (!accepted) {
+                            runCatching { value.close() }
                             return
                         }
-                        starting.set(false)
-                        reservation = value
-                        val config = value.softApConfiguration
-                        _state.value = HotspotInfo(
-                            ssid = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                config.wifiSsid?.toString()
-                            } else {
-                                @Suppress("DEPRECATION")
-                                config.ssid
-                            } ?: "Unison",
-                            passphrase = config.passphrase,
-                            securityType = config.securityType,
-                        )
                         log.i(TAG, "Local-only hotspot started")
                     }
 
                     override fun onStopped() {
-                        if (requestGeneration == generation.get()) {
-                            starting.set(false)
-                            reservation = null
-                            _state.value = null
-                        }
-                        log.i(TAG, "Local-only hotspot stopped")
+                        val current =
+                            synchronized(stateLock) {
+                                if (requestGeneration != generation) {
+                                    false
+                                } else {
+                                    starting = false
+                                    reservation = null
+                                    _state.value = null
+                                    true
+                                }
+                            }
+                        if (current) log.i(TAG, "Local-only hotspot stopped")
                     }
 
                     override fun onFailed(reason: Int) {
-                        if (requestGeneration != generation.get()) return
-                        starting.set(false)
-                        reservation = null
-                        _state.value = null
+                        val current =
+                            synchronized(stateLock) {
+                                if (requestGeneration != generation) {
+                                    false
+                                } else {
+                                    starting = false
+                                    reservation = null
+                                    _state.value = null
+                                    true
+                                }
+                            }
+                        if (!current) return
                         log.w(TAG, "Local-only hotspot failed reason=$reason")
                         onError("Could not create offline network")
                     }
@@ -74,21 +103,34 @@ class LocalHotspotController(
                 Handler(Looper.getMainLooper()),
             )
         } catch (error: Exception) {
-            if (requestGeneration != generation.get()) return
-            starting.set(false)
-            reservation = null
-            _state.value = null
+            val current =
+                synchronized(stateLock) {
+                    if (requestGeneration != generation) {
+                        false
+                    } else {
+                        starting = false
+                        reservation = null
+                        _state.value = null
+                        true
+                    }
+                }
+            if (!current) return
             log.w(TAG, "Local-only hotspot failed before callback", error)
             onError("Could not create offline network")
         }
     }
 
     fun stop() {
-        generation.incrementAndGet()
-        starting.set(false)
-        reservation?.close()
-        reservation = null
-        _state.value = null
+        val toClose =
+            synchronized(stateLock) {
+                generation++
+                starting = false
+                reservation.also {
+                    reservation = null
+                    _state.value = null
+                }
+            }
+        runCatching { toClose?.close() }
     }
 
     companion object {
