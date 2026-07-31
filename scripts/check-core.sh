@@ -2,6 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Keep the standalone compiler predictable on large source sets while respecting caller overrides.
+export JAVA_OPTS="${JAVA_OPTS:--Xmx2g -XX:+UseG1GC}"
+
 if ! command -v kotlinc >/dev/null 2>&1; then
   echo "CORE_CHECK_SKIPPED: kotlinc is not installed"
   exit 0
@@ -25,16 +28,23 @@ SOURCES=(
   scripts/core-check/stubs/com/darius/unison/util/DiagnosticLog.kt
   scripts/core-check/stubs/kotlinx/serialization/Stubs.kt
   scripts/core-check/stubs/org/junit/JUnitStubs.kt
+  scripts/core-check/stubs/org/junit/rules/TemporaryFolder.kt
+  app/src/main/java/com/darius/unison/model/RoomIssue.kt
   app/src/main/java/com/darius/unison/model/DomainModels.kt
   app/src/main/java/com/darius/unison/model/RoomStateModels.kt
   app/src/main/java/com/darius/unison/app/RoomStore.kt
+  app/src/main/java/com/darius/unison/app/RoomCommandBus.kt
   app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt
-  app/src/main/java/com/darius/unison/storage/ArtworkRetryPolicy.kt
   app/src/main/java/com/darius/unison/model/Commands.kt
+  app/src/main/java/com/darius/unison/model/TransportCommandResult.kt
+  app/src/main/java/com/darius/unison/ui/RoomPlaybackUiPolicy.kt
   app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
+  app/src/main/java/com/darius/unison/protocol/ProtocolException.kt
+  app/src/main/java/com/darius/unison/protocol/AuthenticatedFileStreamCodec.kt
   app/src/main/java/com/darius/unison/protocol/RoomSnapshotValidator.kt
   app/src/main/java/com/darius/unison/protocol/EnvelopeReplayProtector.kt
   app/src/main/java/com/darius/unison/protocol/Crypto.kt
+  app/src/main/java/com/darius/unison/protocol/PinPake.kt
   app/src/main/java/com/darius/unison/room/RoomReducer.kt
   app/src/main/java/com/darius/unison/room/RoomEngine.kt
   app/src/main/java/com/darius/unison/room/PeerRegistry.kt
@@ -43,14 +53,45 @@ SOURCES=(
   app/src/main/java/com/darius/unison/room/AdmissionGuard.kt
   app/src/main/java/com/darius/unison/room/ControlAdmissionController.kt
   app/src/main/java/com/darius/unison/room/SerializedEventLoop.kt
+  app/src/main/java/com/darius/unison/room/SessionJobRegistry.kt
+  app/src/main/java/com/darius/unison/room/JoinRetryPolicy.kt
+  app/src/main/java/com/darius/unison/room/RoomPowerPolicy.kt
+  app/src/main/java/com/darius/unison/room/HeartbeatLivenessPolicy.kt
+  app/src/main/java/com/darius/unison/room/RoomReconnectPolicy.kt
+  app/src/main/java/com/darius/unison/room/QueueSearchIndex.kt
+  app/src/main/java/com/darius/unison/room/QueueDragPolicy.kt
+  app/src/main/java/com/darius/unison/room/TrackPrefetchPolicy.kt
+  app/src/main/java/com/darius/unison/room/TransportIntentCoordinator.kt
+  app/src/main/java/com/darius/unison/room/PendingTrackTransitionRegistry.kt
+  app/src/main/java/com/darius/unison/room/TransportTargetPolicy.kt
+  app/src/main/java/com/darius/unison/room/TransportLeadTimePolicy.kt
+  app/src/main/java/com/darius/unison/room/TransportCommandTracker.kt
   app/src/main/java/com/darius/unison/room/PlaybackQueuePolicy.kt
+  app/src/main/java/com/darius/unison/room/PlaybackSyncCadencePolicy.kt
   app/src/main/java/com/darius/unison/room/PlaybackRequestPolicy.kt
   app/src/main/java/com/darius/unison/playback/SystemMediaCommandPolicy.kt
+  app/src/main/java/com/darius/unison/playback/RoomServicePolicy.kt
+  app/src/main/java/com/darius/unison/playback/PlaybackQueueDiffPolicy.kt
+  app/src/main/java/com/darius/unison/playback/MediaNotificationUpdatePolicy.kt
+  app/src/main/java/com/darius/unison/playback/PlaybackTimelinePlan.kt
   app/src/main/java/com/darius/unison/playback/PlaybackSpeedCommandGate.kt
+  app/src/main/java/com/darius/unison/playback/PlaybackIntentReconciliationPolicy.kt
+  app/src/main/java/com/darius/unison/playback/PlaybackFailure.kt
+  app/src/main/java/com/darius/unison/playback/DesiredPlaybackState.kt
+  app/src/main/java/com/darius/unison/playback/CanonicalPlaybackDispatcher.kt
   app/src/main/java/com/darius/unison/playback/PlayerPort.kt
+  app/src/main/java/com/darius/unison/playback/PlayerMutationCoordinator.kt
+  app/src/main/java/com/darius/unison/playback/ScheduledPlaybackController.kt
+  app/src/main/java/com/darius/unison/playback/PlayerStateEventPolicy.kt
+  app/src/main/java/com/darius/unison/playback/PlayerEventInterpreter.kt
+  app/src/main/java/com/darius/unison/playback/PlayerItemTransitionPolicy.kt
+  app/src/main/java/com/darius/unison/playback/PlayerTransitionCircuitBreaker.kt
   app/src/main/java/com/darius/unison/sync/ClockSyncEngine.kt
   app/src/main/java/com/darius/unison/sync/PlaybackSyncEngine.kt
+  app/src/main/java/com/darius/unison/sync/SynchronizationDiagnostics.kt
   app/src/main/java/com/darius/unison/util/MonotonicClock.kt
+  app/src/main/java/com/darius/unison/util/DiagnosticSanitizer.kt
+  app/src/main/java/com/darius/unison/library/LibrarySearch.kt
   app/src/main/java/com/darius/unison/library/M3uCodec.kt
   app/src/main/java/com/darius/unison/library/M3uImportModels.kt
   app/src/main/java/com/darius/unison/library/PlaylistPathPolicy.kt
@@ -61,6 +102,10 @@ SOURCES=(
   app/src/main/java/com/darius/unison/network/ControlTraffic.kt
   app/src/main/java/com/darius/unison/network/DiscoveredRoomRegistry.kt
   app/src/main/java/com/darius/unison/transfer/TransferCancellationRegistry.kt
+  app/src/main/java/com/darius/unison/transfer/TransferAuthorizationRegistry.kt
+  app/src/test/java/com/darius/unison/app/RoomStoreTest.kt
+  app/src/test/java/com/darius/unison/app/RoomCommandBusTest.kt
+  app/src/test/java/com/darius/unison/library/LibrarySearchTest.kt
   app/src/test/java/com/darius/unison/library/M3uCodecTest.kt
   app/src/test/java/com/darius/unison/library/M3uResolutionPolicyTest.kt
   app/src/test/java/com/darius/unison/library/PlaylistPathPolicyTest.kt
@@ -69,17 +114,34 @@ SOURCES=(
   app/src/test/java/com/darius/unison/model/CanonicalPlaybackStateTest.kt
   app/src/test/java/com/darius/unison/model/RoomUiStateTest.kt
   app/src/test/java/com/darius/unison/model/RoomStateSeparationTest.kt
+  app/src/test/java/com/darius/unison/model/RoomIssueTest.kt
+  app/src/test/java/com/darius/unison/model/TransportCommandResultTest.kt
+  app/src/test/java/com/darius/unison/ui/RoomPlaybackUiPolicyTest.kt
   app/src/test/java/com/darius/unison/network/NetworkAddressPolicyTest.kt
   app/src/test/java/com/darius/unison/network/DiscoveredRoomRegistryTest.kt
   app/src/test/java/com/darius/unison/protocol/CryptoTest.kt
+  app/src/test/java/com/darius/unison/protocol/PinPakeTest.kt
+  app/src/test/java/com/darius/unison/protocol/AuthenticatedFileStreamCodecTest.kt
   app/src/test/java/com/darius/unison/protocol/RoomSnapshotValidatorTest.kt
   app/src/test/java/com/darius/unison/protocol/EnvelopeReplayProtectorTest.kt
   app/src/test/java/com/darius/unison/protocol/PlaybackTelemetryProtocolTest.kt
   app/src/test/java/com/darius/unison/network/ControlTrafficClassifierTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackQueuePolicyTest.kt
+  app/src/test/java/com/darius/unison/room/PlaybackSyncCadencePolicyTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackRequestPolicyTest.kt
   app/src/test/java/com/darius/unison/playback/SystemMediaCommandPolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/RoomServicePolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/PlaybackQueueDiffPolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/MediaNotificationUpdatePolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/PlaybackTimelinePlanTest.kt
   app/src/test/java/com/darius/unison/playback/PlaybackSpeedCommandGateTest.kt
+  app/src/test/java/com/darius/unison/playback/PlaybackIntentReconciliationPolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/DesiredPlaybackStateTest.kt
+  app/src/test/java/com/darius/unison/playback/CanonicalPlaybackDispatcherTest.kt
+  app/src/test/java/com/darius/unison/playback/PlayerStateEventPolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/PlayerEventInterpreterTest.kt
+  app/src/test/java/com/darius/unison/playback/PlayerItemTransitionPolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/PlayerTransitionCircuitBreakerTest.kt
   app/src/test/java/com/darius/unison/room/RoomReducerTest.kt
   app/src/test/java/com/darius/unison/room/RoomEngineValidationTest.kt
   app/src/test/java/com/darius/unison/room/PeerRegistryTest.kt
@@ -88,13 +150,30 @@ SOURCES=(
   app/src/test/java/com/darius/unison/room/AdmissionGuardTest.kt
   app/src/test/java/com/darius/unison/room/ControlAdmissionControllerTest.kt
   app/src/test/java/com/darius/unison/room/SerializedEventLoopTest.kt
+  app/src/test/java/com/darius/unison/room/SessionJobRegistryTest.kt
+  app/src/test/java/com/darius/unison/room/JoinRetryPolicyTest.kt
+  app/src/test/java/com/darius/unison/room/RoomPowerPolicyTest.kt
+  app/src/test/java/com/darius/unison/room/HeartbeatLivenessPolicyTest.kt
+  app/src/test/java/com/darius/unison/room/RoomReconnectPolicyTest.kt
+  app/src/test/java/com/darius/unison/room/QueueSearchIndexTest.kt
+  app/src/test/java/com/darius/unison/room/QueueDragPolicyTest.kt
+  app/src/test/java/com/darius/unison/room/TrackPrefetchPolicyTest.kt
+  app/src/test/java/com/darius/unison/room/TransportIntentCoordinatorTest.kt
+  app/src/test/java/com/darius/unison/room/PendingTrackTransitionRegistryTest.kt
+  app/src/test/java/com/darius/unison/room/TransportLeadTimePolicyTest.kt
+  app/src/test/java/com/darius/unison/room/TransportTargetPolicyTest.kt
+  app/src/test/java/com/darius/unison/room/TransportCommandTrackerTest.kt
+  app/src/test/java/com/darius/unison/playback/PlayerMutationCoordinatorTest.kt
+  app/src/test/java/com/darius/unison/playback/ScheduledPlaybackControllerTest.kt
   app/src/test/java/com/darius/unison/sync/ClockSyncEngineTest.kt
   app/src/test/java/com/darius/unison/sync/PlaybackSyncEngineTest.kt
   app/src/test/java/com/darius/unison/sync/SynchronizationTestHarness.kt
   app/src/test/java/com/darius/unison/sync/SynchronizationSimulationTest.kt
+  app/src/test/java/com/darius/unison/sync/SynchronizationDiagnosticsTest.kt
   app/src/test/java/com/darius/unison/storage/ManagedFileStoreTest.kt
-  app/src/test/java/com/darius/unison/storage/ArtworkRetryPolicyTest.kt
   app/src/test/java/com/darius/unison/transfer/TransferCancellationRegistryTest.kt
+  app/src/test/java/com/darius/unison/transfer/TransferAuthorizationRegistryTest.kt
+  app/src/test/java/com/darius/unison/util/DiagnosticSanitizerTest.kt
   scripts/core-check/CoreTestRunner.kt
 )
 

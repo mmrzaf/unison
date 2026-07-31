@@ -4,6 +4,18 @@ package org.junit
 @Retention(AnnotationRetention.RUNTIME)
 annotation class Test
 
+@Target(AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class Before
+
+@Target(AnnotationTarget.FUNCTION)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class After
+
+@Target(AnnotationTarget.PROPERTY_GETTER, AnnotationTarget.FIELD)
+@Retention(AnnotationRetention.RUNTIME)
+annotation class Rule
+
 object Assert {
     fun assertTrue(value: Boolean) {
         if (!value) throw AssertionError("Expected true")
@@ -29,5 +41,15 @@ object Assert {
         if (kotlin.math.abs(expected - actual) > delta) {
             throw AssertionError("Expected <$expected> ± $delta, got <$actual>")
         }
+    }
+
+    fun <T : Throwable> assertThrows(type: Class<T>, block: () -> Unit): T {
+        try {
+            block()
+        } catch (error: Throwable) {
+            if (type.isInstance(error)) return type.cast(error)
+            throw AssertionError("Expected ${type.name}, got ${error::class.java.name}", error)
+        }
+        throw AssertionError("Expected ${type.name} to be thrown")
     }
 }

@@ -4,6 +4,7 @@ import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.HandshakeMessage
+import com.darius.unison.protocol.HandshakeRejectionCode
 
 class ControlConnection
 
@@ -19,6 +20,11 @@ class PeerServer {
             val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
         ) : ControlAdmission
 
-        data class Rejected(val reason: String) : ControlAdmission
+        data class PinChallenge(
+            val response: HandshakeMessage.PinChallenge,
+            val complete: suspend (HandshakeMessage.PinResponse) -> ControlAdmission,
+        ) : ControlAdmission
+
+        data class Rejected(val reason: String, val code: HandshakeRejectionCode) : ControlAdmission
     }
 }
