@@ -11,15 +11,16 @@ class DiscoveredRoomRegistryTest {
         service: String = "Unison-a",
         id: String = "aaaaaaaa",
         name: String = "Room",
-    ) = DiscoveredRoom(
-        serviceName = service,
-        roomId = id,
-        roomName = name,
-        hostAddress = "192.168.1.2",
-        port = 4102,
-        protocolVersion = 1,
-        term = 1,
-    )
+    ) =
+        DiscoveredRoom(
+            serviceName = service,
+            roomId = id,
+            roomName = name,
+            hostAddress = "192.168.1.2",
+            port = 4102,
+            protocolVersion = 1,
+            term = 1,
+        )
 
     @Test
     fun identicalRediscoveryDoesNotChangeVisibleList() {
