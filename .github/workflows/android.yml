@@ -40,11 +40,17 @@ jobs:
           cache-provider: basic
           add-job-summary: on-failure
 
+      - name: Prepare pinned standalone Kotlin checks
+        run: ./gradlew --no-daemon :app:prepareStandaloneKotlinChecks
+
       - name: Verify repository
         run: |
           ./scripts/check-static.sh
           ./scripts/check-core.sh
           ./scripts/check-data.sh
+          ./scripts/check-risky-kotlin.sh
+          ./scripts/check-player-kotlin.sh
+          ./scripts/check-session-player-kotlin.sh
           ./scripts/check-release-quality.sh
 
       - name: Apply runner-only lint compatibility policy
