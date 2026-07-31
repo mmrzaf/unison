@@ -105,9 +105,14 @@ grep -q 'override fun onUpdateNotification' app/src/main/java/com/darius/unison/
 grep -q 'MediaNotificationUpdatePolicy.decide' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
 grep -q 'NOTIFICATION_UPDATE_INTERVAL_MS = 300L' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
 grep -q 'notificationDeduplicatedCount' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
-grep -q 'localRoomPin?.takeIf { state.room.isCoordinator }' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
-grep -q 'INVITE_AUTO_HIDE_MS = 15_000L' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+grep -q 'UnisonMediaArtwork.createPng()' app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt
+grep -q 'setArtworkData(systemArtworkData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)' app/src/main/java/com/darius/unison/playback/RoomMediaSessionPlayer.kt
+! grep -Rq 'HighContrastMediaNotificationProvider\|setColorized(true)' app/src/main/java
+grep -q 'val localRoomCode = state.room.localRoomPin' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+grep -q 'R.string.room_code_action' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+! grep -q 'INVITE_AUTO_HIDE_MS' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
 ! grep -q 'item(key = "room-join-code")' app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt
+! grep -q 'Only the room host' app/src/main/java/com/darius/unison/room/RoomReducer.kt
 grep -q 'PENDING_TRACK_PREPARATION_TIMEOUT_MS = 10_000L' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
 grep -q 'PendingTrackTransitionTimedOut' app/src/main/java/com/darius/unison/room/RoomRuntime.kt
 grep -q 'PendingPlayTimedOut' app/src/main/java/com/darius/unison/room/RoomRuntime.kt

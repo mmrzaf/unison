@@ -1,6 +1,7 @@
 package androidx.media3.common;
 
 public class MediaMetadata {
+  public static final int PICTURE_TYPE_FRONT_COVER = 3;
   public final CharSequence title;
   public final CharSequence artist;
   public final CharSequence albumTitle;
@@ -28,6 +29,7 @@ public class MediaMetadata {
     public Builder setAlbumTitle(CharSequence value) { albumTitle = value; return this; }
     public Builder setDisplayTitle(CharSequence value) { displayTitle = value; return this; }
     public Builder setSubtitle(CharSequence value) { subtitle = value; return this; }
+    public Builder setArtworkData(byte[] value, int pictureType) { return this; }
     public MediaMetadata build() { return new MediaMetadata(title, artist, albumTitle, displayTitle, subtitle); }
   }
 }

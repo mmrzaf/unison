@@ -243,11 +243,18 @@ def main() -> int:
         if marker in production_text:
             problems.append(f"Artwork pipeline was reintroduced: {marker}")
     service = (SOURCE_ROOT / "com/darius/unison/playback/UnisonRoomService.kt").read_text()
+    session_player = (
+        SOURCE_ROOT / "com/darius/unison/playback/RoomMediaSessionPlayer.kt"
+    ).read_text()
     media_adapter = (SOURCE_ROOT / "com/darius/unison/playback/Media3PlayerAdapter.kt").read_text()
     if "startAsForeground" in service or "NotificationCompat.Builder" in service:
         problems.append("Generic foreground notification path was reintroduced")
     if "DefaultMediaNotificationProvider" not in service:
         problems.append("Media3 player-control notification provider is missing")
+    if "UnisonMediaArtwork.createPng()" not in service:
+        problems.append("Fixed Unison system-media artwork is missing")
+    if "setArtworkData(systemArtworkData" not in session_player:
+        problems.append("System media metadata no longer receives fixed Unison artwork")
     if "val scheduledForStartId = latestStartId" not in service or "stopSelfResult(scheduledForStartId)" not in service:
         problems.append("Idle service shutdown is not bound to its scheduled start ID")
     if "lifecycleScope" not in service or "Dispatchers.Main.immediate" not in service:
