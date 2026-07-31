@@ -1,5 +1,7 @@
 package com.darius.unison.storage
 
+import java.io.ByteArrayInputStream
+import kotlin.io.path.createTempDirectory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -7,8 +9,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.ByteArrayInputStream
-import kotlin.io.path.createTempDirectory
 
 class ManagedFileStoreTest {
     @Test
@@ -23,6 +23,25 @@ class ManagedFileStoreTest {
             assertEquals(bytes.size.toLong(), result.sizeBytes)
             assertTrue(store.hasVerified(result.trackId, bytes.size.toLong()))
             assertTrue(result.file.readBytes().contentEquals(bytes))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun unchangedVerifiedFileIsNotFullyRehashedOnRepeatedLookup() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(2 * 1024 * 1024) { (it % 251).toByte() }
+            val result = store.copyAndHash(ByteArrayInputStream(bytes))
+            val before = store.fullVerificationCountForTests()
+
+            repeat(20) {
+                assertTrue(store.hasVerified(result.trackId, bytes.size.toLong()))
+            }
+
+            assertEquals(before, store.fullVerificationCountForTests())
         } finally {
             root.deleteRecursively()
         }
@@ -51,11 +70,13 @@ class ManagedFileStoreTest {
         try {
             val store = ManagedFileStore(root)
             val bytes = ByteArray(768 * 1024) { (it % 197).toByte() }
-            val results = List(8) {
-                async(Dispatchers.IO) {
-                    store.copyAndHash(ByteArrayInputStream(bytes))
-                }
-            }.awaitAll()
+            val results =
+                List(8) {
+                        async(Dispatchers.IO) {
+                            store.copyAndHash(ByteArrayInputStream(bytes))
+                        }
+                    }
+                    .awaitAll()
 
             assertEquals(1, results.map { it.trackId }.distinct().size)
             assertTrue(results.first().file.readBytes().contentEquals(bytes))
@@ -149,10 +170,11 @@ class ManagedFileStoreTest {
             val store = ManagedFileStore(root)
             val bytes = ByteArray(2048) { it.toByte() }
             val trackId = store.hash(ByteArrayInputStream(bytes)).trackId
-            val partial = store.partialFile(trackId).apply {
-                writeBytes(bytes)
-                setLastModified(1L)
-            }
+            val partial =
+                store.partialFile(trackId).apply {
+                    writeBytes(bytes)
+                    setLastModified(1L)
+                }
             val lease = store.acquireLease(trackId, ManagedFileLeaseReason.TRANSFER_DOWNLOAD)
 
             assertEquals(0, store.cleanupAbandonedFiles(2L))
@@ -191,6 +213,91 @@ class ManagedFileStoreTest {
             )
             assertTrue(store.verifyPartial(expected, bytes.size.toLong()))
             assertTrue(store.finalFile(expected).readBytes().contentEquals(bytes))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun completedTransferCommitsUsingStreamingDigestWithoutSecondFullRead() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(700_000) { (it % 251).toByte() }
+            val expected = store.hash(ByteArrayInputStream(bytes)).trackId
+
+            val received =
+                store.receivePartialAndHash(
+                    trackId = expected,
+                    offset = 0,
+                    expectedSize = bytes.size.toLong(),
+                    input = ByteArrayInputStream(bytes),
+                )
+
+            assertTrue(
+                store.commitPartialWithDigest(expected, bytes.size.toLong(), received.sha256Hex)
+            )
+            assertEquals(0L, store.fullVerificationCountForTests())
+            assertTrue(store.finalFile(expected).readBytes().contentEquals(bytes))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun replacementNeverDeletesCorruptFileWhilePlaybackLeaseIsActive() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(96 * 1024) { (it % 199).toByte() }
+            val first = store.copyAndHash(ByteArrayInputStream(bytes))
+            val corrupt = ByteArray(bytes.size) { 0x2a }
+            first.file.writeBytes(corrupt)
+            val lease = store.acquireLease(first.trackId, ManagedFileLeaseReason.PLAYBACK)
+            try {
+                var blocked = false
+                try {
+                    store.copyAndHash(ByteArrayInputStream(bytes))
+                } catch (expected: IllegalStateException) {
+                    blocked = expected.message.orEmpty().contains("currently in use")
+                }
+                assertTrue(blocked)
+                assertTrue(first.file.exists())
+                assertTrue(first.file.readBytes().contentEquals(corrupt))
+            } finally {
+                lease.close()
+            }
+
+            val repaired = store.copyAndHash(ByteArrayInputStream(bytes))
+            assertTrue(repaired.file.readBytes().contentEquals(bytes))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun downloadLeaseDoesNotBlockItsOwnVerifiedCommit() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(32 * 1024) { (it % 173).toByte() }
+            val trackId = store.hash(ByteArrayInputStream(bytes)).trackId
+            val lease = store.acquireLease(trackId, ManagedFileLeaseReason.TRANSFER_DOWNLOAD)
+            try {
+                val received =
+                    store.receivePartialAndHash(
+                        trackId = trackId,
+                        offset = 0,
+                        expectedSize = bytes.size.toLong(),
+                        input = ByteArrayInputStream(bytes),
+                    )
+                assertTrue(
+                    store.commitPartialWithDigest(trackId, bytes.size.toLong(), received.sha256Hex)
+                )
+            } finally {
+                lease.close()
+            }
+            assertTrue(store.finalFile(trackId).readBytes().contentEquals(bytes))
         } finally {
             root.deleteRecursively()
         }
