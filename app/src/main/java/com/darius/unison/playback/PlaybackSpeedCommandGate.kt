@@ -12,8 +12,8 @@ data class PlaybackSpeedCommandGateConfig(
     val minimumSpeed: Float = 0.995f,
     val maximumSpeed: Float = 1.005f,
     val quantizationStep: Float = 0.00025f,
-    val minimumUpdateIntervalMs: Long = 3_000L,
-    val urgentDelta: Float = 0.001f,
+    val minimumUpdateIntervalMs: Long = 4_000L,
+    val urgentDelta: Float = 0.002f,
     val actualMatchTolerance: Float = 0.00010f,
 ) {
     init {
@@ -27,12 +27,14 @@ data class PlaybackSpeedCommandGateConfig(
 }
 
 class PlaybackSpeedCommandGate(
-    private val config: PlaybackSpeedCommandGateConfig = PlaybackSpeedCommandGateConfig(),
+    private val config: PlaybackSpeedCommandGateConfig = PlaybackSpeedCommandGateConfig()
 ) {
     private var lastAppliedSpeed: Float? = null
     private var lastAppliedAtNs: Long? = null
 
-    /** Returns the speed that should be applied now, or null when the current command should hold. */
+    /**
+     * Returns the speed that should be applied now, or null when the current command should hold.
+     */
     fun select(requestedSpeed: Float, actualSpeed: Float, nowNs: Long): Float? {
         val target = quantize(requestedSpeed)
         val actual = actualSpeed.coerceIn(config.minimumSpeed, config.maximumSpeed)
@@ -50,10 +52,11 @@ class PlaybackSpeedCommandGate(
         val elapsedNs = lastAppliedAtNs?.let { nowNs - it } ?: Long.MAX_VALUE
         val intervalElapsed = elapsedNs >= config.minimumUpdateIntervalMs * 1_000_000L
         val urgent = abs(target - actual) >= config.urgentDelta
-        val restoringNormalSpeed = target == 1f
         val directionChanged = last != null && crossesUnity(last, target)
 
-        if (!intervalElapsed && !urgent && !restoringNormalSpeed && !directionChanged) return null
+        // Returning to 1.0x is still a player reconfiguration. Small restorations respect the same
+        // minimum interval so threshold noise cannot toggle the audio pipeline every few ticks.
+        if (!intervalElapsed && !urgent && !directionChanged) return null
 
         lastAppliedSpeed = target
         lastAppliedAtNs = nowNs
@@ -79,9 +82,10 @@ class PlaybackSpeedCommandGate(
         return previousSide != 0 && targetSide != 0 && previousSide != targetSide
     }
 
-    private fun Float.sign(): Int = when {
-        this > 0f -> 1
-        this < 0f -> -1
-        else -> 0
-    }
+    private fun Float.sign(): Int =
+        when {
+            this > 0f -> 1
+            this < 0f -> -1
+            else -> 0
+        }
 }

@@ -25,7 +25,7 @@ class PlaybackSpeedCommandGateTest {
         val gate = PlaybackSpeedCommandGate()
         gate.select(1.00155f, 1f, 0L)
         assertNull(gate.select(1.00124f, 1.0015f, 1_000_000_000L))
-        assertClose(1.00125f, gate.select(1.00124f, 1.0015f, 3_000_000_000L))
+        assertClose(1.00125f, gate.select(1.00124f, 1.0015f, 4_000_000_000L))
     }
 
     @Test
@@ -37,11 +37,11 @@ class PlaybackSpeedCommandGateTest {
     }
 
     @Test
-    fun restoringNormalSpeedIsImmediate() {
+    fun smallRestorationToNormalSpeedRespectsTheMinimumInterval() {
         val gate = PlaybackSpeedCommandGate()
         gate.select(1.00075f, 1f, 0L)
-        val selected = gate.select(1f, 1.00075f, 500_000_000L)
-        assertClose(1f, selected)
+        assertNull(gate.select(1f, 1.00075f, 500_000_000L))
+        assertClose(1f, gate.select(1f, 1.00075f, 4_000_000_000L))
     }
 
     @Test
@@ -57,6 +57,7 @@ class PlaybackSpeedCommandGateTest {
         assertTrue(selected != null)
         assertClose(1.005f, selected)
     }
+
     @Test
     fun fineGrainedControllerTargetsProduceOnlyAHandfulOfPlayerReconfigurations() {
         val gate = PlaybackSpeedCommandGate()
@@ -65,11 +66,12 @@ class PlaybackSpeedCommandGateTest {
 
         repeat(120) { tick ->
             val requested = 1.0016f - tick * (0.00095f / 119f)
-            val selected = gate.select(
-                requestedSpeed = requested,
-                actualSpeed = actual,
-                nowNs = tick * 500_000_000L,
-            )
+            val selected =
+                gate.select(
+                    requestedSpeed = requested,
+                    actualSpeed = actual,
+                    nowNs = tick * 500_000_000L,
+                )
             if (selected != null) {
                 actual = selected
                 appliedCount++
