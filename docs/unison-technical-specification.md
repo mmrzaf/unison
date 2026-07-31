@@ -12,8 +12,7 @@ shared monotonic room timeline.
 - Application version: `1.0.0`, code 1
 - Minimum SDK: 30
 - Target and compile SDK: 36
-- Kotlin, Jetpack Compose, AndroidX Room/Paging/WorkManager, Media3, coroutines, serialization, and
-  ZXing core
+- Kotlin, Jetpack Compose, AndroidX Room/Paging/WorkManager, Media3, coroutines, serialization
 - Local signed APK distribution only
 
 AndroidX and build plugins are ordinary compile-time libraries. The installed application includes
@@ -38,36 +37,37 @@ app-private paths.
 
 ### 3.3 Rooms
 
-A device can create a room, advertise it through Android NSD, or create a LocalOnlyHotspot. Peers
-can discover the room or join from a validated `unison://join` invitation. All connected members can
+A device can create a room, advertise it through Android NSD, or create a LocalOnlyHotspot. Peers discover the room and enter its four-digit room code. All connected members can
 add and control by product design. One coordinator orders commands and supplies the canonical clock.
 
 ### 3.4 Queue and transport
 
-The canonical queue supports 1,000 items. One command can add at most 100 validated track
-descriptors. Play, pause, seek, skip, item changes, shuffle, and repeat are represented as ordered
-mutations. Transport mutations are scheduled for a future coordinator monotonic timestamp.
+The canonical queue supports 1,000 items. One command can add up to the remaining queue capacity as one validated batch. Play, pause, seek, skip, item changes, shuffle, and repeat are represented as ordered
+mutations. Transport commands retain a correlated lifecycle from submission through settlement,
+use latest-intent coalescing for Play/Pause and Seek, and execute at an adaptive future coordinator
+monotonic timestamp bounded between 150 and 1,200 milliseconds.
 
 ### 3.5 Playback
 
 Media3 ExoPlayer performs local playback. A small queue window avoids loading a large room queue
 into the player. A `MediaSessionService` exposes trusted play/pause/seek/skip commands through the
-synchronized command path and withholds unsafe local-only queue or speed mutation. Clock samples
-estimate coordinator offset; drift policy selects no correction, small speed adjustment, or hard
-seek.
+synchronized command path and withholds unsafe local-only queue or speed mutation. One serialized,
+generation-aware mutation coordinator owns all Media3 writes, so explicit transport takes priority
+over drift correction and queue maintenance. Pause is non-seeking, aligned Play reuses the decoder,
+and unready navigation keeps the current item audible while the target is prepared. Clock samples estimate coordinator offset. Every device, including the coordinator, compares its
+local audible timeline with the same canonical monotonic room timeline; bounded drift policy selects
+no correction, a rate-limited small speed adjustment, or a cooldown-protected hard seek.
 
 ### 3.6 Transfer
 
-Missing upcoming audio is assigned to a source peer. A short-lived token binds track, source flow,
-and destination. Tokens are consumed atomically once validation succeeds. Transfers use a dedicated
+Missing upcoming audio is assigned to a source peer. A short-lived authorization binds track, source, destination, request, and resume offset. Authorizations are consumed atomically once validation succeeds. Transfers use a dedicated
 TCP channel, support resume offsets, enforce space and size limits, write through the managed store,
 and register only after complete SHA-256 verification.
 
 ### 3.7 Retention
 
 Locally imported tracks are kept by default. Room-received tracks are temporary for 24 hours unless
-the user keeps them. WorkManager periodically removes expired sources and abandoned partial/artwork
-files. Failures retry a bounded number of times.
+the user keeps them. WorkManager periodically removes expired sources and abandoned partial files. Failures retry a bounded number of times.
 
 ## 4. Local network boundary
 
@@ -77,10 +77,9 @@ manifest retains Android's `INTERNET` permission solely because raw private TCP 
 
 ## 5. Protocol
 
-Wire protocol version 2 is independent of application version 1.0.0. Handshakes negotiate that
-protocol, prove room PIN knowledge, exchange nonces, and protect delivery of the room secret with
-AES-GCM. Control frames are length-bounded and authenticated with HMAC-SHA-256. Envelopes carry
-room, term, sender, UUID, timestamp, and typed body. Malformed frames fail closed.
+Wire protocol 1 ships with application version 1.0.0. Initial handshakes use a mutually authenticated four-digit SRP-6a exchange; reconnects prove possession of the active room secret. Room-secret delivery, directional control frames, file headers,
+and bounded file chunks use AES-GCM. File authorization uses fresh challenge-response nonces and is
+bound to room, track, request, peers, and resume offset. Malformed or replayed traffic fails closed.
 
 ## 6. Security and privacy
 
@@ -92,13 +91,17 @@ assigned to them.
 ## 7. Reliability and performance
 
 - staging/rename lifecycle for imported files;
-- same-size existing files are digest-verified before reuse;
+- imported and transferred files are fully digest-verified before commit; unchanged managed files use
+  a cached metadata/fingerprint fast path during playback and can be explicitly deep-verified;
 - partial transfer files are hidden until verification;
 - bounded worker channels and socket admissions;
 - coroutine cancellation checks during long I/O;
 - Room transactions for source/track cleanup consistency;
 - Paging for large libraries;
-- moving Media3 queue window;
+- moving Media3 queue window plus one-shot rebuilds for large structural changes;
+- text-only media metadata and no image extraction, decoding, or image cache;
+- one MediaSessionService notification path with start-ID-safe idle shutdown;
+- position telemetry bypasses the serialized room actor;
 - replay filtering and sequence ordering;
 - watchdogs, reconnect flow, preparation state, and coordinator recovery.
 
@@ -115,9 +118,9 @@ verification, and SHA-256 generation. No bundle artifact is produced.
 
 A candidate is acceptable only after:
 
-- `check-static.sh`, `check-core.sh`, and `check-data.sh` pass;
+- `check-static.sh`, `check-core.sh`, `check-data.sh`, `check-risky-kotlin.sh`, `check-player-kotlin.sh`, and `check-session-player-kotlin.sh` pass;
 - offline Android unit tests, release lint, and release assembly pass;
 - signed APK verification and checksum generation pass;
-- at least two-device manual tests cover discovery, QR join, hotspot, synchronized controls,
+- at least two-device manual tests cover discovery, four-digit join, wrong-code throttling, hotspot, synchronized controls,
   transfer interruption/resume, reconnection, background playback, cleanup, and local signed
   upgrade.
