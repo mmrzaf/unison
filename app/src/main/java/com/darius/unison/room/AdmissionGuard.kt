@@ -6,9 +6,9 @@ import java.util.LinkedHashMap
 /**
  * Bounded, thread-safe admission bookkeeping.
  *
- * The guard runs before expensive authentication work. It limits replay-state memory,
- * per-address failures, and aggregate failed authentication load without retaining
- * unbounded attacker-controlled addresses or nonces.
+ * The guard runs before expensive authentication work. It limits replay-state memory, per-address
+ * failures, and aggregate failed authentication load without retaining unbounded
+ * attacker-controlled addresses or nonces.
  */
 internal class AdmissionGuard(
     private val maxTrackedAttempts: Int = 256,
@@ -34,52 +34,57 @@ internal class AdmissionGuard(
         remoteAddress: String,
         nonceKey: String,
         nowElapsedMs: Long,
-    ): String? = synchronized(lock) {
-        prune(nowElapsedMs)
+    ): String? =
+        synchronized(lock) {
+            prune(nowElapsedMs)
 
-        val attempt = attempts[remoteAddress]
-        if (attempt != null && attempt.blockedUntilElapsedMs > nowElapsedMs) {
-            return@synchronized TOO_MANY_ATTEMPTS
-        }
-        if (globalFailures.size >= maxGlobalFailures) {
-            return@synchronized SERVER_BUSY
-        }
-        if (usedNonces.containsKey(nonceKey)) {
-            return@synchronized NONCE_REUSED
-        }
-        if (usedNonces.size >= maxTrackedNonces) {
-            return@synchronized SERVER_BUSY
-        }
+            val attempt = attempts[remoteAddress]
+            if (attempt != null && attempt.blockedUntilElapsedMs > nowElapsedMs) {
+                return@synchronized TOO_MANY_ATTEMPTS
+            }
+            if (globalFailures.size >= maxGlobalFailures) {
+                return@synchronized SERVER_BUSY
+            }
+            if (usedNonces.containsKey(nonceKey)) {
+                return@synchronized NONCE_REUSED
+            }
+            if (usedNonces.size >= maxTrackedNonces) {
+                return@synchronized SERVER_BUSY
+            }
 
-        usedNonces[nonceKey] = nowElapsedMs + nonceTtlMs
-        null
-    }
-
-    fun recordFailure(remoteAddress: String, nowElapsedMs: Long) = synchronized(lock) {
-        prune(nowElapsedMs)
-        globalFailures.addLast(nowElapsedMs)
-        while (globalFailures.size > maxGlobalFailures) {
-            globalFailures.removeFirst()
+            usedNonces[nonceKey] = nowElapsedMs + nonceTtlMs
+            null
         }
 
-        val previous = attempts[remoteAddress]
-        val failures = if (previous == null || previous.blockedUntilElapsedMs <= nowElapsedMs) {
-            (previous?.failures ?: 0) + 1
-        } else {
-            previous.failures
+    fun recordFailure(remoteAddress: String, nowElapsedMs: Long) =
+        synchronized(lock) {
+            prune(nowElapsedMs)
+            globalFailures.addLast(nowElapsedMs)
+            while (globalFailures.size > maxGlobalFailures) {
+                globalFailures.removeFirst()
+            }
+
+            val previous = attempts[remoteAddress]
+            val failures =
+                if (previous == null || previous.blockedUntilElapsedMs <= nowElapsedMs) {
+                    (previous?.failures ?: 0) + 1
+                } else {
+                    previous.failures
+                }
+            val blockedUntil =
+                if (failures >= maxFailuresPerAddress) {
+                    nowElapsedMs + addressBackoffMs
+                } else {
+                    0L
+                }
+            attempts[remoteAddress] =
+                AttemptState(
+                    failures = if (blockedUntil > 0L) 0 else failures,
+                    blockedUntilElapsedMs = blockedUntil,
+                    lastUpdatedElapsedMs = nowElapsedMs,
+                )
+            trimAttempts()
         }
-        val blockedUntil = if (failures >= maxFailuresPerAddress) {
-            nowElapsedMs + addressBackoffMs
-        } else {
-            0L
-        }
-        attempts[remoteAddress] = AttemptState(
-            failures = if (blockedUntil > 0L) 0 else failures,
-            blockedUntilElapsedMs = blockedUntil,
-            lastUpdatedElapsedMs = nowElapsedMs,
-        )
-        trimAttempts()
-    }
 
     fun recordSuccess(remoteAddress: String) {
         synchronized(lock) {
@@ -87,14 +92,17 @@ internal class AdmissionGuard(
         }
     }
 
-    fun reset() = synchronized(lock) {
-        attempts.clear()
-        usedNonces.clear()
-        globalFailures.clear()
-    }
+    fun reset() =
+        synchronized(lock) {
+            attempts.clear()
+            usedNonces.clear()
+            globalFailures.clear()
+        }
 
     internal fun trackedAttemptCount(): Int = synchronized(lock) { attempts.size }
+
     internal fun trackedNonceCount(): Int = synchronized(lock) { usedNonces.size }
+
     internal fun trackedGlobalFailureCount(): Int = synchronized(lock) { globalFailures.size }
 
     private fun prune(nowElapsedMs: Long) {

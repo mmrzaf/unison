@@ -66,11 +66,11 @@ class AdmissionGuardTest {
         assertEquals(0, guard.trackedNonceCount())
         assertNull(guard.checkAndReserve("a", "nonce", 1))
     }
+
     @Test
     fun globalFailureWindowIsHardCapped() {
         val guard = AdmissionGuard(maxGlobalFailures = 2, maxFailuresPerAddress = 100)
         repeat(10) { index -> guard.recordFailure("address-$index", index.toLong()) }
         assertTrue(guard.trackedGlobalFailureCount() <= 2)
     }
-
 }
