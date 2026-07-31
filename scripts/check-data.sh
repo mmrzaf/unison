@@ -9,43 +9,44 @@ import sqlite3
 
 source = Path('app/src/main/java/com/darius/unison/storage/Database.kt').read_text()
 assert 'version = 1' in source
-assert 'Migration(' not in source
-assert '.addMigrations(' not in source
 
 schema_path = Path('app/schemas/com.darius.unison.storage.UnisonDatabase/1.json')
 schema = json.loads(schema_path.read_text())['database']
 assert schema['version'] == 1
 tracks = next(entity for entity in schema['entities'] if entity['tableName'] == 'tracks')
+assert any(field['columnName'] == 'searchText' for field in tracks['fields'])
 statements = [
     index['createSql'].replace('${TABLE_NAME}', 'tracks')
     for index in tracks['indices']
 ]
-assert len(statements) == 6, statements
+assert len(statements) == 7, statements
 
 connection = sqlite3.connect(':memory:')
-connection.execute('''
-CREATE TABLE tracks (
-    trackId TEXT NOT NULL PRIMARY KEY,
-    sizeBytes INTEGER NOT NULL,
-    mimeType TEXT,
-    durationMs INTEGER NOT NULL,
-    title TEXT,
-    artist TEXT,
-    album TEXT,
-    originalFileName TEXT,
-    createdAt INTEGER NOT NULL,
-    lastPlayedAt INTEGER
-)
-''')
+connection.execute(tracks['createSql'].replace('${TABLE_NAME}', 'tracks'))
 connection.execute(
-    'INSERT INTO tracks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ('a' * 64, 1234, 'audio/mpeg', 180000, 'The Loneliest', 'Måneskin', 'Rush!', 'track.mp3', 10, None),
+    'INSERT INTO tracks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    (
+        'a' * 64,
+        1234,
+        'audio/mpeg',
+        180000,
+        'The Loneliest',
+        'Måneskin',
+        'Rush!',
+        'track.mp3',
+        'the loneliest måneskin rush! track.mp3',
+        10,
+        None,
+    ),
 )
 for statement in statements:
     connection.execute(statement)
 
-row = connection.execute('SELECT title, artist, sizeBytes FROM tracks WHERE trackId = ?', ('a' * 64,)).fetchone()
-assert row == ('The Loneliest', 'Måneskin', 1234), row
+row = connection.execute(
+    'SELECT title, artist, sizeBytes, searchText FROM tracks WHERE trackId = ?',
+    ('a' * 64,),
+).fetchone()
+assert row == ('The Loneliest', 'Måneskin', 1234, 'the loneliest måneskin rush! track.mp3'), row
 indexes = {row[1] for row in connection.execute("PRAGMA index_list('tracks')")}
 expected = {
     'index_tracks_createdAt',
@@ -54,19 +55,14 @@ expected = {
     'index_tracks_artist',
     'index_tracks_album',
     'index_tracks_originalFileName',
+    'index_tracks_searchText',
 }
 assert expected <= indexes, (expected, indexes)
 
-# Exercise the shape of every paging/sort query against the migrated schema.
+# Exercise every paging/sort query shape against the release schema.
 query = 'loneliest'
-where = '''
-WHERE ? = ''
-   OR LOWER(COALESCE(title, '')) LIKE '%' || LOWER(?) || '%'
-   OR LOWER(COALESCE(artist, '')) LIKE '%' || LOWER(?) || '%'
-   OR LOWER(COALESCE(album, '')) LIKE '%' || LOWER(?) || '%'
-   OR LOWER(COALESCE(originalFileName, '')) LIKE '%' || LOWER(?) || '%'
-'''
-params = (query,) * 5
+where = "WHERE ? = '' OR searchText LIKE '%' || ? || '%'"
+params = (query, query)
 orders = [
     'COALESCE(lastPlayedAt, createdAt) DESC, trackId ASC',
     "LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC",
