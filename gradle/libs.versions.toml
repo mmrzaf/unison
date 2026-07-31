@@ -5,12 +5,10 @@ agp = "8.13.2"
 kotlin = "2.3.21"
 compileSdk = "36"
 minSdk = "30"
-targetSdk = "36"
+targetSdk = "33"
 composeBom = "2026.06.00"
-# Kotlin 2.4 requires newer R8 metadata support; stay on the maintained 2.3 line until the
-# deliberate AGP 9 migration.
-# Core 1.19 and Lifecycle 2.11 require compileSdk 37 and AGP 9.1.
-# Keep the last API-36-compatible releases until the deliberate Android 17 migration.
+# Runtime support is Android 11–13 (API 30–33). compileSdk 36 is build-tool compatibility
+# for the pinned 2026 libraries; targetSdk remains 33 and no API 34+ runtime path is used.
 coreKtx = "1.18.0"
 activityCompose = "1.13.0"
 lifecycle = "2.10.0"
@@ -22,10 +20,10 @@ paging = "3.5.0"
 media3 = "1.10.1"
 coroutines = "1.11.0"
 serialization = "1.11.0"
-zxing = "3.5.4"
 junit = "4.13.2"
 coroutinesTest = "1.11.0"
 kotlinTest = "2.3.21"
+spotless = "8.8.0"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -33,6 +31,7 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version = "2.3.10" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -46,6 +45,8 @@ androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", versi
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
@@ -73,7 +74,6 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 
-zxing = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 

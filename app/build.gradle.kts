@@ -1,11 +1,12 @@
 import java.util.Properties
 
 val releaseKeystorePropertiesFile = rootProject.file("keystore.properties")
-val releaseKeystoreProperties = Properties().apply {
-    if (releaseKeystorePropertiesFile.isFile) {
-        releaseKeystorePropertiesFile.inputStream().use { load(it) }
+val releaseKeystoreProperties =
+    Properties().apply {
+        if (releaseKeystorePropertiesFile.isFile) {
+            releaseKeystorePropertiesFile.inputStream().use { load(it) }
+        }
     }
-}
 
 plugins {
     id("com.android.application")
@@ -31,8 +32,12 @@ android {
     signingConfigs {
         if (releaseKeystorePropertiesFile.isFile) {
             create("release") {
-                storeFile = rootProject.file(requireNotNull(releaseKeystoreProperties.getProperty("storeFile")))
-                storePassword = requireNotNull(releaseKeystoreProperties.getProperty("storePassword"))
+                storeFile =
+                    rootProject.file(
+                        requireNotNull(releaseKeystoreProperties.getProperty("storeFile"))
+                    )
+                storePassword =
+                    requireNotNull(releaseKeystoreProperties.getProperty("storePassword"))
                 keyAlias = requireNotNull(releaseKeystoreProperties.getProperty("keyAlias"))
                 keyPassword = requireNotNull(releaseKeystoreProperties.getProperty("keyPassword"))
             }
@@ -65,10 +70,11 @@ android {
     }
 
     packaging {
-        resources.excludes += setOf(
-            "/META-INF/{AL2.0,LGPL2.1}",
-            "META-INF/DEPENDENCIES",
-        )
+        resources.excludes +=
+            setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "META-INF/DEPENDENCIES",
+            )
     }
 
     testOptions {
@@ -82,9 +88,11 @@ android {
         // These upgrades require the deliberate API 37 / AGP 9 toolchain move documented in the
         // version catalog. Keep actionable source, API, accessibility, and deprecation checks on.
         disable += "GradleDependency"
+        // Unison 1.0 intentionally supports and targets Android 11–13. Raising targetSdk changes
+        // runtime behavior and permission contracts outside this release's tested product scope.
+        disable += "OldTargetApi"
     }
 }
-
 
 kotlin {
     compilerOptions {
@@ -112,6 +120,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     debugImplementation(libs.androidx.compose.ui.tooling)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+    androidTestImplementation(composeBom)
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 
     implementation(libs.androidx.datastore)
     implementation(libs.androidx.documentfile)
@@ -130,11 +141,9 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
-    implementation(libs.zxing)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.androidx.room.testing)
-
 }
