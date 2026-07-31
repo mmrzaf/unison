@@ -4732,12 +4732,13 @@ class RoomRuntime(
 
     private fun userFacingJoinFailure(error: Throwable): String =
         when ((error as? ProtocolException)?.rejectionCode) {
-            HandshakeRejectionCode.AUTHENTICATION_FAILED -> "The room invite or PIN is incorrect"
+            HandshakeRejectionCode.AUTHENTICATION_FAILED -> "The room code is incorrect"
             HandshakeRejectionCode.RATE_LIMITED -> "Too many attempts. Try again shortly"
             HandshakeRejectionCode.PROTOCOL_MISMATCH -> "This room uses a different Unison version"
             HandshakeRejectionCode.ROOM_FULL -> "This room is full"
             HandshakeRejectionCode.IDENTITY_COLLISION -> "This phone is already in the room"
-            HandshakeRejectionCode.COORDINATOR_MOVED -> "The room host changed. Find the room again"
+            HandshakeRejectionCode.COORDINATOR_MOVED ->
+                "The room connection changed. Find the room again"
             HandshakeRejectionCode.ROOM_INACTIVE,
             HandshakeRejectionCode.WRONG_ROOM -> "This room is no longer available"
             HandshakeRejectionCode.INVALID_REQUEST,

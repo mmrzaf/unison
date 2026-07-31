@@ -43,12 +43,6 @@ object RoomReducer {
         }
         val memberExists = snapshot.members.any { it.peerId == command.requestedBy && it.connected }
         if (!memberExists) return Decision.Rejected("You are no longer connected to this room")
-        if (
-            command is UserCommand.QueueClear &&
-                command.requestedBy != snapshot.term.coordinatorPeerId
-        ) {
-            return Decision.Rejected("Only the room host can clear the queue")
-        }
         return when (command) {
             is UserCommand.Play -> play(snapshot, coordinatorNowNs, leadNs, command.commandId)
             is UserCommand.Pause -> pause(snapshot, coordinatorNowNs, leadNs, command.commandId)

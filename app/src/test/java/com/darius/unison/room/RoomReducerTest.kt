@@ -515,7 +515,8 @@ class RoomReducerTest {
     }
 
     @Test
-    fun hostCanClearQueueAtomically() {
+    fun connectedMemberCanClearQueueAtomically() {
+        val member = PeerId("peer-b")
         val queue =
             (0 until 4).map { index ->
                 QueueItem.create(
@@ -530,6 +531,7 @@ class RoomReducerTest {
         val room =
             snapshot(queue)
                 .copy(
+                    members = listOf(MemberSnapshot(peer, "A"), MemberSnapshot(member, "B")),
                     playback = CanonicalPlaybackState(queue[1].queueItemId, 5_000, 1, true),
                     preparedQueueItemIds = queue.mapTo(mutableSetOf()) { it.queueItemId },
                     shuffleEnabled = true,
@@ -540,7 +542,7 @@ class RoomReducerTest {
         val result =
             RoomReducer.decide(
                 room,
-                UserCommand.QueueClear(requestedBy = peer),
+                UserCommand.QueueClear(requestedBy = member),
                 coordinatorNowNs = 10_000,
             ) as RoomReducer.Decision.Accepted
 
@@ -553,23 +555,6 @@ class RoomReducerTest {
         assertEquals(RepeatMode.OFF, cleared.repeatMode)
         assertEquals(null, cleared.playback.queueItemId)
         assertFalse(cleared.playback.isPlaying)
-    }
-
-    @Test
-    fun participantCannotClearEntireQueue() {
-        val guest = PeerId("peer-b")
-        val item = QueueItem.create(track, peer)
-        val room =
-            snapshot(listOf(item))
-                .copy(
-                    members = listOf(MemberSnapshot(peer, "Host"), MemberSnapshot(guest, "Guest"))
-                )
-        val result = RoomReducer.decide(room, UserCommand.QueueClear(requestedBy = guest), 0)
-        assertTrue(result is RoomReducer.Decision.Rejected)
-        assertEquals(
-            "Only the room host can clear the queue",
-            (result as RoomReducer.Decision.Rejected).reason,
-        )
     }
 
     @Test
