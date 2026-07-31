@@ -5,23 +5,20 @@ import com.darius.unison.util.DiagnosticLog
 import kotlinx.coroutines.CancellationException
 
 /**
- * Removes room snapshots written by older builds.
- *
- * A room cannot be restored safely without its ephemeral room secret, authenticated sockets,
- * coordinator term context, and player state. Persisting only the canonical snapshot created a
- * misleading half-restoration path, so current builds deliberately keep sessions in memory only.
+ * Ensures sessions remain memory-only. A room cannot be restored safely without its ephemeral room
+ * secret, authenticated sockets, coordinator term context, and player state.
  */
 internal class RoomPersistenceManager(
     private val dao: RoomSnapshotDao,
     private val log: DiagnosticLog,
 ) {
-    suspend fun discardLegacySnapshots() {
+    suspend fun discardPersistedSnapshots() {
         try {
             dao.deleteAll()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            log.w(TAG, "Legacy room snapshot cleanup failed", error)
+            log.w(TAG, "Persisted room snapshot cleanup failed", error)
         }
     }
 
