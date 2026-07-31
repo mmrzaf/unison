@@ -64,7 +64,7 @@ remaining active commands as superseded.
 
 ## Automated validation
 
-- Debug unit tests: 352 tests across 71 suites; 0 failed, 0 errored, 0 skipped.
+- Debug unit tests: 351 tests across 71 suites; 0 failed, 0 errored, 0 skipped.
 - Android instrumentation: 5 room-code Compose tests and 1 fixed-system-artwork test compiled; not
   executed without a device.
 - Android lint: debug 0 issues; release 0 issues.

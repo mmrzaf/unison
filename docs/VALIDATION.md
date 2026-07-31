@@ -2,7 +2,7 @@
 
 Validated in the local release environment on 2026-07-31:
 
-- 352 deterministic debug unit tests in 71 suites: zero failures, errors, or skips;
+- 351 deterministic debug unit tests in 71 suites: zero failures, errors, or skips;
 - five room-code Compose tests and one fixed-system-artwork instrumentation test compiled into the
   Android test APK;
 - debug and release Android lint: zero issues;
