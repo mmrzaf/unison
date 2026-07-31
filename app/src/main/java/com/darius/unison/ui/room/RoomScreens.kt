@@ -1,64 +1,39 @@
 package com.darius.unison.ui
 
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Equalizer
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Search
@@ -67,75 +42,56 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.paging.LoadState
-import androidx.paging.compose.LazyPagingItems
-import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemKey
-import com.darius.unison.app.unisonContainer
-import com.darius.unison.library.LibrarySort
-import com.darius.unison.library.PlaylistDetail
-import com.darius.unison.model.AppCommand
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.darius.unison.R
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.QueueItemId
@@ -143,17 +99,14 @@ import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.RoomOptions
-import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
-import com.darius.unison.model.TransferProgress
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import com.darius.unison.model.TransportAction
+import com.darius.unison.room.QueueDragPolicy
+import com.darius.unison.room.QueueSearchIndex
+import kotlin.math.abs
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import java.util.Locale
-import kotlin.math.roundToInt
 
-private enum class TransportRequest { PLAY, PAUSE, SEEK, NEXT, PREVIOUS, PLAY_ITEM }
+private const val INVITE_AUTO_HIDE_MS = 15_000L
 
 @Composable
 internal fun RoomLobbyScreen(
@@ -161,6 +114,7 @@ internal fun RoomLobbyScreen(
     onCreate: (String?) -> Unit,
     onDiscover: () -> Unit,
     onJoin: (DiscoveredRoom, String) -> Unit,
+    onCancelConnection: () -> Unit,
     onOfflineNetwork: () -> Unit,
     onStopOfflineNetwork: () -> Unit,
     onEditName: () -> Unit,
@@ -170,9 +124,10 @@ internal fun RoomLobbyScreen(
     var joining by remember { mutableStateOf<DiscoveredRoom?>(null) }
     var pin by remember { mutableStateOf("") }
     var more by remember { mutableStateOf(false) }
-    val connecting = state.room.lifecycle == RoomLifecycleState.CONNECTING ||
-        state.room.lifecycle == RoomLifecycleState.JOINING ||
-        state.room.lifecycle == RoomLifecycleState.PREPARING
+    val connecting =
+        state.room.lifecycle == RoomLifecycleState.CONNECTING ||
+            state.room.lifecycle == RoomLifecycleState.JOINING ||
+            state.room.lifecycle == RoomLifecycleState.PREPARING
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -199,12 +154,16 @@ internal fun RoomLobbyScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("Create room")
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         OutlinedButton(
                             onClick = onDiscover,
                             modifier = Modifier.weight(1f),
-                            enabled = !connecting &&
-                                state.room.lifecycle != RoomLifecycleState.DISCOVERING,
+                            enabled =
+                                !connecting &&
+                                    state.room.lifecycle != RoomLifecycleState.DISCOVERING,
                         ) {
                             if (state.room.lifecycle == RoomLifecycleState.DISCOVERING) {
                                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -221,12 +180,17 @@ internal fun RoomLobbyScreen(
                             )
                         }
                         Box {
-                            IconButton(onClick = { more = true }) { Icon(Icons.Default.MoreVert, "More") }
+                            IconButton(onClick = { more = true }) {
+                                Icon(Icons.Default.MoreVert, "More")
+                            }
                             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
                                 DropdownMenuItem(
                                     text = { Text("Change your name") },
                                     leadingIcon = { Icon(Icons.Default.Edit, null) },
-                                    onClick = { more = false; onEditName() },
+                                    onClick = {
+                                        more = false
+                                        onEditName()
+                                    },
                                 )
                                 DropdownMenuItem(
                                     text = {
@@ -256,43 +220,71 @@ internal fun RoomLobbyScreen(
         state.room.hotspot?.let { hotspot ->
             item {
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(
+                        Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         Text("Offline Wi-Fi ready", fontWeight = FontWeight.SemiBold)
                         Text(hotspot.ssid)
-                        hotspot.passphrase?.let { Text("Password: $it", style = MaterialTheme.typography.bodySmall) }
+                        hotspot.passphrase?.let {
+                            Text("Password: $it", style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
         }
         if (connecting) {
             item {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text(state.room.statusMessage ?: "Connecting to room…")
+                Card(Modifier.fillMaxWidth()) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text("Joining room", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    state.room.statusMessage ?: "Connecting…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = onCancelConnection,
+                            modifier = Modifier.align(Alignment.End),
+                        ) {
+                            Text("Cancel")
+                        }
+                    }
                 }
             }
         } else if (state.room.discoveredRooms.isNotEmpty()) {
             item { SectionTitle("Nearby rooms") }
-            items(state.room.discoveredRooms, key = { "${it.roomId}:${it.hostAddress}:${it.port}" }) { room ->
+            items(
+                state.room.discoveredRooms,
+                key = { "${it.roomId}:${it.hostAddress}:${it.port}" },
+            ) { room ->
                 ListItem(
-                    headlineContent = { Text(room.roomName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    headlineContent = {
+                        Text(room.roomName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
                     supportingContent = { Text("Tap to join") },
                     leadingContent = { Icon(Icons.Default.Groups, null) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { joining = room; pin = "" },
+                    modifier =
+                        Modifier.fillMaxWidth().clickable {
+                            joining = room
+                            pin = ""
+                        },
                     trailingContent = {
                         Text(
                             "Join",
                             color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
                         )
                     },
                 )
@@ -301,9 +293,7 @@ internal fun RoomLobbyScreen(
         } else if (state.room.lifecycle == RoomLifecycleState.DISCOVERING) {
             item {
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
+                    Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -316,7 +306,8 @@ internal fun RoomLobbyScreen(
             item {
                 EmptyState(
                     title = "No rooms found",
-                    text = "Make sure everyone is on the same Wi-Fi, then tap Find rooms to search again.",
+                    text =
+                        "Make sure everyone is on the same Wi-Fi, then tap Find rooms to search again.",
                     icon = Icons.Default.SearchOff,
                 )
             }
@@ -328,15 +319,27 @@ internal fun RoomLobbyScreen(
             onDismissRequest = { showCreate = false },
             title = { Text("Create room") },
             text = {
-                OutlinedTextField(
-                    value = roomName,
-                    onValueChange = { roomName = it.take(40) },
-                    label = { Text("Room name (optional)") },
-                    singleLine = true,
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = roomName,
+                        onValueChange = { roomName = it.take(40) },
+                        label = { Text("Room name (optional)") },
+                        singleLine = true,
+                    )
+                    Text(
+                        stringResource(R.string.room_create_code_explanation),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             },
             confirmButton = {
-                Button(onClick = { showCreate = false; onCreate(roomName.trim().takeIf(String::isNotEmpty)) }) {
+                Button(
+                    onClick = {
+                        showCreate = false
+                        onCreate(roomName.trim().takeIf(String::isNotEmpty))
+                    }
+                ) {
                     Text("Create")
                 }
             },
@@ -350,25 +353,46 @@ internal fun RoomLobbyScreen(
             text = {
                 OutlinedTextField(
                     value = pin,
-                    onValueChange = { pin = it.filter(Char::isDigit).take(6) },
-                    label = { Text("6-digit PIN") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    onValueChange = { pin = it.filter(Char::isDigit).take(4) },
+                    label = { Text(stringResource(R.string.room_join_code_field)) },
+                    keyboardOptions =
+                        KeyboardOptions(
+                            keyboardType = KeyboardType.NumberPassword,
+                            imeAction = ImeAction.Done,
+                        ),
+                    keyboardActions =
+                        KeyboardActions(
+                            onDone = {
+                                if (pin.length == 4) {
+                                    joining = null
+                                    onJoin(room, pin)
+                                }
+                            }
+                        ),
                     visualTransformation = PasswordVisualTransformation(),
                     singleLine = true,
                 )
             },
             confirmButton = {
-                Button(onClick = { joining = null; onJoin(room, pin) }, enabled = pin.length == 6) { Text("Join") }
+                Button(
+                    onClick = {
+                        joining = null
+                        onJoin(room, pin)
+                    },
+                    enabled = pin.length == 4,
+                ) {
+                    Text("Join")
+                }
             },
             dismissButton = { TextButton(onClick = { joining = null }) { Text("Cancel") } },
         )
     }
 }
+
 @Composable
 internal fun RoomScreen(
     state: MainUiState,
-    playbackPositionMs: Long,
-    joinLink: String?,
+    playbackPositionState: State<Long>,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeek: (Long) -> Unit,
@@ -383,11 +407,13 @@ internal fun RoomScreen(
     onAddPlaylistToRoom: (String) -> Unit,
     onRemoveQueueItem: (QueueItemId) -> Unit,
     onMoveQueueItem: (QueueItemId, Int) -> Unit,
+    onMoveQueueItemNext: (QueueItemId) -> Unit,
     onKeepTrack: (TrackId) -> Unit,
     onUpdateOptions: (RoomOptions) -> Unit,
     onSetRetentionPolicy: (RetentionPolicy) -> Unit,
     onSaveQueue: (String) -> Unit,
     onClearPlayed: () -> Unit,
+    onClearQueue: () -> Unit,
     onLeave: () -> Unit,
 ) {
     val snapshot = state.room.snapshot
@@ -396,118 +422,186 @@ internal fun RoomScreen(
         return
     }
     val displayedQueueItemId = state.room.localPlaybackQueueItemId ?: snapshot.playback.queueItemId
-    val nowPlaying = displayedQueueItemId?.let { id -> snapshot.queue.firstOrNull { it.queueItemId == id } }
+    val nowPlaying = displayedQueueItemId?.let { id ->
+        snapshot.queue.firstOrNull { it.queueItemId == id }
+    }
     val hasSeekableDuration = (nowPlaying?.track?.durationMs ?: 0L) > 0L
     val duration = nowPlaying?.track?.durationMs?.coerceAtLeast(1L) ?: 1L
-    val activeTransfers = state.room.transfers.values
-        .filter {
-            it.state == MemberTrackState.RECEIVING ||
-                it.state == MemberTrackState.VERIFYING ||
-                it.state == MemberTrackState.CANCELLED ||
-                it.state == MemberTrackState.FAILED
-        }
-        .sortedBy { it.trackId.value }
-    var seekPreview by remember { mutableFloatStateOf(playbackPositionMs.toFloat()) }
-    var dragging by remember { mutableStateOf(false) }
-    var showQr by remember { mutableStateOf(false) }
+    val activeTransfers =
+        state.room.transfers.values
+            .filter {
+                it.state == MemberTrackState.RECEIVING ||
+                    it.state == MemberTrackState.VERIFYING ||
+                    it.state == MemberTrackState.CANCELLED ||
+                    it.state == MemberTrackState.FAILED
+            }
+            .sortedBy { it.trackId.value }
     var showOptions by remember { mutableStateOf(false) }
     var showListeners by remember { mutableStateOf(false) }
     var showAddFromLibrary by remember { mutableStateOf(false) }
     var roomMenu by remember { mutableStateOf(false) }
     var saveQueueDialog by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
-    var transportRequest by remember { mutableStateOf<TransportRequest?>(null) }
-    var pendingSeekPositionMs by remember { mutableStateOf<Long?>(null) }
-    var transportStartItem by remember { mutableStateOf(state.room.localPlaybackQueueItemId) }
-    var transportStartSeekRevision by remember { mutableLongStateOf(state.room.localSeekRevision) }
-    var requestedQueueItemId by remember { mutableStateOf<QueueItemId?>(null) }
-    var previousRestartsCurrent by remember { mutableStateOf(false) }
+    var confirmClearQueue by remember { mutableStateOf(false) }
+    val hostRoomPin = state.room.localRoomPin?.takeIf { state.room.isCoordinator }
+    var inviteVisible by rememberSaveable(snapshot.roomId) { mutableStateOf(false) }
+    var initialInviteShown by rememberSaveable(snapshot.roomId) { mutableStateOf(false) }
     var draggedQueueIndex by remember { mutableStateOf<Int?>(null) }
     var dragTargetIndex by remember { mutableStateOf<Int?>(null) }
-    var queuePlaylistName by remember(snapshot.roomName) { mutableStateOf("${snapshot.roomName} queue") }
+    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
+    var dragPointerCenterPx by remember { mutableStateOf<Float?>(null) }
+    var dragAutoScrollPx by remember { mutableFloatStateOf(0f) }
+    var queuePlaylistName by
+        remember(snapshot.roomName) { mutableStateOf("${snapshot.roomName} queue") }
+    var queueSearchQuery by rememberSaveable(snapshot.roomId) { mutableStateOf("") }
+    var appliedQueueSearchQuery by remember(snapshot.roomId) { mutableStateOf("") }
+    val queueSearchIndex = remember(snapshot.queue) { QueueSearchIndex(snapshot.queue) }
+    val queueSearchResults =
+        remember(queueSearchIndex, appliedQueueSearchQuery) {
+            queueSearchIndex.search(appliedQueueSearchQuery)
+        }
+    val queueSearchActive = queueSearchQuery.isNotBlank()
     val roomListState = rememberLazyListState()
+    val queueIndexByLazyKey =
+        remember(snapshot.queue) {
+            snapshot.queue
+                .mapIndexed { index, item -> "queue:${item.queueItemId.value}" to index }
+                .toMap()
+        }
+    val dragEdgePx = with(LocalDensity.current) { 72.dp.toPx() }
+    val maxDragScrollPx = with(LocalDensity.current) { 28.dp.toPx() }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    LaunchedEffect(hostRoomPin, initialInviteShown) {
+        if (hostRoomPin != null && !initialInviteShown) {
+            initialInviteShown = true
+            inviteVisible = true
+        }
+    }
+    LaunchedEffect(inviteVisible, hostRoomPin) {
+        if (inviteVisible && hostRoomPin != null) {
+            delay(INVITE_AUTO_HIDE_MS)
+            inviteVisible = false
+        }
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) inviteVisible = false
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    fun recalculateQueueDrag() {
+        val origin = draggedQueueIndex ?: return
+        val pointerCenter = dragPointerCenterPx ?: return
+        val layout = roomListState.layoutInfo
+        val visibleQueueItems =
+            layout.visibleItemsInfo.mapNotNull { item ->
+                val queueIndex = queueIndexByLazyKey[item.key] ?: return@mapNotNull null
+                QueueDragPolicy.VisibleItem(
+                    queueIndex = queueIndex,
+                    offsetPx = item.offset.toFloat(),
+                    sizePx = item.size.toFloat(),
+                )
+            }
+        dragTargetIndex =
+            QueueDragPolicy.targetIndex(pointerCenter, visibleQueueItems, origin)
+                .coerceIn(0, snapshot.queue.lastIndex)
+        dragAutoScrollPx =
+            QueueDragPolicy.autoScrollPerFrame(
+                pointerCenterPx = pointerCenter,
+                viewportStartPx = layout.viewportStartOffset.toFloat(),
+                viewportEndPx = layout.viewportEndOffset.toFloat(),
+                edgeSizePx = dragEdgePx,
+                maxScrollPx = maxDragScrollPx,
+            )
+    }
+
+    fun startQueueDrag(index: Int) {
+        val key = "queue:${snapshot.queue[index].queueItemId.value}"
+        val visibleItem = roomListState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }
+        draggedQueueIndex = index
+        dragTargetIndex = index
+        dragOffsetPx = 0f
+        dragPointerCenterPx = visibleItem?.let { it.offset + it.size / 2f }
+        dragAutoScrollPx = 0f
+        recalculateQueueDrag()
+    }
+
+    fun updateQueueDrag(deltaY: Float) {
+        dragOffsetPx += deltaY
+        dragPointerCenterPx = (dragPointerCenterPx ?: 0f) + deltaY
+        recalculateQueueDrag()
+    }
+
+    fun resetQueueDrag() {
+        draggedQueueIndex = null
+        dragTargetIndex = null
+        dragOffsetPx = 0f
+        dragPointerCenterPx = null
+        dragAutoScrollPx = 0f
+    }
     val compactPlayerVisible by remember {
         derivedStateOf {
             roomListState.firstVisibleItemIndex > 1 &&
                 roomListState.layoutInfo.visibleItemsInfo.none { it.key == "full-player" }
         }
     }
-    val requestPlayPause = {
-        if (transportRequest == null && nowPlaying != null) {
-            if (state.room.localIsPlaying) {
-                transportRequest = TransportRequest.PAUSE
-                onPause()
-            } else {
-                transportRequest = TransportRequest.PLAY
-                onPlay()
-            }
-        }
-    }
-
-    LaunchedEffect(playbackPositionMs, duration, dragging, pendingSeekPositionMs) {
-        if (!dragging && pendingSeekPositionMs == null) {
-            seekPreview = playbackPositionMs.coerceIn(0, duration).toFloat()
-        }
-    }
-    LaunchedEffect(state.room.localSeekRevision) {
-        if (pendingSeekPositionMs != null &&
-            state.room.localSeekRevision > transportStartSeekRevision
+    val transportStatus = state.room.transportStatus
+    val transportControls =
+        remember(
+            nowPlaying?.queueItemId,
+            hasSeekableDuration,
+            state.room.localIsPlaying,
+            transportStatus,
         ) {
-            pendingSeekPositionMs = null
-            if (transportRequest == TransportRequest.SEEK) transportRequest = null
-            seekPreview = playbackPositionMs.coerceIn(0, duration).toFloat()
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = nowPlaying != null,
+                hasSeekableDuration = hasSeekableDuration,
+                localIsPlaying = state.room.localIsPlaying,
+                status = transportStatus,
+            )
+        }
+    val displayedPlaying = transportControls.displayedPlaying
+    val requestPlayPause = {
+        if (transportControls.canPlayPause) {
+            if (displayedPlaying) onPause() else onPlay()
         }
     }
-    LaunchedEffect(pendingSeekPositionMs) {
-        if (pendingSeekPositionMs != null) {
-            delay(6_000)
-            pendingSeekPositionMs = null
-            if (transportRequest == TransportRequest.SEEK) transportRequest = null
-            seekPreview = playbackPositionMs.coerceIn(0, duration).toFloat()
-        }
-    }
-    LaunchedEffect(state.room.errorMessage) {
-        if (!state.room.errorMessage.isNullOrBlank()) {
-            pendingSeekPositionMs = null
-            transportRequest = null
-            requestedQueueItemId = null
-        }
-    }
-    LaunchedEffect(transportRequest) {
-        if (transportRequest != null) {
-            delay(6_000)
-            transportRequest = null
-            requestedQueueItemId = null
-        }
-    }
-    LaunchedEffect(
-        state.room.localIsPlaying,
-        state.room.localPlaybackQueueItemId,
-        state.room.localSeekRevision,
-        playbackPositionMs,
-    ) {
-        val completed = when (transportRequest) {
-            TransportRequest.PLAY -> state.room.localIsPlaying
-            TransportRequest.PAUSE -> !state.room.localIsPlaying
-            TransportRequest.SEEK -> false
-            TransportRequest.NEXT,
-                -> state.room.localPlaybackQueueItemId != transportStartItem
 
-            TransportRequest.PREVIOUS -> {
-                state.room.localPlaybackQueueItemId != transportStartItem ||
-                    (previousRestartsCurrent && playbackPositionMs <= 1_000L)
+    LaunchedEffect(snapshot.roomId, snapshot.queue.isEmpty()) {
+        if (snapshot.queue.isEmpty()) {
+            queueSearchQuery = ""
+            appliedQueueSearchQuery = ""
+        }
+    }
+    LaunchedEffect(queueSearchQuery) {
+        if (queueSearchQuery.isBlank()) {
+            appliedQueueSearchQuery = ""
+        } else {
+            delay(150)
+            appliedQueueSearchQuery = queueSearchQuery
+        }
+    }
+    LaunchedEffect(queueSearchActive) {
+        if (queueSearchActive) resetQueueDrag()
+    }
+
+    LaunchedEffect(draggedQueueIndex) {
+        while (draggedQueueIndex != null) {
+            withFrameNanos {}
+            val requested = dragAutoScrollPx
+            if (abs(requested) < 0.5f) continue
+            val consumed = roomListState.scrollBy(requested)
+            if (abs(consumed) < 0.5f) {
+                dragAutoScrollPx = 0f
+                continue
             }
-
-            TransportRequest.PLAY_ITEM ->
-                state.room.localPlaybackQueueItemId == requestedQueueItemId &&
-                    state.room.localIsPlaying &&
-                    state.room.localSeekRevision > transportStartSeekRevision
-
-            null -> false
-        }
-        if (completed) {
-            transportRequest = null
-            requestedQueueItemId = null
+            // Scrolling moves the row's layout position opposite the content direction. Preserve
+            // the dragged row under the pointer while the list advances beneath it.
+            dragOffsetPx += consumed
+            recalculateQueueDrag()
         }
     }
 
@@ -526,45 +620,69 @@ internal fun RoomScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = { showQr = true }, enabled = joinLink != null) {
-                        Icon(
-                            Icons.Default.QrCode2,
-                            "Invite"
-                        )
+                    if (hostRoomPin != null) {
+                        TextButton(onClick = { inviteVisible = true }) {
+                            Text(stringResource(R.string.room_invite_action))
+                        }
                     }
                     Box {
-                        IconButton(onClick = { roomMenu = true }) { Icon(Icons.Default.MoreVert, "Room actions") }
+                        IconButton(onClick = { roomMenu = true }) {
+                            Icon(Icons.Default.MoreVert, "Room actions")
+                        }
                         DropdownMenu(expanded = roomMenu, onDismissRequest = { roomMenu = false }) {
                             DropdownMenuItem(
                                 text = { Text("Save queue as playlist") },
                                 enabled = snapshot.queue.isNotEmpty(),
-                                onClick = { roomMenu = false; saveQueueDialog = true },
+                                onClick = {
+                                    roomMenu = false
+                                    saveQueueDialog = true
+                                },
                             )
                             DropdownMenuItem(
                                 text = { Text("Clear played songs") },
-                                enabled = snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId } > 0,
-                                onClick = { roomMenu = false; onClearPlayed() },
+                                enabled =
+                                    snapshot.queue.indexOfFirst {
+                                        it.queueItemId == snapshot.playback.queueItemId
+                                    } > 0,
+                                onClick = {
+                                    roomMenu = false
+                                    onClearPlayed()
+                                },
                             )
                             DropdownMenuItem(
-                                text = { Text("Listeners (${snapshot.members.count { it.connected }})") },
+                                text = {
+                                    Text("Listeners (${snapshot.members.count { it.connected }})")
+                                },
                                 leadingIcon = { Icon(Icons.Default.Person, null) },
-                                onClick = { roomMenu = false; showListeners = true },
+                                onClick = {
+                                    roomMenu = false
+                                    showListeners = true
+                                },
                             )
                             DropdownMenuItem(
                                 text = { Text("Import M3U playlist") },
                                 leadingIcon = { Icon(Icons.Default.UploadFile, null) },
-                                onClick = { roomMenu = false; onImportM3u() },
+                                onClick = {
+                                    roomMenu = false
+                                    onImportM3u()
+                                },
                             )
                             DropdownMenuItem(
                                 text = { Text("Room settings") },
                                 leadingIcon = { Icon(Icons.Default.Settings, null) },
-                                onClick = { roomMenu = false; showOptions = true },
+                                onClick = {
+                                    roomMenu = false
+                                    showOptions = true
+                                },
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
                                 text = { Text("Leave room") },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) },
-                                onClick = { roomMenu = false; confirmLeave = true },
+                                onClick = {
+                                    roomMenu = false
+                                    confirmLeave = true
+                                },
                             )
                         }
                     }
@@ -578,11 +696,6 @@ internal fun RoomScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            TrackArtwork(
-                                track = nowPlaying.track,
-                                size = 148.dp,
-                                reloadKey = state.room.transfers[nowPlaying.track.trackId]?.state == MemberTrackState.READY,
-                            )
                             Text(
                                 nowPlaying.track.displayTitle,
                                 style = MaterialTheme.typography.titleLarge,
@@ -596,71 +709,49 @@ internal fun RoomScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                             )
-                            Slider(
-                                value = seekPreview.coerceIn(0f, duration.toFloat()),
-                                onValueChange = { dragging = true; seekPreview = it },
-                                onValueChangeFinished = {
-                                    dragging = false
-                                    pendingSeekPositionMs = seekPreview.toLong()
-                                    transportStartSeekRevision = state.room.localSeekRevision
-                                    transportRequest = TransportRequest.SEEK
-                                    onSeek(pendingSeekPositionMs ?: 0L)
-                                },
-                                valueRange = 0f..duration.toFloat(),
-                                enabled = hasSeekableDuration,
+                            RoomSeekSlider(
+                                playbackPositionState = playbackPositionState,
+                                durationMs = duration,
+                                enabled = transportControls.canSeek,
+                                transportStatus = transportStatus,
+                                onSeek = onSeek,
                             )
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(formatDuration(seekPreview.toLong()), style = MaterialTheme.typography.labelSmall)
-                                Text(
-                                    if (hasSeekableDuration) formatDuration(duration) else "—:—",
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            }
                             Row(
                                 Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceEvenly,
                             ) {
-                                IconButton(
-                                    onClick = {
-                                        previousRestartsCurrent = playbackPositionMs > 4_000L
-                                        transportStartItem = state.room.localPlaybackQueueItemId
-                                        transportRequest = TransportRequest.PREVIOUS
-                                        onPrevious()
-                                    },
-                                    enabled = transportRequest == null,
+                                TransportControlButton(
+                                    active =
+                                        transportStatus?.active == true &&
+                                            transportStatus.action == TransportAction.PREVIOUS,
+                                    enabled = transportControls.canNavigate,
+                                    onClick = onPrevious,
+                                    contentDescription = "Previous",
                                 ) {
-                                    Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(32.dp))
+                                    Icon(Icons.Default.SkipPrevious, null, Modifier.size(32.dp))
                                 }
-                                FilledIconButton(
+                                TransportPlayPauseButton(
+                                    isPlaying = displayedPlaying,
+                                    pending = transportControls.playPausePending,
+                                    enabled = transportControls.canPlayPause,
                                     onClick = requestPlayPause,
-                                    modifier = Modifier.size(58.dp),
-                                    enabled = transportRequest == null,
+                                )
+                                TransportControlButton(
+                                    active =
+                                        transportStatus?.active == true &&
+                                            transportStatus.action == TransportAction.NEXT,
+                                    enabled = transportControls.canNavigate,
+                                    onClick = onNext,
+                                    contentDescription = "Next",
                                 ) {
-                                    if (transportRequest != null) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(26.dp),
-                                            strokeWidth = 2.5.dp,
-                                        )
-                                    } else {
-                                        Icon(
-                                            if (state.room.localIsPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                            if (state.room.localIsPlaying) "Pause" else "Play",
-                                            Modifier.size(32.dp),
-                                        )
-                                    }
-                                }
-                                IconButton(
-                                    onClick = {
-                                        transportStartItem = state.room.localPlaybackQueueItemId
-                                        transportRequest = TransportRequest.NEXT
-                                        onNext()
-                                    },
-                                    enabled = transportRequest == null,
-                                ) {
-                                    Icon(Icons.Default.SkipNext, "Next", Modifier.size(32.dp))
+                                    Icon(Icons.Default.SkipNext, null, Modifier.size(32.dp))
                                 }
                             }
+                            TransportStatusLine(
+                                status = transportStatus,
+                                queue = snapshot.queue,
+                            )
                         }
                     }
                 }
@@ -671,21 +762,45 @@ internal fun RoomScreen(
                         SectionTitle("Queue")
                         Spacer(Modifier.weight(1f))
                         Text(
-                            "${snapshot.queue.size} / 1,000",
+                            if (queueSearchActive) {
+                                "${queueSearchResults.size} of ${snapshot.queue.size}"
+                            } else {
+                                "${snapshot.queue.size} / 1,000"
+                            },
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        IconButton(
-                            onClick = onShuffle,
-                            enabled = snapshot.queue.size > 1,
-                        ) {
-                            Icon(Icons.Default.Shuffle, "Shuffle queue")
+                        if (state.room.isCoordinator) {
+                            TextButton(
+                                onClick = { confirmClearQueue = true },
+                                enabled = snapshot.queue.isNotEmpty(),
+                            ) {
+                                Icon(Icons.Default.DeleteOutline, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Clear")
+                            }
                         }
-                        val repeatDescription = when (snapshot.repeatMode) {
-                            RepeatMode.OFF -> "Repeat is off"
-                            RepeatMode.ALL -> "Repeat queue"
-                            RepeatMode.ONE -> "Repeat current song"
+                        if (snapshot.shuffleEnabled) {
+                            FilledTonalIconButton(
+                                onClick = onShuffle,
+                                enabled = snapshot.queue.size > 1,
+                            ) {
+                                Icon(Icons.Default.Shuffle, "Turn shuffle off")
+                            }
+                        } else {
+                            IconButton(
+                                onClick = onShuffle,
+                                enabled = snapshot.queue.size > 1,
+                            ) {
+                                Icon(Icons.Default.Shuffle, "Turn shuffle on")
+                            }
                         }
+                        val repeatDescription =
+                            when (snapshot.repeatMode) {
+                                RepeatMode.OFF -> "Repeat is off"
+                                RepeatMode.ALL -> "Repeat queue"
+                                RepeatMode.ONE -> "Repeat current song"
+                            }
                         if (snapshot.repeatMode == RepeatMode.OFF) {
                             IconButton(
                                 onClick = { onRepeat(RepeatMode.ALL) },
@@ -709,8 +824,14 @@ internal fun RoomScreen(
                             }
                         }
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { showAddFromLibrary = true }, modifier = Modifier.weight(1f)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Button(
+                            onClick = { showAddFromLibrary = true },
+                            modifier = Modifier.weight(1f),
+                        ) {
                             Icon(Icons.Default.Add, null)
                             Spacer(Modifier.width(6.dp))
                             Text("Add from library")
@@ -721,27 +842,69 @@ internal fun RoomScreen(
                             Text("Files")
                         }
                     }
+                    if (snapshot.queue.isNotEmpty()) {
+                        CompactQueueSearchField(
+                            value = queueSearchQuery,
+                            onValueChange = { queueSearchQuery = it.take(120) },
+                            onClear = { queueSearchQuery = "" },
+                        )
+                    }
                 }
             }
             state.room.statusMessage
                 ?.takeIf { it.isNotBlank() && it != "Ready" }
                 ?.let { status ->
                     item(key = "room-status") {
-                        Text(
-                            status,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 4.dp),
-                        )
+                        if (state.room.lifecycle == RoomLifecycleState.RECONNECTING) {
+                            Card(
+                                modifier =
+                                    Modifier.fillMaxWidth().semantics {
+                                        liveRegion = LiveRegionMode.Polite
+                                    }
+                            ) {
+                                Row(
+                                    modifier =
+                                        Modifier.fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    CircularProgressIndicator(
+                                        Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            "Connection interrupted",
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Text(
+                                            status,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    TextButton(onClick = { confirmLeave = true }) {
+                                        Text("Leave")
+                                    }
+                                }
+                            }
+                        } else {
+                            Text(
+                                status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            )
+                        }
                     }
                 }
             if (activeTransfers.isNotEmpty()) {
                 item(key = "transfers") {
                     TransferStatusCard(
                         transfers = activeTransfers,
-                        titles = snapshot.queue.associate { it.track.trackId to it.track.displayTitle },
+                        titles =
+                            snapshot.queue.associate { it.track.trackId to it.track.displayTitle },
                     )
                 }
             }
@@ -749,9 +912,9 @@ internal fun RoomScreen(
                 item(key = "empty-queue") {
                     Card(Modifier.fillMaxWidth()) {
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp, vertical = 28.dp),
+                            modifier =
+                                Modifier.fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 28.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
@@ -775,32 +938,62 @@ internal fun RoomScreen(
                         }
                     }
                 }
+            } else if (queueSearchActive && queueSearchResults.isEmpty()) {
+                item(key = "empty-queue-search") {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier =
+                                Modifier.fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.SearchOff,
+                                null,
+                                modifier = Modifier.size(38.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(
+                                "No songs found in the queue",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            TextButton(onClick = { queueSearchQuery = "" }) {
+                                Text("Clear search")
+                            }
+                        }
+                    }
+                }
             } else {
-                itemsIndexed(snapshot.queue, key = { _, item -> item.queueItemId.value }) { index, item ->
+                items(queueSearchResults, key = { "queue:${it.item.queueItemId.value}" }) { match ->
+                    val item = match.item
+                    val index = match.originalIndex
                     QueueRow(
                         index = index,
                         lastIndex = snapshot.queue.lastIndex,
                         track = item.track,
-                        artworkReloadKey = state.room.transfers[item.track.trackId]?.state,
                         current = item.queueItemId == displayedQueueItemId,
-                        playing = item.queueItemId == state.room.localPlaybackQueueItemId && state.room.localIsPlaying,
+                        playing =
+                            item.queueItemId == state.room.localPlaybackQueueItemId &&
+                                state.room.localIsPlaying,
                         temporary = item.track.trackId in state.temporaryTrackIds,
-                        canReorder = !snapshot.shuffleEnabled,
+                        canReorder = !snapshot.shuffleEnabled && !queueSearchActive,
                         draggedIndex = draggedQueueIndex,
                         dragTargetIndex = dragTargetIndex,
-                        onDragStateChange = { dragged, target ->
-                            draggedQueueIndex = dragged
-                            dragTargetIndex = target
+                        dragOffsetPx = if (draggedQueueIndex == index) dragOffsetPx else 0f,
+                        onDragStart = { startQueueDrag(index) },
+                        onDragDelta = ::updateQueueDrag,
+                        onDragCancel = ::resetQueueDrag,
+                        onDragEnd = {
+                            val target = dragTargetIndex ?: index
+                            resetQueueDrag()
+                            if (target != index) onMoveQueueItem(item.queueItemId, target)
                         },
                         onMove = { onMoveQueueItem(item.queueItemId, it) },
-                        onPlay = {
-                            if (transportRequest == null) {
-                                requestedQueueItemId = item.queueItemId
-                                transportStartSeekRevision = state.room.localSeekRevision
-                                transportRequest = TransportRequest.PLAY_ITEM
-                                onPlayQueueItem(item.queueItemId)
-                            }
-                        },
+                        playEnabled = transportControls.canNavigate,
+                        onPlay = { onPlayQueueItem(item.queueItemId) },
+                        onMoveNext = { onMoveQueueItemNext(item.queueItemId) },
                         onRemove = { onRemoveQueueItem(item.queueItemId) },
                         onKeep = { onKeepTrack(item.track.trackId) },
                     )
@@ -812,19 +1005,16 @@ internal fun RoomScreen(
             visible = compactPlayerVisible && nowPlaying != null,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .zIndex(2f),
+            modifier = Modifier.align(Alignment.TopCenter).zIndex(2f),
         ) {
             CompactRoomPlayer(
                 track = nowPlaying?.track,
-                artworkReloadKey = nowPlaying?.track?.trackId?.let { state.room.transfers[it]?.state },
-                isPlaying = state.room.localIsPlaying,
-                pending = transportRequest != null,
+                queue = snapshot.queue,
+                isPlaying = displayedPlaying,
+                transportStatus = transportStatus,
                 onPlayPause = requestPlayPause,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                playPauseEnabled = transportControls.canPlayPause,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }
     }
@@ -843,13 +1033,16 @@ internal fun RoomScreen(
                             ListItem(
                                 headlineContent = { Text("All music") },
                                 supportingContent = {
-                                    Text("${state.libraryTotalCount} ${if (state.libraryTotalCount == 1) "song" else "songs"}")
+                                    Text(
+                                        "${state.libraryTotalCount} ${if (state.libraryTotalCount == 1) "song" else "songs"}"
+                                    )
                                 },
                                 leadingContent = { Icon(Icons.Default.LibraryMusic, null) },
-                                modifier = Modifier.clickable {
-                                    showAddFromLibrary = false
-                                    onAddAllMusicToRoom()
-                                },
+                                modifier =
+                                    Modifier.clickable {
+                                        showAddFromLibrary = false
+                                        onAddAllMusicToRoom()
+                                    },
                             )
                         }
                         items(state.playlists, key = { it.playlistId }) { playlist ->
@@ -862,13 +1055,18 @@ internal fun RoomScreen(
                                     )
                                 },
                                 supportingContent = {
-                                    Text("${playlist.trackCount} ${if (playlist.trackCount == 1) "song" else "songs"}")
+                                    Text(
+                                        "${playlist.trackCount} ${if (playlist.trackCount == 1) "song" else "songs"}"
+                                    )
                                 },
-                                leadingContent = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null) },
-                                modifier = Modifier.clickable {
-                                    showAddFromLibrary = false
-                                    onAddPlaylistToRoom(playlist.playlistId)
+                                leadingContent = {
+                                    Icon(Icons.AutoMirrored.Filled.QueueMusic, null)
                                 },
+                                modifier =
+                                    Modifier.clickable {
+                                        showAddFromLibrary = false
+                                        onAddPlaylistToRoom(playlist.playlistId)
+                                    },
                             )
                         }
                     }
@@ -876,10 +1074,14 @@ internal fun RoomScreen(
             },
             confirmButton = {
                 if (state.libraryTotalCount == 0) {
-                    Button(onClick = {
-                        showAddFromLibrary = false
-                        onChooseFiles()
-                    }) { Text("Add files") }
+                    Button(
+                        onClick = {
+                            showAddFromLibrary = false
+                            onChooseFiles()
+                        }
+                    ) {
+                        Text("Add files")
+                    }
                 } else {
                     TextButton(onClick = { showAddFromLibrary = false }) { Text("Cancel") }
                 }
@@ -906,9 +1108,13 @@ internal fun RoomScreen(
                         saveQueueDialog = false
                     },
                     enabled = queuePlaylistName.isNotBlank(),
-                ) { Text("Save") }
+                ) {
+                    Text("Save")
+                }
             },
-            dismissButton = { TextButton(onClick = { saveQueueDialog = false }) { Text("Cancel") } },
+            dismissButton = {
+                TextButton(onClick = { saveQueueDialog = false }) { Text("Cancel") }
+            },
         )
     }
 
@@ -922,18 +1128,21 @@ internal fun RoomScreen(
                     items(snapshot.members, key = { it.peerId.value }) { member ->
                         ListItem(
                             headlineContent = { Text(member.displayName) },
-                            supportingContent = { Text(if (member.connected) "Listening" else "Offline") },
+                            supportingContent = {
+                                Text(if (member.connected) "Listening" else "Offline")
+                            },
                             leadingContent = { Icon(Icons.Default.Person, null) },
                             trailingContent = {
                                 Icon(
                                     Icons.Default.Circle,
                                     null,
                                     Modifier.size(9.dp),
-                                    tint = if (member.connected) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.outline
-                                    },
+                                    tint =
+                                        if (member.connected) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.outline
+                                        },
                                 )
                             },
                         )
@@ -946,27 +1155,6 @@ internal fun RoomScreen(
         )
     }
 
-    if (showQr && joinLink != null) {
-        AlertDialog(
-            onDismissRequest = { showQr = false },
-            title = { Text("Invite friends") },
-            text = {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    AsyncQrCode(joinLink, Modifier.size(252.dp))
-                    Text(
-                        "PIN ${state.room.localRoomPin ?: "—"}",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text("Scan while connected to the same Wi-Fi.", style = MaterialTheme.typography.bodySmall)
-                }
-            },
-            confirmButton = { TextButton(onClick = { showQr = false }) { Text("Done") } },
-        )
-    }
     if (showOptions) {
         var options by remember(snapshot.options) { mutableStateOf(snapshot.options) }
         var retention by remember(state.retentionPolicy) { mutableStateOf(state.retentionPolicy) }
@@ -984,7 +1172,10 @@ internal fun RoomScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     HorizontalDivider()
-                    Text("New music shared with this phone", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        "New music shared with this phone",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = retention == RetentionPolicy.TEMPORARY_24_HOURS,
@@ -1005,289 +1196,67 @@ internal fun RoomScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    onUpdateOptions(options)
-                    onSetRetentionPolicy(retention)
-                    showOptions = false
-                }) { Text("Save") }
+                Button(
+                    onClick = {
+                        onUpdateOptions(options)
+                        onSetRetentionPolicy(retention)
+                        showOptions = false
+                    }
+                ) {
+                    Text("Save")
+                }
             },
             dismissButton = { TextButton(onClick = { showOptions = false }) { Text("Cancel") } },
         )
     }
+    if (confirmClearQueue) {
+        AlertDialog(
+            onDismissRequest = { confirmClearQueue = false },
+            icon = { Icon(Icons.Default.DeleteOutline, null) },
+            title = { Text("Clear the entire queue?") },
+            text = {
+                Text("Playback will stop for everyone and all queued songs will be removed.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmClearQueue = false
+                        onClearQueue()
+                    }
+                ) {
+                    Text("Clear queue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearQueue = false }) { Text("Cancel") }
+            },
+        )
+    }
+
     if (confirmLeave) {
         AlertDialog(
             onDismissRequest = { confirmLeave = false },
             title = { Text("Leave this room?") },
             text = { Text("Playback and transfers on this phone will stop.") },
             confirmButton = {
-                Button(onClick = {
-                    confirmLeave = false
-                    onLeave()
-                }) { Text("Leave") }
+                Button(
+                    onClick = {
+                        confirmLeave = false
+                        onLeave()
+                    }
+                ) {
+                    Text("Leave")
+                }
             },
             dismissButton = {
                 TextButton(onClick = { confirmLeave = false }) { Text("Stay") }
             },
         )
     }
-}
-
-@Composable
-internal fun CompactRoomPlayer(
-    track: TrackDescriptor?,
-    artworkReloadKey: Any?,
-    isPlaying: Boolean,
-    pending: Boolean,
-    onPlayPause: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(modifier) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (track != null) {
-                TrackArtwork(track = track, size = 40.dp, reloadKey = artworkReloadKey)
-            } else {
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.primary)
-                }
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    track?.displayTitle ?: "Nothing playing",
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    track?.artist?.takeIf(String::isNotBlank)
-                        ?: if (isPlaying) "Playing" else "Paused",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            FilledIconButton(
-                onClick = onPlayPause,
-                enabled = track != null && !pending,
-                modifier = Modifier.size(44.dp),
-            ) {
-                if (pending) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (isPlaying) "Pause" else "Play",
-                    )
-                }
-            }
-        }
+    if (inviteVisible && hostRoomPin != null) {
+        RoomInviteDialog(
+            roomPin = hostRoomPin,
+            onDismiss = { inviteVisible = false },
+        )
     }
-}
-
-@Composable
-internal fun TransferStatusCard(
-    transfers: List<TransferProgress>,
-    titles: Map<TrackId, String>,
-) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            transfers.take(3).forEach { transfer ->
-                val title = titles[transfer.trackId] ?: "Music"
-                val status = when (transfer.state) {
-                    MemberTrackState.RECEIVING -> "Receiving $title"
-                    MemberTrackState.VERIFYING -> "Verifying $title"
-                    MemberTrackState.CANCELLED -> "Cancelled $title"
-                    MemberTrackState.FAILED -> "Could not receive $title"
-                    else -> title
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            status,
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (transfer.state == MemberTrackState.RECEIVING) {
-                            Text(
-                                "${(transfer.fraction * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    if (transfer.state == MemberTrackState.CANCELLED || transfer.state == MemberTrackState.FAILED) {
-                        Text(
-                            "Check the Wi-Fi connection. Unison can try another source.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    } else {
-                        LinearProgressIndicator(
-                            progress = { transfer.fraction },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
-            if (transfers.size > 3) {
-                Text(
-                    "${transfers.size - 3} more transfer${if (transfers.size == 4) "" else "s"} in progress",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-internal fun QueueRow(
-    index: Int,
-    lastIndex: Int,
-    track: TrackDescriptor,
-    artworkReloadKey: Any?,
-    current: Boolean,
-    playing: Boolean,
-    temporary: Boolean,
-    canReorder: Boolean,
-    draggedIndex: Int?,
-    dragTargetIndex: Int?,
-    onDragStateChange: (Int?, Int?) -> Unit,
-    onMove: (Int) -> Unit,
-    onPlay: () -> Unit,
-    onRemove: () -> Unit,
-    onKeep: () -> Unit,
-) {
-    var menu by remember { mutableStateOf(false) }
-    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
-    val estimatedRowHeightPx = with(LocalDensity.current) { 72.dp.toPx() }
-    val displacedOffsetPx = when {
-        draggedIndex == null || dragTargetIndex == null || draggedIndex == index -> 0f
-        draggedIndex < dragTargetIndex && index in (draggedIndex + 1)..dragTargetIndex ->
-            -estimatedRowHeightPx
-
-        draggedIndex > dragTargetIndex && index in dragTargetIndex until draggedIndex ->
-            estimatedRowHeightPx
-
-        else -> 0f
-    }
-    val animatedDisplacementPx by animateFloatAsState(
-        targetValue = displacedOffsetPx,
-        label = "Queue drop position",
-    )
-    val finishDrag = {
-        val targetIndex = (index + (dragOffsetPx / estimatedRowHeightPx).roundToInt())
-            .coerceIn(0, lastIndex)
-        dragOffsetPx = 0f
-        onDragStateChange(null, null)
-        if (targetIndex != index) onMove(targetIndex)
-    }
-    ListItem(
-        modifier = Modifier
-            .graphicsLayer {
-                translationY = if (draggedIndex == index) dragOffsetPx else animatedDisplacementPx
-                shadowElevation = if (dragOffsetPx == 0f) 0f else 8.dp.toPx()
-            }
-            .clickable(enabled = draggedIndex == null, onClick = onPlay),
-        headlineContent = { Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = {
-            Text(
-                listOfNotNull(
-                    when {
-                        playing -> "Playing"
-                        current -> "Paused"
-                        else -> track.artist?.takeIf(String::isNotBlank)
-                    },
-                    "Temporary".takeIf { temporary },
-                    formatDuration(track.durationMs),
-                ).joinToString(" • "),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        leadingContent = {
-            TrackArtwork(track = track, size = 40.dp, reloadKey = artworkReloadKey)
-        },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (canReorder) {
-                    Icon(
-                        Icons.Default.DragHandle,
-                        "Hold and drag to reorder",
-                        modifier = Modifier
-                            .size(40.dp)
-                            .padding(8.dp)
-                            .pointerInput(index, lastIndex) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = {
-                                        dragOffsetPx = 0f
-                                        onDragStateChange(index, index)
-                                    },
-                                    onDragCancel = {
-                                        dragOffsetPx = 0f
-                                        onDragStateChange(null, null)
-                                    },
-                                    onDragEnd = finishDrag,
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        dragOffsetPx = (dragOffsetPx + dragAmount.y).coerceIn(
-                                            minimumValue = -index * estimatedRowHeightPx,
-                                            maximumValue = (lastIndex - index) * estimatedRowHeightPx,
-                                        )
-                                        val targetIndex = (
-                                            index + (dragOffsetPx / estimatedRowHeightPx).roundToInt()
-                                            ).coerceIn(0, lastIndex)
-                                        onDragStateChange(index, targetIndex)
-                                    },
-                                )
-                            },
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Queue actions") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        if (temporary) {
-                            DropdownMenuItem(
-                                text = { Text("Keep on this phone") },
-                                onClick = { menu = false; onKeep() },
-                            )
-                        }
-                        if (canReorder) {
-                            DropdownMenuItem(
-                                text = { Text("Move up") },
-                                enabled = index > 0,
-                                onClick = { menu = false; onMove(index - 1) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Move down") },
-                                enabled = index < lastIndex,
-                                onClick = { menu = false; onMove(index + 1) },
-                            )
-                        }
-                        DropdownMenuItem(text = { Text("Remove from queue") }, onClick = { menu = false; onRemove() })
-                    }
-                }
-            }
-        },
-    )
 }
