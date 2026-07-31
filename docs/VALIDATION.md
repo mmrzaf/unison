@@ -1,52 +1,54 @@
 # Validation status
 
-Current source audit validated on 2026-07-28:
+Validated in the local release environment on 2026-07-31:
 
-- 171 Android/JVM unit tests with zero failures;
-- synchronization, affine-clock, two-hour multi-device, room reducer, event-loop, snapshot,
-  replay/ordering, crypto, managed-file, cleanup-lease, playlist, and transfer-cancellation cases;
-- repository, manifest, local-runtime, architecture-invariant, and development-marker checks;
-- dependency-free Kotlin patch-regression checks for delimiter balance, duplicate named arguments,
-  icon imports, and manual-discovery invariants;
-- coordinator-local PIN and snapshot-exclusion source checks;
-- SHA-256 verification and lease-protected deletion/partial-cleanup tests;
-- worker dependency-injection and socket-ownership source checks;
-- playlist path/ambiguity/order tests, SAF permission-ledger tests, and artwork-backoff tests;
-- advisory host-side library-search benchmark through 100,000 tracks; physical-device results remain the FTS decision gate;
-- split-state, nullable playback telemetry, peer-registry, message-router, role-engine, bounded admission-state, and control-admission tests;
-- source-shape gates for the reduced application shell and ViewModel boundaries;
-- removal of incomplete persisted room sessions and hard caps on transfer-authorization state;
-- Android debug/release lint, debug assembly, and minified release assembly with zero failures.
+- 352 deterministic debug unit tests in 71 suites: zero failures, errors, or skips;
+- seven invite Compose instrumentation tests compiled into the Android test APK;
+- debug and release Android lint: zero issues;
+- debug APK and shrunk/resource-shrunk unsigned release APK assembly;
+- release manifest metadata: `com.darius.unison`, version `1.0.0` (1), min SDK 30,
+  target SDK 33, and `debuggable=false`;
+- Spotless formatting checks for Kotlin, Kotlin DSL, XML, Markdown, scripts, and repository text;
+- schema-1 export/query checks, static architecture/security checks, release-quality checks,
+  playback-log analyzer self-test, and offline dependency readiness;
+- normalized large-library search benchmark at 100,000 tracks below the 50 ms p95 gate.
 
-Run these development checks on a provisioned Android machine:
+The standalone dependency-free compiler harnesses could not execute because `kotlinc` is not
+installed. Their scripts reported an explicit skip. Gradle's pinned Kotlin and Java compilers did
+compile the production, unit-test, and Android-test sources successfully.
+
+Android device validation is still required. This environment has no `adb`, emulator, or attached
+physical device, so API 30–33 runtime behavior, notification controls, background transitions,
+Bluetooth routing, multi-peer synchronization, soak behavior, and upgrade installation are not
+claimed as passed. The requested `Pasted text(250).txt` reproduction log was also not present in the
+repository, so the current-build strict log gate could only run its self-test.
+
+## Commands executed
 
 ```bash
-./scripts/check-static.sh
-./scripts/check-core.sh
-./scripts/check-data.sh
-./scripts/benchmark-library-search.py
+./gradlew clean
 ./gradlew testDebugUnitTest
 ./gradlew lintDebug
 ./gradlew assembleDebug
+./gradlew assembleRelease
+./gradlew lintRelease
+./gradlew spotlessApply
+./gradlew spotlessCheck
+./gradlew spotlessCheck testDebugUnitTest lintDebug assembleDebug assembleRelease assembleDebugAndroidTest
+./scripts/check-static.sh
+./scripts/check-core.sh
+./scripts/check-data.sh
+./scripts/check-risky-kotlin.sh
+./scripts/check-player-kotlin.sh
+./scripts/check-session-player-kotlin.sh
+./scripts/check-network-lifecycle-kotlin.sh
+./scripts/check-release-quality.sh
+./scripts/verify-offline-ready.sh
+./scripts/analyze-playback-log.py --self-test
+./scripts/benchmark-library-search.py --max-p95-ms 50
 ```
 
 ## Required physical-device checks
 
-Use at least three Android devices to verify:
-
-1. screen-off and lock-screen playback for an extended session;
-2. backgrounding, task removal, battery saver, sleep/wake, and Wi-Fi interruption recovery;
-3. Android 13+ notification grant, denial, and later settings recovery;
-4. built-in, wired, USB when available, and Bluetooth route changes;
-5. cancellation during a blocked or slow transfer, followed by resume;
-6. cleanup while queued, playing, uploading, downloading, and after lease release;
-7. same-size managed-file corruption and automatic reacquisition;
-8. initial PIN admission, reconnect without PIN, wrong-PIN throttling, nonce replay rejection, and
-   coordinator promotion with a rotated invite PIN;
-9. cancellation during a large M3U folder scan and confirmation that persisted tree grants are released;
-10. duplicate playlist filename/title matches requiring an explicit choice while preserving source order;
-11. QR dialog responsiveness and cache reuse;
-12. artwork memory and disk behavior while rapidly scrolling a large library.
-
-Record device model, Android version, battery restrictions, network topology, transfer outcome, and
-observed synchronization recovery for each run.
+Follow [Release qualification](RELEASE_QUALIFICATION.md) on Android 11, 12, and 13 before signing
+and distribution. Retain the APK checksum and strict playback-log analysis with each device result.
