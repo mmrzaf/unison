@@ -10,19 +10,21 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RetentionPolicy
+import java.io.IOException
+import java.security.SecureRandom
+import java.util.Locale
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.io.IOException
-import java.security.SecureRandom
 
-private val Context.dataStore by preferencesDataStore(
-    name = "unison_settings",
-    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
-)
+private val Context.dataStore by
+    preferencesDataStore(
+        name = "unison_settings",
+        corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+    )
 
 class UnisonSettings(private val context: Context) {
     private val identityMutex = Mutex()
@@ -34,9 +36,10 @@ class UnisonSettings(private val context: Context) {
         val onboardingComplete = booleanPreferencesKey("onboarding_complete")
     }
 
-    private val data = context.dataStore.data.catch { error ->
-        if (error is IOException) emit(emptyPreferences()) else throw error
-    }
+    private val data =
+        context.dataStore.data.catch { error ->
+            if (error is IOException) emit(emptyPreferences()) else throw error
+        }
 
     val identity: Flow<LocalIdentity> = data.map { prefs ->
         LocalIdentity(
@@ -47,23 +50,28 @@ class UnisonSettings(private val context: Context) {
 
     val onboardingComplete: Flow<Boolean> = data.map { it[Keys.onboardingComplete] ?: false }
     val retentionPolicy: Flow<RetentionPolicy> = data.map {
-        runCatching { RetentionPolicy.valueOf(it[Keys.retention] ?: RetentionPolicy.TEMPORARY_24_HOURS.name) }
+        runCatching {
+                RetentionPolicy.valueOf(
+                    it[Keys.retention] ?: RetentionPolicy.TEMPORARY_24_HOURS.name
+                )
+            }
             .getOrDefault(RetentionPolicy.TEMPORARY_24_HOURS)
     }
 
     suspend fun ensureIdentity(): LocalIdentity = identityMutex.withLock {
         val prefs = data.first()
         val existing = prefs[Keys.peerId]?.takeIf(::isValidPeerId)
-        if (existing != null) return@withLock LocalIdentity(
-            PeerId(existing),
-            prefs[Keys.displayName] ?: "Friend",
-        )
+        if (existing != null)
+            return@withLock LocalIdentity(
+                PeerId(existing),
+                prefs[Keys.displayName] ?: "Friend",
+            )
         createIdentity(prefs[Keys.displayName] ?: "Friend")
     }
 
     /**
-     * Replaces a duplicated installation identity while preserving the user's display name.
-     * This is intentionally explicit: normal reconnects must keep the same peer ID.
+     * Replaces a duplicated installation identity while preserving the user's display name. This is
+     * intentionally explicit: normal reconnects must keep the same peer ID.
      */
     suspend fun rotateIdentity(): LocalIdentity = identityMutex.withLock {
         val displayName = data.first()[Keys.displayName] ?: "Friend"
@@ -71,8 +79,10 @@ class UnisonSettings(private val context: Context) {
     }
 
     private suspend fun createIdentity(displayName: String): LocalIdentity {
-        val id = ByteArray(16).also(SecureRandom()::nextBytes)
-            .joinToString("") { "%02x".format(it) }
+        val id =
+            ByteArray(16).also(SecureRandom()::nextBytes).joinToString("") {
+                "%02x".format(Locale.ROOT, it)
+            }
         context.dataStore.edit { it[Keys.peerId] = id }
         return LocalIdentity(PeerId(id), displayName)
     }
