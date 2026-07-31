@@ -1,31 +1,11 @@
 # Changelog
 
-## Consolidated reliability and UX cleanup — 2026-07-28
-
-- restored manual nearby-room discovery: Find rooms runs one eight-second scan, then stops until the
-  user taps again;
-- isolated every discovery listener and resolution so stale callbacks, cancellation, or one dead
-  advertisement cannot terminate or interfere with another scan;
-- added explicit searching and no-results states while keeping found rooms visible after the bounded
-  scan;
-- fixed duplicate-installation identity recovery without weakening room membership checks or normal
-  reconnect identity;
-- fixed received artwork reload, corrupt-cache self-healing, negative-cache invalidation, queue
-  artwork, compact-player artwork, and Media3 metadata refresh;
-- consolidated playback recovery around persistent play intent, gentle proportional drift
-  correction, track-scoped seek cooldown, and emergency recovery;
-- fixed transient snackbar races, cancellation swallowing, overly broad exception handling, terminal
-  reconnect cleanup, verified-file database repair, and a duplicate UI-state argument that could
-  break the Android build;
-- separated short operations from active room sessions so manual discovery does not behave like a
-  persistent foreground room;
-- added Kotlin patch-regression checks and expanded deterministic core coverage to 72 tests.
-
 ## 1.0.0
 
 Unified production foundation:
 
 - consolidated application versioning at `1.0.0` / code 1;
+- reset the development baseline to wire protocol 1 and Room database schema 1; future schema changes migrate from version 1;
 - removed hosted release/store automation, host-specific, and automatic JDK-download configuration;
 - standardized APK-only local signing and offline build commands;
 - hardened content-addressed storage against same-size corruption;
@@ -38,3 +18,10 @@ Unified production foundation:
 - added connection and peer-transfer feedback plus confirmations for destructive actions;
 - preserved file-picker intent across Activity recreation and improved long-track/unknown-duration
   playback UI;
+- made nearby-room discovery an explicit bounded scan with isolated listener/resolution lifecycles;
+- added duplicate-installation identity recovery, bounded join retries, and terminal reconnect cleanup;
+- removed artwork extraction, image caching, image workers, and image UI in favor of deterministic text-only media metadata;
+- consolidated playback recovery around persistent play intent, drift correction, seek cooldown, and
+  emergency recovery;
+- separated short operations from active room sessions and added source sanity checks plus expanded
+  deterministic coverage.
