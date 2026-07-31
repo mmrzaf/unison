@@ -10,10 +10,10 @@
     <string name="room_join_code_title">Join code</string>
     <string name="room_join_code_description">People on the same Wi-Fi can find this room, tap Join, and enter this code.</string>
     <string name="room_join_code_field">4-digit code</string>
-    <string name="room_invite_action">Invite</string>
-    <string name="room_invite_copy">Copy</string>
-    <string name="room_invite_copied">Copied</string>
-    <string name="room_invite_done">Done</string>
+    <string name="room_code_action">Room code</string>
+    <string name="room_code_copy">Copy</string>
+    <string name="room_code_copied">Copied</string>
+    <string name="room_code_done">Done</string>
     <string name="issue_title_information">Information</string>
     <string name="issue_title_attention">Needs attention</string>
     <string name="issue_title_problem">Playback problem</string>

@@ -106,8 +106,6 @@ import com.darius.unison.room.QueueSearchIndex
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
-private const val INVITE_AUTO_HIDE_MS = 15_000L
-
 @Composable
 internal fun RoomLobbyScreen(
     state: MainUiState,
@@ -443,9 +441,8 @@ internal fun RoomScreen(
     var saveQueueDialog by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
     var confirmClearQueue by remember { mutableStateOf(false) }
-    val hostRoomPin = state.room.localRoomPin?.takeIf { state.room.isCoordinator }
-    var inviteVisible by rememberSaveable(snapshot.roomId) { mutableStateOf(false) }
-    var initialInviteShown by rememberSaveable(snapshot.roomId) { mutableStateOf(false) }
+    val localRoomCode = state.room.localRoomPin
+    var roomCodeVisible by rememberSaveable(snapshot.roomId) { mutableStateOf(false) }
     var draggedQueueIndex by remember { mutableStateOf<Int?>(null) }
     var dragTargetIndex by remember { mutableStateOf<Int?>(null) }
     var dragOffsetPx by remember { mutableFloatStateOf(0f) }
@@ -472,21 +469,9 @@ internal fun RoomScreen(
     val maxDragScrollPx = with(LocalDensity.current) { 28.dp.toPx() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(hostRoomPin, initialInviteShown) {
-        if (hostRoomPin != null && !initialInviteShown) {
-            initialInviteShown = true
-            inviteVisible = true
-        }
-    }
-    LaunchedEffect(inviteVisible, hostRoomPin) {
-        if (inviteVisible && hostRoomPin != null) {
-            delay(INVITE_AUTO_HIDE_MS)
-            inviteVisible = false
-        }
-    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) inviteVisible = false
+            if (event == Lifecycle.Event.ON_STOP) roomCodeVisible = false
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -620,16 +605,20 @@ internal fun RoomScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.weight(1f))
-                    if (hostRoomPin != null) {
-                        TextButton(onClick = { inviteVisible = true }) {
-                            Text(stringResource(R.string.room_invite_action))
-                        }
-                    }
                     Box {
                         IconButton(onClick = { roomMenu = true }) {
                             Icon(Icons.Default.MoreVert, "Room actions")
                         }
                         DropdownMenu(expanded = roomMenu, onDismissRequest = { roomMenu = false }) {
+                            if (localRoomCode != null) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.room_code_action)) },
+                                    onClick = {
+                                        roomMenu = false
+                                        roomCodeVisible = true
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Save queue as playlist") },
                                 enabled = snapshot.queue.isNotEmpty(),
@@ -770,15 +759,13 @@ internal fun RoomScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (state.room.isCoordinator) {
-                            TextButton(
-                                onClick = { confirmClearQueue = true },
-                                enabled = snapshot.queue.isNotEmpty(),
-                            ) {
-                                Icon(Icons.Default.DeleteOutline, null, Modifier.size(18.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Clear")
-                            }
+                        TextButton(
+                            onClick = { confirmClearQueue = true },
+                            enabled = snapshot.queue.isNotEmpty(),
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Clear")
                         }
                         if (snapshot.shuffleEnabled) {
                             FilledTonalIconButton(
@@ -1253,10 +1240,10 @@ internal fun RoomScreen(
             },
         )
     }
-    if (inviteVisible && hostRoomPin != null) {
-        RoomInviteDialog(
-            roomPin = hostRoomPin,
-            onDismiss = { inviteVisible = false },
+    if (roomCodeVisible && localRoomCode != null) {
+        RoomCodeDialog(
+            roomCode = localRoomCode,
+            onDismiss = { roomCodeVisible = false },
         )
     }
 }

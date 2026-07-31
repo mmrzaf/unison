@@ -22,12 +22,12 @@ import androidx.compose.ui.unit.dp
 import com.darius.unison.R
 
 @Composable
-internal fun RoomInviteDialog(
-    roomPin: String,
+internal fun RoomCodeDialog(
+    roomCode: String,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
-    var copied by remember(roomPin) { mutableStateOf(false) }
+    var copied by remember(roomCode) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.room_join_code_title)) },
@@ -36,7 +36,7 @@ internal fun RoomInviteDialog(
                 Text(stringResource(R.string.room_join_code_description))
                 SelectionContainer {
                     Text(
-                        roomPin,
+                        roomCode,
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -48,19 +48,19 @@ internal fun RoomInviteDialog(
                 onClick = {
                     val clipboard =
                         context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Unison join code", roomPin))
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Unison room code", roomCode))
                     copied = true
                 }
             ) {
                 Text(
                     stringResource(
-                        if (copied) R.string.room_invite_copied else R.string.room_invite_copy
+                        if (copied) R.string.room_code_copied else R.string.room_code_copy
                     )
                 )
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.room_invite_done)) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.room_code_done)) }
         },
     )
 }
