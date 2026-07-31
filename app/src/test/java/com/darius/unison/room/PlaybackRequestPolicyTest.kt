@@ -15,13 +15,15 @@ import org.junit.Test
 
 class PlaybackRequestPolicyTest {
     private val peer = PeerId("peer-000000000001")
-    private val item = QueueItem.create(
-        track = TrackDescriptor(TrackId("a".repeat(64)), 10, "audio/mpeg", 1_000, title = "Song"),
-        addedBy = peer,
-    )
+    private val item =
+        QueueItem.create(
+            track =
+                TrackDescriptor(TrackId("a".repeat(64)), 10, "audio/mpeg", 1_000, title = "Song"),
+            addedBy = peer,
+        )
 
     @Test
-    fun soloRoomDefersUntilItsLocalTrackIsPrepared() {
+    fun `single connected source defers until its local track is prepared`() {
         val snapshot = snapshot(item, prepared = false, wait = true)
         assertTrue(PlaybackRequestPolicy.shouldDeferPlay(snapshot))
     }
@@ -40,25 +42,27 @@ class PlaybackRequestPolicyTest {
 
     @Test
     fun emptyQueueIsHandledByTheReducerNotDeferred() {
-        val snapshot = RoomSnapshot(
+        val snapshot =
+            RoomSnapshot(
+                roomId = "room",
+                roomName = "Room",
+                term = CoordinatorTerm(1, peer),
+                sequence = 0,
+                members = listOf(MemberSnapshot(peer, "Friend")),
+            )
+        assertFalse(PlaybackRequestPolicy.shouldDeferPlay(snapshot))
+    }
+
+    private fun snapshot(item: QueueItem, prepared: Boolean, wait: Boolean): RoomSnapshot =
+        RoomSnapshot(
             roomId = "room",
             roomName = "Room",
             term = CoordinatorTerm(1, peer),
             sequence = 0,
             members = listOf(MemberSnapshot(peer, "Friend")),
+            queue = listOf(item),
+            preparedQueueItemIds = if (prepared) setOf(item.queueItemId) else emptySet(),
+            playback = CanonicalPlaybackState(queueItemId = item.queueItemId),
+            options = RoomOptions(waitAtTrackBoundary = wait),
         )
-        assertFalse(PlaybackRequestPolicy.shouldDeferPlay(snapshot))
-    }
-
-    private fun snapshot(item: QueueItem, prepared: Boolean, wait: Boolean): RoomSnapshot = RoomSnapshot(
-        roomId = "room",
-        roomName = "Room",
-        term = CoordinatorTerm(1, peer),
-        sequence = 0,
-        members = listOf(MemberSnapshot(peer, "Friend")),
-        queue = listOf(item),
-        preparedQueueItemIds = if (prepared) setOf(item.queueItemId) else emptySet(),
-        playback = CanonicalPlaybackState(queueItemId = item.queueItemId),
-        options = RoomOptions(waitAtTrackBoundary = wait),
-    )
 }
