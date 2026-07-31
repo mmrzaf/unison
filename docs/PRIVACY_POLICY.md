@@ -5,7 +5,7 @@ Unison operates locally and does not require an account.
 ## Data stored on the device
 
 Unison may store imported audio, track metadata, playlists, a generated peer identity, display name,
-recent room diagnostic state, temporary received tracks, artwork cache, and local diagnostic logs.
+recent room diagnostic state, temporary received tracks, and local diagnostic logs.
 Managed audio is stored in the application's private directory. Android backups are disabled.
 
 ## Local communication
