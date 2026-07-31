@@ -45,10 +45,11 @@ class PlaylistPathPolicyTest {
 
     @Test
     fun normalizedPathCollisionsRemainAmbiguous() {
-        val decision = PlaylistTreeMatchPolicy.decide(
-            listOf("content://music/Song.mp3", "content://music/song.mp3"),
-            identity = { it },
-        )
+        val decision =
+            PlaylistTreeMatchPolicy.decide(
+                listOf("content://music/Song.mp3", "content://music/song.mp3"),
+                identity = { it },
+            )
         assertEquals(PlaylistTreeMatchPolicy.Decision.Ambiguous(2), decision)
     }
 

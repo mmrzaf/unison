@@ -33,14 +33,15 @@ class PersistedUriPermissionManager(
         }
     }
 
-    suspend fun releaseAllUnused() = withContext(Dispatchers.IO) {
-        resolver.persistedUriPermissions
-            .asSequence()
-            .filter { it.isReadPermission && !ledger.isActive(it.uri.toString()) }
-            .map { it.uri }
-            .toList()
-            .forEach(::releaseReadPermission)
-    }
+    suspend fun releaseAllUnused() =
+        withContext(Dispatchers.IO) {
+            resolver.persistedUriPermissions
+                .asSequence()
+                .filter { it.isReadPermission && !ledger.isActive(it.uri.toString()) }
+                .map { it.uri }
+                .toList()
+                .forEach(::releaseReadPermission)
+        }
 
     private fun releaseReadPermission(uri: Uri) {
         runCatching {

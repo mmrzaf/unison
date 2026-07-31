@@ -37,7 +37,8 @@ object M3uResolutionPolicy {
         ambiguity: M3uAmbiguousEntry,
         selectedTrackId: TrackId,
     ): List<M3uResolvedEntry>? {
-        val selected = ambiguity.candidates.firstOrNull { it.trackId == selectedTrackId } ?: return null
+        val selected =
+            ambiguity.candidates.firstOrNull { it.trackId == selectedTrackId } ?: return null
         return (resolvedEntries + M3uResolvedEntry(ambiguity.entryIndex, ambiguity.entry, selected))
             .distinctBy(M3uResolvedEntry::entryIndex)
             .sortedBy(M3uResolvedEntry::entryIndex)

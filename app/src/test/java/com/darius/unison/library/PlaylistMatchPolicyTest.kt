@@ -28,7 +28,8 @@ class PlaylistMatchPolicyTest {
 
     @Test
     fun titleNarrowsDuplicateFilename() {
-        val decision = PlaylistMatchPolicy.decide("song.mp3", "Song Live", null, listOf(first, second))
+        val decision =
+            PlaylistMatchPolicy.decide("song.mp3", "Song Live", null, listOf(first, second))
         assertEquals(PlaylistMatchPolicy.Decision.Unique(second), decision)
     }
 

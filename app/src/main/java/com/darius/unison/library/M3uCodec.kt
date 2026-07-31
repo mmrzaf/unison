@@ -28,7 +28,8 @@ object M3uCodec {
                     line.isBlank() -> Unit
                     line.startsWith("#EXTINF:", ignoreCase = true) -> {
                         val value = line.substringAfter(':')
-                        val duration = value.substringBefore(',').trim().toLongOrNull()?.takeIf { it >= 0 }
+                        val duration =
+                            value.substringBefore(',').trim().toLongOrNull()?.takeIf { it >= 0 }
                         val title = value.substringAfter(',', "").trim().ifBlank { null }
                         pendingDuration = duration
                         pendingTitle = title

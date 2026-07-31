@@ -20,6 +20,9 @@ data class LibraryImportProgress(
     val elapsedMs: Long = 0L,
 ) {
     val fraction: Float
-        get() = if (totalPlaylistEntries <= 0) 0f
-        else playlistEntriesProcessed.coerceIn(0, totalPlaylistEntries).toFloat() / totalPlaylistEntries
+        get() =
+            if (totalPlaylistEntries <= 0) 0f
+            else
+                playlistEntriesProcessed.coerceIn(0, totalPlaylistEntries).toFloat() /
+                    totalPlaylistEntries
 }

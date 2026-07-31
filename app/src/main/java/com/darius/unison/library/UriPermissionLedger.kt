@@ -23,9 +23,7 @@ class UriPermissionLedger {
         }
     }
 
-    @Synchronized
-    fun isActive(uri: String): Boolean = (owners[uri] ?: 0) > 0
+    @Synchronized fun isActive(uri: String): Boolean = (owners[uri] ?: 0) > 0
 
-    @Synchronized
-    fun activeUris(): Set<String> = owners.keys.toSet()
+    @Synchronized fun activeUris(): Set<String> = owners.keys.toSet()
 }

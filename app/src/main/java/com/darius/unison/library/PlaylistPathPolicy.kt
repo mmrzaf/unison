@@ -7,7 +7,12 @@ import java.util.Locale
 /** Pure path policy used by SAF tree resolution and regression tests. */
 object PlaylistPathPolicy {
     sealed interface Decision {
-        data class Valid(val relativePath: String, val normalizedPath: String, val fileName: String) : Decision
+        data class Valid(
+            val relativePath: String,
+            val normalizedPath: String,
+            val fileName: String,
+        ) : Decision
+
         data class Rejected(val reason: String) : Decision
     }
 
@@ -20,31 +25,32 @@ object PlaylistPathPolicy {
             return Decision.Rejected("absolute")
         }
 
-        val decoded = decodePercentRepeatedly(raw)
-            ?: return Decision.Rejected("invalid-encoding")
+        val decoded = decodePercentRepeatedly(raw) ?: return Decision.Rejected("invalid-encoding")
         if ('\u0000' in decoded) return Decision.Rejected("nul")
-        if (decoded.startsWith('/') || decoded.startsWith('\\') || WINDOWS_ABSOLUTE.matches(decoded)) {
+        if (
+            decoded.startsWith('/') || decoded.startsWith('\\') || WINDOWS_ABSOLUTE.matches(decoded)
+        ) {
             return Decision.Rejected("absolute")
         }
 
         val normalizedSegments = mutableListOf<String>()
-        decoded.replace('\\', '/')
-            .split('/')
-            .forEach { segment ->
-                val clean = segment.trim()
-                when {
-                    clean.isEmpty() || clean == "." -> Unit
-                    clean == ".." -> return Decision.Rejected("traversal")
-                    ':' in clean && normalizedSegments.isEmpty() -> return Decision.Rejected("drive")
-                    else -> normalizedSegments += clean.lowercase(Locale.US)
-                }
+        decoded.replace('\\', '/').split('/').forEach { segment ->
+            val clean = segment.trim()
+            when {
+                clean.isEmpty() || clean == "." -> Unit
+                clean == ".." -> return Decision.Rejected("traversal")
+                ':' in clean && normalizedSegments.isEmpty() -> return Decision.Rejected("drive")
+                else -> normalizedSegments += clean.lowercase(Locale.ROOT)
             }
+        }
         if (normalizedSegments.isEmpty()) return Decision.Rejected("empty")
-        val relativePath = decoded.replace('\\', '/')
-            .split('/')
-            .map(String::trim)
-            .filter { it.isNotEmpty() && it != "." }
-            .joinToString("/")
+        val relativePath =
+            decoded
+                .replace('\\', '/')
+                .split('/')
+                .map(String::trim)
+                .filter { it.isNotEmpty() && it != "." }
+                .joinToString("/")
         return Decision.Valid(
             relativePath = relativePath,
             normalizedPath = normalizedSegments.joinToString("/"),
@@ -56,9 +62,14 @@ object PlaylistPathPolicy {
         var current = value
         repeat(MAX_DECODE_PASSES) {
             if ('%' !in current) return current
-            current = runCatching {
-                URLDecoder.decode(current.replace("+", "%2B"), StandardCharsets.UTF_8.name())
-            }.getOrNull() ?: return null
+            current =
+                runCatching {
+                        URLDecoder.decode(
+                            current.replace("+", "%2B"),
+                            StandardCharsets.UTF_8.name(),
+                        )
+                    }
+                    .getOrNull() ?: return null
         }
         return current
     }
@@ -72,7 +83,9 @@ object PlaylistPathPolicy {
 object PlaylistTreeMatchPolicy {
     sealed interface Decision<out T> {
         data class Found<T>(val value: T) : Decision<T>
+
         data class Ambiguous(val count: Int) : Decision<Nothing>
+
         data object Missing : Decision<Nothing>
     }
 
