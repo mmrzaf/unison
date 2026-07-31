@@ -1,6 +1,6 @@
 # Unison 1.0.0 release readiness
 
-Status: source-complete and host-validated; device qualification and signing remain open release
+Status: source-complete and locally validated; device qualification and signing remain open release
 gates.
 
 ## Root cause and corrections
@@ -32,10 +32,14 @@ remaining active commands as superseded.
   transition settles.
 - Idle or intentionally paused rooms suspend synchronization reacquisition; scheduled playback
   resumes monitoring. Repeated diagnostics are rate-limited.
-- Hosts see a dismissible 15-second invitation dialog after room creation. The credential is
-  otherwise hidden behind a compact host-only Invite action and is hidden on backgrounding.
-- The Media3 player notification is the sole playback notification. Identical rendered state is
-  dropped, changed state is throttled, and diagnostic counters cover enqueue/defer/dedup behavior.
+- The room code is never shown automatically. It opens only through the Room code overflow action
+  on the device that locally owns the credential, dismisses manually, and hides on backgrounding.
+- Every admitted member has the same playback, queue, and room-setting controls. Coordinator status
+  remains an internal state-ordering and clock-ownership detail.
+- The Media3 player notification is the sole playback notification. Its session metadata always
+  supplies a fixed dark Unison brand tile, never music thumbnails, so Android SystemUI can derive a
+  high-contrast palette; identical rendered state is dropped, changed state is throttled, and
+  diagnostic counters cover enqueue/defer/dedup behavior.
 - Application-container construction is main-thread single-owner without synchronized lazy
   contention; nonessential cleanup remains delayed off the first frame. Large room UI components
   were split and playback position remains isolated from the application shell state.
@@ -44,8 +48,8 @@ remaining active commands as superseded.
 
 ## Removed obsolete files
 
-- `ArtworkRetryPolicy.kt`, `ArtworkStore.kt`, and `ArtworkRetryPolicyTest.kt`: unused artwork
-  extraction/cache code after the release's no-artwork product path was removed.
+- `ArtworkRetryPolicy.kt`, `ArtworkStore.kt`, and `ArtworkRetryPolicyTest.kt`: unused music-artwork
+  extraction/cache code. The fixed system-media brand tile needs no file scan, cache, or worker.
 - `QrCode.kt`: obsolete QR credential surface; joining remains four-digit PAKE authentication.
 - `gradle/gradle-daemon-jvm.properties`: generated machine-local daemon/toolchain state, not a
   reproducible project input.
@@ -53,7 +57,7 @@ remaining active commands as superseded.
 ## Dependency and build-tool changes
 
 - Removed ZXing core because the QR surface was deleted.
-- Added Compose UI test JUnit4 and test-manifest artifacts for the invite instrumentation suite.
+- Added Compose UI test JUnit4 and test-manifest artifacts for the room-code instrumentation suite.
 - Added Spotless 8.8.0 and standardized Kotlin/Kotlin-DSL formatting on ktfmt.
 - Restored `targetSdk` from 36 to the contracted API 33; `compileSdk` remains 36 for pinned library
   compatibility. No broad runtime dependency upgrade was performed.
@@ -61,7 +65,8 @@ remaining active commands as superseded.
 ## Automated validation
 
 - Debug unit tests: 352 tests across 71 suites; 0 failed, 0 errored, 0 skipped.
-- Android instrumentation: 7 invite tests compiled; not executed without a device.
+- Android instrumentation: 5 room-code Compose tests and 1 fixed-system-artwork test compiled; not
+  executed without a device.
 - Android lint: debug 0 issues; release 0 issues.
 - Kotlin/Java compilation: debug, release, unit-test, and Android-test sources passed without
   compiler warnings in Gradle output.
@@ -94,15 +99,16 @@ resource warning was emitted.
 ## Manual 1.0.0 QA checklist
 
 1. Install fresh and upgrade the previous development build on API 30, 31/32, and 33.
-2. Create a room; verify the code appears temporarily, dismisses, auto-hides, hides on background,
-   reopens through Invite, and is never shown to guests or announced while closed.
-3. Join with correct/wrong codes and multiple guests; verify discovery alone never admits a peer.
+2. Create a room; verify the code does not appear automatically, opens through the Room code menu,
+   dismisses manually, hides on background, and is not announced while closed.
+3. Join with correct/wrong codes and multiple members; verify discovery alone never admits a peer
+   and every admitted member receives the same playback, queue, and room-setting controls.
 4. Exercise already-playing, paused-current, double-tap, A/B/C rapid selection, missing media,
    removal while pending, disconnect, coordinator change, leave, clear, and shutdown.
 5. Verify current and target remain in Media3 until scheduled execution and no track restarts.
 6. Confirm the sole notification is Media3 controls and test play, pause, next, previous, rapid
    input, background/foreground, and screen off/on.
 7. Test built-in and Bluetooth output, rotation, process recreation, large queues, repeated room
-   creation, transfer interruption, and guest disconnect during preparation.
+   creation, transfer interruption, and member disconnect during preparation.
 8. Run a fresh stress trace through `analyze-playback-log.py --strict`; require zero notification
    shedding, crashes, ANRs, playback exceptions, leaked service work, or pending commands.

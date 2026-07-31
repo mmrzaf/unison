@@ -89,6 +89,8 @@ A candidate passes only when:
 - no unresolved transport command remains after ten seconds or at session shutdown;
 - preparation timeout leaves the current playable song intact and exposes one retryable issue;
 - a newer navigation command terminally supersedes the prior pending target;
-- the host can reveal and copy the four-digit code from the temporary Invite surface, while a guest
-  must enter it after discovery;
+- the device that created the credential can reveal and copy it through the explicit Room code menu
+  item; the code is never shown automatically or redistributed to other admitted members;
+- every admitted member has the same playback, queue, and room-setting controls; coordinator status
+  remains an internal ordering detail;
 - notification-manager shedding is zero during the rapid-input qualification run.

@@ -40,8 +40,9 @@ Test at least three physical devices covering Android 11, Android 12, and Androi
 1. one-participant room playback for at least one hour with repeated screen-off/on cycles;
 2. confirm the only persistent notification is the Media3 player-control notification and that
    play, pause, seek, previous, and next remain synchronized;
-3. confirm no image appears in library, playlist, queue, full player, compact player, notification,
-   or lock screen, including audio files containing embedded pictures;
+3. confirm no music thumbnail appears in library, playlist, queue, full player, compact player,
+   notification, or lock screen, including audio files containing embedded pictures; the notification
+   and lock screen must show the same fixed dark Unison brand tile instead;
 4. first launch, permission denial/recovery, file-picker import, share-sheet import, and malformed M3U rejection;
 5. room creation, four-digit SRP join, wrong-code throttling, bounded discovery, and join cancellation;
 6. LocalOnlyHotspot creation and explicit teardown, including task removal while active;
@@ -78,9 +79,11 @@ Keep these cases green:
 - all canonical mutations remain actor-serialized and queue bulk work remains batched;
 - high-frequency playback position remains outside the actor;
 - `UnisonApp.kt` remains a shell and `MainViewModel.kt` remains a flow coordinator;
-- no artwork extraction, image cache, image worker, image UI, or artwork metadata is reintroduced;
-- the private invitation code is exposed only through the temporary host-only Invite surface; room
-  discovery never grants admission and protocol options are not added unless enforced end to end.
+- no music-thumbnail extraction, image cache, image worker, image UI, or track artwork metadata is
+  reintroduced; only the fixed Unison system-media artwork is allowed;
+- admitted members have the same room controls; the private room code appears only after selecting
+  Room code from the overflow menu on the device that locally owns the credential. Discovery never
+  grants admission and the credential is not redistributed after joining.
 
 ## Playback trace analysis
 
