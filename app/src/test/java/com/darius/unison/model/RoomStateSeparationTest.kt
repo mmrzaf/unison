@@ -12,10 +12,11 @@ class RoomStateSeparationTest {
     @Test
     fun playbackTicksDoNotChangeStructuralFlow() {
         val store = RoomStore()
-        val structure = RoomStructureState(
-            lifecycle = RoomLifecycleState.CONNECTED,
-            localIdentity = LocalIdentity(peer, "Phone"),
-        )
+        val structure =
+            RoomStructureState(
+                lifecycle = RoomLifecycleState.CONNECTED,
+                localIdentity = LocalIdentity(peer, "Phone"),
+            )
         store.updateStructure { structure }
         val before = store.structure.value
 
@@ -23,18 +24,20 @@ class RoomStateSeparationTest {
 
         assertEquals(before, store.structure.value)
         assertEquals(1_250L, store.playback.value.localPositionMs)
-        assertEquals(1_250L, store.state.value.localPlaybackPositionMs)
+        assertEquals(1_250L, store.currentState().localPlaybackPositionMs)
     }
 
     @Test
     fun memberPlaybackIsRemovedFromStructuralSnapshot() {
-        val snapshot = RoomSnapshot(
-            roomId = "room-1234",
-            roomName = "Room",
-            term = CoordinatorTerm(1, peer),
-            sequence = 1,
-            members = listOf(MemberSnapshot(peer, "Phone", playbackPositionMs = 99L, driftMs = 7L)),
-        )
+        val snapshot =
+            RoomSnapshot(
+                roomId = "room-1234",
+                roomName = "Room",
+                term = CoordinatorTerm(1, peer),
+                sequence = 1,
+                members =
+                    listOf(MemberSnapshot(peer, "Phone", playbackPositionMs = 99L, driftMs = 7L)),
+            )
         val store = RoomStore()
         store.set(RoomUiState(snapshot = snapshot))
 
@@ -48,7 +51,7 @@ class RoomStateSeparationTest {
     fun unknownLocalPositionIsNotRepresentedAsZeroInTelemetry() {
         val store = RoomStore()
         assertNull(store.playback.value.localPositionMs)
-        assertEquals(0L, store.state.value.localPlaybackPositionMs)
+        assertEquals(0L, store.currentState().localPlaybackPositionMs)
     }
 
     @Test
@@ -59,16 +62,18 @@ class RoomStateSeparationTest {
         val trackId = TrackId("a".repeat(64))
         store.updateTransfers {
             it.copy(
-                transfers = mapOf(
-                    trackId to TransferProgress(
-                        trackId = trackId,
-                        bytesTransferred = 5,
-                        totalBytes = 10,
-                        sourcePeerId = peer,
-                        destinationPeerId = null,
-                        state = MemberTrackState.RECEIVING,
-                    ),
-                ),
+                transfers =
+                    mapOf(
+                        trackId to
+                            TransferProgress(
+                                trackId = trackId,
+                                bytesTransferred = 5,
+                                totalBytes = 10,
+                                sourcePeerId = peer,
+                                destinationPeerId = null,
+                                state = MemberTrackState.RECEIVING,
+                            )
+                    )
             )
         }
         assertEquals(beforeStructure, store.structure.value)

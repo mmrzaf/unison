@@ -1,7 +1,7 @@
 package com.darius.unison.model
 
-import kotlinx.serialization.Serializable
 import java.util.UUID
+import kotlinx.serialization.Serializable
 
 @JvmInline
 @Serializable
@@ -49,9 +49,10 @@ data class TrackDescriptor(
     val originalFileName: String? = null,
 ) {
     val displayTitle: String
-        get() = title?.takeIf { it.isNotBlank() }
-            ?: originalFileName?.substringBeforeLast('.')?.takeIf { it.isNotBlank() }
-            ?: "Unknown track"
+        get() =
+            title?.takeIf { it.isNotBlank() }
+                ?: originalFileName?.substringBeforeLast('.')?.takeIf { it.isNotBlank() }
+                ?: "Unknown track"
 }
 
 @Serializable
@@ -62,12 +63,13 @@ data class QueueItem(
     val addedAtSequence: Long,
 ) {
     companion object {
-        fun create(track: TrackDescriptor, addedBy: PeerId, sequence: Long = 0): QueueItem = QueueItem(
-            queueItemId = QueueItemId(UUID.randomUUID().toString()),
-            track = track,
-            addedByPeerId = addedBy,
-            addedAtSequence = sequence,
-        )
+        fun create(track: TrackDescriptor, addedBy: PeerId, sequence: Long = 0): QueueItem =
+            QueueItem(
+                queueItemId = QueueItemId(UUID.randomUUID().toString()),
+                track = track,
+                addedByPeerId = addedBy,
+                addedAtSequence = sequence,
+            )
     }
 }
 
@@ -109,7 +111,11 @@ data class MemberSnapshot(
 )
 
 @Serializable
-enum class RepeatMode { OFF, ALL, ONE }
+enum class RepeatMode {
+    OFF,
+    ALL,
+    ONE,
+}
 
 @Serializable
 data class RoomOptions(
@@ -143,6 +149,46 @@ data class CanonicalPlaybackState(
             coordinatorTimestampNs = atCoordinatorNs,
         )
     }
+}
+
+@Serializable
+enum class TransportAction {
+    PLAY,
+    PAUSE,
+    SEEK,
+    NEXT,
+    PREVIOUS,
+    PLAY_ITEM,
+}
+
+@Serializable
+enum class TransportCommandPhase {
+    SUBMITTED,
+    ACCEPTED,
+    SCHEDULED,
+    EXECUTING,
+    SETTLED,
+    SUPERSEDED,
+    REJECTED;
+
+    val isTerminal: Boolean
+        get() = this == SETTLED || this == SUPERSEDED || this == REJECTED
+}
+
+data class TransportCommandStatus(
+    val commandId: String,
+    val action: TransportAction,
+    val phase: TransportCommandPhase,
+    val queueItemId: QueueItemId? = null,
+    val requestedPositionMs: Long? = null,
+    val message: String? = null,
+) {
+    val active: Boolean
+        get() =
+            phase == TransportCommandPhase.SUBMITTED ||
+                phase == TransportCommandPhase.ACCEPTED ||
+                phase == TransportCommandPhase.SCHEDULED ||
+                phase == TransportCommandPhase.EXECUTING
 }
 
 @Serializable
@@ -210,7 +256,9 @@ data class TransferProgress(
     val error: String? = null,
 ) {
     val fraction: Float
-        get() = if (totalBytes <= 0) 0f else (bytesTransferred.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
+        get() =
+            if (totalBytes <= 0) 0f
+            else (bytesTransferred.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f)
 }
 
 data class RoomUiState(
@@ -219,21 +267,27 @@ data class RoomUiState(
     val snapshot: RoomSnapshot? = null,
     val isCoordinator: Boolean = false,
     val discoveredRooms: List<DiscoveredRoom> = emptyList(),
-    /** True after a user-triggered discovery window finishes. Cleared by the next scan or when
-     * leaving the lobby so the UI can distinguish "not searched" from "no rooms found". */
+    /**
+     * True after a user-triggered discovery window finishes. Cleared by the next scan or when
+     * leaving the lobby so the UI can distinguish "not searched" from "no rooms found".
+     */
     val discoveryCompleted: Boolean = false,
     val transfers: Map<TrackId, TransferProgress> = emptyMap(),
     val status: UserFacingStatus = UserFacingStatus.IDLE,
     val statusMessage: String? = null,
     val errorMessage: String? = null,
+    val issue: RoomIssue? = null,
     val localPlaybackPositionMs: Long = 0,
     val localPlaybackQueueItemId: QueueItemId? = null,
     val localIsPlaying: Boolean = false,
     val localSeekRevision: Long = 0,
     val localDriftMs: Long? = null,
+    val transportStatus: TransportCommandStatus? = null,
     val roomAddress: String? = null,
     val roomPort: Int? = null,
-    /** Coordinator-local invite PIN. Never serialized into canonical room state or sent to peers. */
+    /**
+     * Coordinator-local manual PIN. Never serialized into canonical room state or sent to peers.
+     */
     val localRoomPin: String? = null,
     val hotspot: HotspotInfo? = null,
 ) {
@@ -241,23 +295,24 @@ data class RoomUiState(
     val operationActive: Boolean
         get() = lifecycle != RoomLifecycleState.IDLE && lifecycle != RoomLifecycleState.FAILED
 
-    /** A joined/creating room session that needs foreground networking and media controls. Manual
-     * discovery is intentionally excluded so an eight-second scan does not behave like a room. */
+    /**
+     * A joined/creating room session that needs foreground networking and media controls. Manual
+     * discovery is intentionally excluded so an eight-second scan does not behave like a room.
+     */
     val sessionActive: Boolean
-        get() = when (lifecycle) {
-            RoomLifecycleState.PREPARING,
-            RoomLifecycleState.CONNECTING,
-            RoomLifecycleState.JOINING,
-            RoomLifecycleState.CONNECTED,
-            RoomLifecycleState.RECONNECTING,
-            RoomLifecycleState.ENDING,
-                -> true
+        get() =
+            when (lifecycle) {
+                RoomLifecycleState.PREPARING,
+                RoomLifecycleState.CONNECTING,
+                RoomLifecycleState.JOINING,
+                RoomLifecycleState.CONNECTED,
+                RoomLifecycleState.RECONNECTING,
+                RoomLifecycleState.ENDING -> true
 
-            RoomLifecycleState.IDLE,
-            RoomLifecycleState.DISCOVERING,
-            RoomLifecycleState.FAILED,
-                -> false
-        }
+                RoomLifecycleState.IDLE,
+                RoomLifecycleState.DISCOVERING,
+                RoomLifecycleState.FAILED -> false
+            }
 }
 
 @Serializable

@@ -1,31 +1,73 @@
 package com.darius.unison.model
 
-import kotlinx.serialization.Serializable
 import java.util.UUID
+import kotlinx.serialization.Serializable
+
+sealed interface RoomJoinCredential {
+    data class Pin(val value: String) : RoomJoinCredential
+}
 
 sealed interface AppCommand {
+    sealed interface Transport : AppCommand {
+        val commandId: String
+    }
+
     data class CreateRoom(val roomName: String? = null) : AppCommand
-    data class JoinRoom(val room: DiscoveredRoom, val pin: String) : AppCommand
+
+    data class JoinRoom(val room: DiscoveredRoom, val credential: RoomJoinCredential) : AppCommand
+
     data object StartDiscovery : AppCommand
+
     data object StopDiscovery : AppCommand
+
     data object LeaveRoom : AppCommand
+
     data object CreateOfflineNetwork : AppCommand
+
     data object StopOfflineNetwork : AppCommand
-    data class AddTracks(val trackIds: List<TrackId>, val insertAfterCurrent: Boolean = false) : AppCommand
+
+    data class AddTracks(val trackIds: List<TrackId>, val insertAfterCurrent: Boolean = false) :
+        AppCommand
+
     data class SaveDisplayName(val name: String) : AppCommand
+
     data class KeepTrack(val trackId: TrackId) : AppCommand
+
     data class RemoveTemporaryTrack(val trackId: TrackId) : AppCommand
-    data object Play : AppCommand
-    data object Pause : AppCommand
-    data class Seek(val positionMs: Long) : AppCommand
-    data object SkipNext : AppCommand
-    data object SkipPrevious : AppCommand
-    data class PlayQueueItem(val queueItemId: QueueItemId) : AppCommand
+
+    data class Play(override val commandId: String = UUID.randomUUID().toString()) : Transport
+
+    data class Pause(override val commandId: String = UUID.randomUUID().toString()) : Transport
+
+    data class Seek(
+        val positionMs: Long,
+        override val commandId: String = UUID.randomUUID().toString(),
+    ) : Transport
+
+    data class SkipNext(override val commandId: String = UUID.randomUUID().toString()) : Transport
+
+    data class SkipPrevious(override val commandId: String = UUID.randomUUID().toString()) :
+        Transport
+
+    data class PlayQueueItem(
+        val queueItemId: QueueItemId,
+        override val commandId: String = UUID.randomUUID().toString(),
+    ) : Transport
+
     data object ShuffleQueue : AppCommand
+
     data class SetRepeat(val mode: RepeatMode) : AppCommand
+
     data class RemoveQueueItem(val queueItemId: QueueItemId) : AppCommand
+
     data class MoveQueueItem(val queueItemId: QueueItemId, val newIndex: Int) : AppCommand
+
+    data class MoveQueueItemNext(val queueItemId: QueueItemId) : AppCommand
+
     data object ClearPlayed : AppCommand
+
+    data object ClearQueue : AppCommand
+
     data class UpdateRoomOptions(val options: RoomOptions) : AppCommand
 }
 
@@ -70,6 +112,7 @@ sealed interface UserCommand {
         override val commandId: String = UUID.randomUUID().toString(),
         override val requestedBy: PeerId,
         val queueItemId: QueueItemId,
+        val resumePlayback: Boolean = true,
     ) : UserCommand
 
     @Serializable
@@ -96,7 +139,20 @@ sealed interface UserCommand {
     ) : UserCommand
 
     @Serializable
+    data class QueueMoveAfterCurrent(
+        override val commandId: String = UUID.randomUUID().toString(),
+        override val requestedBy: PeerId,
+        val queueItemId: QueueItemId,
+    ) : UserCommand
+
+    @Serializable
     data class QueueClearPlayed(
+        override val commandId: String = UUID.randomUUID().toString(),
+        override val requestedBy: PeerId,
+    ) : UserCommand
+
+    @Serializable
+    data class QueueClear(
         override val commandId: String = UUID.randomUUID().toString(),
         override val requestedBy: PeerId,
     ) : UserCommand
@@ -124,3 +180,24 @@ sealed interface UserCommand {
         val options: RoomOptions,
     ) : UserCommand
 }
+
+fun AppCommand.Transport.transportAction(): TransportAction =
+    when (this) {
+        is AppCommand.Play -> TransportAction.PLAY
+        is AppCommand.Pause -> TransportAction.PAUSE
+        is AppCommand.Seek -> TransportAction.SEEK
+        is AppCommand.SkipNext -> TransportAction.NEXT
+        is AppCommand.SkipPrevious -> TransportAction.PREVIOUS
+        is AppCommand.PlayQueueItem -> TransportAction.PLAY_ITEM
+    }
+
+fun UserCommand.transportActionOrNull(): TransportAction? =
+    when (this) {
+        is UserCommand.Play -> TransportAction.PLAY
+        is UserCommand.Pause -> TransportAction.PAUSE
+        is UserCommand.Seek -> TransportAction.SEEK
+        is UserCommand.SkipNext -> TransportAction.NEXT
+        is UserCommand.SkipPrevious -> TransportAction.PREVIOUS
+        is UserCommand.PlayQueueItem -> TransportAction.PLAY_ITEM
+        else -> null
+    }

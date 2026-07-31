@@ -14,6 +14,8 @@ data class RoomStructureState(
     val status: UserFacingStatus = UserFacingStatus.IDLE,
     val statusMessage: String? = null,
     val errorMessage: String? = null,
+    val issue: RoomIssue? = null,
+    val transportStatus: TransportCommandStatus? = null,
     val roomAddress: String? = null,
     val roomPort: Int? = null,
     val localRoomPin: String? = null,
@@ -23,20 +25,19 @@ data class RoomStructureState(
         get() = lifecycle != RoomLifecycleState.IDLE && lifecycle != RoomLifecycleState.FAILED
 
     val sessionActive: Boolean
-        get() = when (lifecycle) {
-            RoomLifecycleState.PREPARING,
-            RoomLifecycleState.CONNECTING,
-            RoomLifecycleState.JOINING,
-            RoomLifecycleState.CONNECTED,
-            RoomLifecycleState.RECONNECTING,
-            RoomLifecycleState.ENDING,
-                -> true
+        get() =
+            when (lifecycle) {
+                RoomLifecycleState.PREPARING,
+                RoomLifecycleState.CONNECTING,
+                RoomLifecycleState.JOINING,
+                RoomLifecycleState.CONNECTED,
+                RoomLifecycleState.RECONNECTING,
+                RoomLifecycleState.ENDING -> true
 
-            RoomLifecycleState.IDLE,
-            RoomLifecycleState.DISCOVERING,
-            RoomLifecycleState.FAILED,
-                -> false
-        }
+                RoomLifecycleState.IDLE,
+                RoomLifecycleState.DISCOVERING,
+                RoomLifecycleState.FAILED -> false
+            }
 }
 
 data class MemberPlaybackTelemetry(
@@ -54,40 +55,45 @@ data class RoomPlaybackTelemetry(
     val memberPlayback: Map<PeerId, MemberPlaybackTelemetry> = emptyMap(),
 )
 
-data class RoomTransferTelemetry(
-    val transfers: Map<TrackId, TransferProgress> = emptyMap(),
-)
+data class RoomTransferTelemetry(val transfers: Map<TrackId, TransferProgress> = emptyMap())
 
-fun RoomUiState.toStructureState(): RoomStructureState = RoomStructureState(
-    lifecycle = lifecycle,
-    localIdentity = localIdentity,
-    snapshot = snapshot?.copy(
-        members = snapshot.members.map { member ->
-            member.copy(playbackPositionMs = null, driftMs = null)
-        },
-    ),
-    isCoordinator = isCoordinator,
-    discoveredRooms = discoveredRooms,
-    discoveryCompleted = discoveryCompleted,
-    status = status,
-    statusMessage = statusMessage,
-    errorMessage = errorMessage,
-    roomAddress = roomAddress,
-    roomPort = roomPort,
-    localRoomPin = localRoomPin,
-    hotspot = hotspot,
-)
+fun RoomUiState.toStructureState(): RoomStructureState =
+    RoomStructureState(
+        lifecycle = lifecycle,
+        localIdentity = localIdentity,
+        snapshot =
+            snapshot?.copy(
+                members =
+                    snapshot.members.map { member ->
+                        member.copy(playbackPositionMs = null, driftMs = null)
+                    }
+            ),
+        isCoordinator = isCoordinator,
+        discoveredRooms = discoveredRooms,
+        discoveryCompleted = discoveryCompleted,
+        status = status,
+        statusMessage = statusMessage,
+        errorMessage = errorMessage,
+        issue = issue,
+        transportStatus = transportStatus,
+        roomAddress = roomAddress,
+        roomPort = roomPort,
+        localRoomPin = localRoomPin,
+        hotspot = hotspot,
+    )
 
-fun RoomUiState.toPlaybackTelemetry(): RoomPlaybackTelemetry = RoomPlaybackTelemetry(
-    localPositionMs = localPlaybackPositionMs,
-    localQueueItemId = localPlaybackQueueItemId,
-    localIsPlaying = localIsPlaying,
-    localSeekRevision = localSeekRevision,
-    localDriftMs = localDriftMs,
-    memberPlayback = snapshot?.members.orEmpty().associate { member ->
-        member.peerId to MemberPlaybackTelemetry(member.playbackPositionMs, member.driftMs)
-    },
-)
+fun RoomUiState.toPlaybackTelemetry(): RoomPlaybackTelemetry =
+    RoomPlaybackTelemetry(
+        localPositionMs = localPlaybackPositionMs,
+        localQueueItemId = localPlaybackQueueItemId,
+        localIsPlaying = localIsPlaying,
+        localSeekRevision = localSeekRevision,
+        localDriftMs = localDriftMs,
+        memberPlayback =
+            snapshot?.members.orEmpty().associate { member ->
+                member.peerId to MemberPlaybackTelemetry(member.playbackPositionMs, member.driftMs)
+            },
+    )
 
 fun RoomUiState.toTransferTelemetry(): RoomTransferTelemetry = RoomTransferTelemetry(transfers)
 
@@ -95,15 +101,17 @@ fun RoomStructureState.toUiState(
     playback: RoomPlaybackTelemetry = RoomPlaybackTelemetry(),
     transfer: RoomTransferTelemetry = RoomTransferTelemetry(),
 ): RoomUiState {
-    val enrichedSnapshot = snapshot?.copy(
-        members = snapshot.members.map { member ->
-            val telemetry = playback.memberPlayback[member.peerId]
-            member.copy(
-                playbackPositionMs = telemetry?.positionMs,
-                driftMs = telemetry?.driftMs,
-            )
-        },
-    )
+    val enrichedSnapshot =
+        snapshot?.copy(
+            members =
+                snapshot.members.map { member ->
+                    val telemetry = playback.memberPlayback[member.peerId]
+                    member.copy(
+                        playbackPositionMs = telemetry?.positionMs,
+                        driftMs = telemetry?.driftMs,
+                    )
+                }
+        )
     return RoomUiState(
         lifecycle = lifecycle,
         localIdentity = localIdentity,
@@ -115,6 +123,8 @@ fun RoomStructureState.toUiState(
         status = status,
         statusMessage = statusMessage,
         errorMessage = errorMessage,
+        issue = issue,
+        transportStatus = transportStatus,
         localPlaybackPositionMs = playback.localPositionMs ?: 0L,
         localPlaybackQueueItemId = playback.localQueueItemId,
         localIsPlaying = playback.localIsPlaying,
