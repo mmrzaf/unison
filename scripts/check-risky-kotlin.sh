@@ -2,22 +2,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if ! command -v kotlinc >/dev/null 2>&1; then
-  echo "RISKY_KOTLIN_CHECK_SKIPPED: kotlinc is not installed"
-  exit 0
-fi
-
-KOTLIN_HOME="$(dirname "$(dirname "$(command -v kotlinc)")")"
-COROUTINES_JAR="$KOTLIN_HOME/lib/kotlinx-coroutines-core-jvm.jar"
-if [[ ! -f "$COROUTINES_JAR" ]]; then
-  echo "RISKY_KOTLIN_CHECK_SKIPPED: Kotlin coroutines JAR was not found"
-  exit 0
-fi
+source scripts/lib/standalone-kotlin.sh
+prepare_standalone_kotlin RISKY_KOTLIN_CHECK
 
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/unison-risky-kotlin.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
 
-kotlinc \
+run_standalone_kotlinc \
   scripts/core-check/stubs/android/content/Context.kt \
   scripts/core-check/stubs/android/net/Uri.kt \
   scripts/core-check/stubs/android/os/SystemClock.kt \
@@ -43,6 +34,7 @@ kotlinc \
   app/src/main/java/com/darius/unison/network/ControlClient.kt \
   app/src/main/java/com/darius/unison/network/PeerServer.kt \
   app/src/main/java/com/darius/unison/playback/PlayerPort.kt \
+  app/src/main/java/com/darius/unison/room/TransportCommandTracker.kt \
   app/src/main/java/com/darius/unison/room/RoomEvent.kt \
   app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt \
   app/src/main/java/com/darius/unison/transfer/TransferCancellationRegistry.kt \
@@ -51,7 +43,7 @@ kotlinc \
   app/src/main/java/com/darius/unison/util/DiagnosticSanitizer.kt \
   app/src/main/java/com/darius/unison/util/DiagnosticLog.kt \
   app/src/main/java/com/darius/unison/sync/SynchronizationDiagnostics.kt \
-  -classpath "$COROUTINES_JAR" \
+  -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
   -d "$OUT_DIR/risky-kotlin.jar"
 
 echo RISKY_KOTLIN_COMPILE_OK

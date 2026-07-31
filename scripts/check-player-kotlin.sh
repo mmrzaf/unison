@@ -2,17 +2,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if ! command -v kotlinc >/dev/null 2>&1; then
-  echo "PLAYER_KOTLIN_CHECK_SKIPPED: kotlinc is not installed"
-  exit 0
-fi
-KOTLIN_HOME="$(dirname "$(dirname "$(command -v kotlinc)")")"
-COROUTINES_JAR="$KOTLIN_HOME/lib/kotlinx-coroutines-core-jvm.jar"
-[[ -f "$COROUTINES_JAR" ]] || { echo "PLAYER_KOTLIN_CHECK_SKIPPED: coroutines JAR missing"; exit 0; }
+source scripts/lib/standalone-kotlin.sh
+prepare_standalone_kotlin PLAYER_KOTLIN_CHECK
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/unison-player-kotlin.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
 
-kotlinc \
+run_standalone_kotlinc \
   scripts/core-check/stubs/kotlinx/serialization/Stubs.kt \
   scripts/player-kotlin-check/stubs/android/content/Context.kt \
   scripts/player-kotlin-check/stubs/android/media/Audio.kt \
@@ -33,7 +28,7 @@ kotlinc \
   app/src/main/java/com/darius/unison/playback/PlaybackTimelinePlan.kt \
   app/src/main/java/com/darius/unison/playback/SystemMediaCommandPolicy.kt \
   app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt \
-  -classpath "$COROUTINES_JAR" \
+  -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
   -d "$OUT_DIR/player-kotlin.jar"
 
 echo PLAYER_KOTLIN_COMPILE_OK

@@ -5,17 +5,8 @@ cd "$(dirname "$0")/.."
 # Keep the standalone compiler predictable on large source sets while respecting caller overrides.
 export JAVA_OPTS="${JAVA_OPTS:--Xmx2g -XX:+UseG1GC}"
 
-if ! command -v kotlinc >/dev/null 2>&1; then
-  echo "CORE_CHECK_SKIPPED: kotlinc is not installed"
-  exit 0
-fi
-
-KOTLIN_HOME="$(dirname "$(dirname "$(command -v kotlinc)")")"
-COROUTINES_JAR="$KOTLIN_HOME/lib/kotlinx-coroutines-core-jvm.jar"
-if [[ ! -f "$COROUTINES_JAR" ]]; then
-  echo "CORE_CHECK_SKIPPED: Kotlin coroutines JAR was not found"
-  exit 0
-fi
+source scripts/lib/standalone-kotlin.sh
+prepare_standalone_kotlin CORE_CHECK
 
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/unison-core-check.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
@@ -177,10 +168,9 @@ SOURCES=(
   scripts/core-check/CoreTestRunner.kt
 )
 
-kotlinc "${SOURCES[@]}" \
-  -classpath "$COROUTINES_JAR" \
-  -include-runtime \
+run_standalone_kotlinc "${SOURCES[@]}" \
+  -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
   -d "$OUT_DIR/unison-core-tests.jar"
 
 echo CORE_COMPILE_OK
-java -cp "$OUT_DIR/unison-core-tests.jar:$COROUTINES_JAR" CoreTestRunnerKt
+java -cp "$OUT_DIR/unison-core-tests.jar:$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" CoreTestRunnerKt

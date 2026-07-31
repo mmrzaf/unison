@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-if ! command -v kotlinc >/dev/null 2>&1; then
-  echo "NETWORK_LIFECYCLE_CHECK_SKIPPED: kotlinc is not installed"
-  exit 0
-fi
-KOTLIN_HOME="$(dirname "$(dirname "$(command -v kotlinc)")")"
-COROUTINES_JAR="$KOTLIN_HOME/lib/kotlinx-coroutines-core-jvm.jar"
+source scripts/lib/standalone-kotlin.sh
+prepare_standalone_kotlin NETWORK_LIFECYCLE_CHECK
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/unison-network-lifecycle.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
-kotlinc \
+run_standalone_kotlinc \
   scripts/network-lifecycle-kotlin-check/stubs/android/content/Context.kt \
   scripts/network-lifecycle-kotlin-check/stubs/android/net/nsd/Nsd.kt \
   scripts/network-lifecycle-kotlin-check/stubs/android/net/wifi/Wifi.kt \
@@ -21,8 +17,8 @@ kotlinc \
   app/src/main/java/com/darius/unison/network/NsdRoomDiscovery.kt \
   app/src/main/java/com/darius/unison/network/LocalHotspotController.kt \
   scripts/network-lifecycle-kotlin-check/NetworkLifecycleCheck.kt \
-  -classpath "$COROUTINES_JAR" \
+  -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
   -d "$OUT_DIR/network-lifecycle.jar"
 echo NETWORK_LIFECYCLE_KOTLIN_COMPILE_OK
-kotlin -classpath "$OUT_DIR/network-lifecycle.jar:$COROUTINES_JAR" \
+java -cp "$OUT_DIR/network-lifecycle.jar:$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
   com.darius.unison.network.NetworkLifecycleCheckKt
