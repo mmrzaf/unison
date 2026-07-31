@@ -2,8 +2,8 @@ package com.darius.unison.playback
 
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TrackDescriptor
-import kotlinx.coroutines.flow.StateFlow
 import java.io.File
+import kotlinx.coroutines.flow.StateFlow
 
 enum class PlaybackActivityState {
     IDLE,
@@ -13,6 +13,14 @@ enum class PlaybackActivityState {
     READY_PLAYING,
     ENDED,
     FAILED,
+}
+
+enum class PlayerItemTransitionReason {
+    AUTO,
+    SEEK,
+    REPEAT,
+    PLAYLIST_CHANGED,
+    UNKNOWN,
 }
 
 enum class AudioOutputRoute {
@@ -48,6 +56,8 @@ data class PlayerState(
     val playWhenReady: Boolean = false,
     /** True only while media is currently advancing and audible. */
     val isPlaying: Boolean = false,
+    /** True after a device-local audio-focus/noisy interruption until an explicit Play. */
+    val locallySuppressed: Boolean = false,
     val playbackSpeed: Float = 1f,
     val prepared: Boolean = false,
     val buffering: Boolean = false,
@@ -56,14 +66,16 @@ data class PlayerState(
     val ended: Boolean = false,
     val error: String? = null,
     val seekRevision: Long = 0,
-    val repeatTransitionRevision: Long = 0,
+    /** Increments for every Media3 current-item transition callback. */
+    val itemTransitionRevision: Long = 0,
+    /** Preserves Media3's transition origin so programmatic changes cannot look natural. */
+    val itemTransitionReason: PlayerItemTransitionReason? = null,
 )
 
 data class LocalPlayableItem(
     val queueItemId: QueueItemId,
     val track: TrackDescriptor,
     val file: File,
-    val artworkFile: File? = null,
 )
 
 interface PlayerPort {
@@ -72,11 +84,21 @@ interface PlayerPort {
     /** Always reads directly from the player thread. Never derive synchronization from [state]. */
     suspend fun samplePlayback(): PlaybackSample
 
-    suspend fun setQueue(items: List<LocalPlayableItem>, currentQueueItemId: QueueItemId?, positionMs: Long)
+    suspend fun setQueue(
+        items: List<LocalPlayableItem>,
+        currentQueueItemId: QueueItemId?,
+        positionMs: Long,
+    )
+
     suspend fun play(): Boolean
+
     suspend fun pause()
+
     suspend fun seekTo(positionMs: Long)
+
     suspend fun seekToItem(queueItemId: QueueItemId, positionMs: Long): Boolean
+
     suspend fun setRepeatCurrentItem(enabled: Boolean)
+
     suspend fun setPlaybackSpeed(speed: Float)
 }
