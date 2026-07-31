@@ -16,6 +16,12 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val standaloneKotlinCheckClasspath =
+    configurations.create("standaloneKotlinCheckClasspath") {
+        isCanBeConsumed = false
+        isCanBeResolved = true
+    }
+
 android {
     namespace = "com.darius.unison"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -146,4 +152,18 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.androidx.room.testing)
+
+    add(
+        standaloneKotlinCheckClasspath.name,
+        "org.jetbrains.kotlin:kotlin-compiler-embeddable:${libs.versions.kotlin.get()}",
+    )
+    add(
+        standaloneKotlinCheckClasspath.name,
+        "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:${libs.versions.coroutines.get()}",
+    )
+}
+
+tasks.register<Sync>("prepareStandaloneKotlinChecks") {
+    from(standaloneKotlinCheckClasspath)
+    into(layout.buildDirectory.dir("standalone-kotlin-check/lib"))
 }
