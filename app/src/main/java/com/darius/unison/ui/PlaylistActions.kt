@@ -52,18 +52,20 @@ internal class PlaylistActions(
     fun rename(playlistId: String, name: String) {
         scope.launch {
             userResult {
-                container.playlistRepository.rename(playlistId, name)
-                refreshSelected(playlistId)
-            }.onFailure { message.value = "Could not rename playlist" }
+                    container.playlistRepository.rename(playlistId, name)
+                    refreshSelected(playlistId)
+                }
+                .onFailure { message.value = "Could not rename playlist" }
         }
     }
 
     fun replaceTracks(playlistId: String, trackIds: List<TrackId>) {
         scope.launch {
             userResult {
-                container.playlistRepository.replaceTracks(playlistId, trackIds)
-                refreshSelected(playlistId)
-            }.onSuccess { message.value = "Playlist updated" }
+                    container.playlistRepository.replaceTracks(playlistId, trackIds)
+                    refreshSelected(playlistId)
+                }
+                .onSuccess { message.value = "Playlist updated" }
                 .onFailure { message.value = "Could not update playlist" }
         }
     }
@@ -72,11 +74,35 @@ internal class PlaylistActions(
         if (trackIds.isEmpty()) return
         scope.launch {
             userResult {
-                val detail = container.playlistRepository.get(playlistId) ?: error("Playlist not found")
-                container.playlistRepository.replaceTracks(playlistId, detail.tracks.map { it.trackId } + trackIds)
-                refreshSelected(playlistId)
-            }.onSuccess { message.value = "Songs added" }
+                    container.playlistRepository.appendTracks(playlistId, trackIds)
+                    refreshSelected(playlistId)
+                }
+                .onSuccess { message.value = "Songs added" }
                 .onFailure { message.value = "Could not update playlist" }
+        }
+    }
+
+    fun moveTrack(playlistId: String, fromIndex: Int, toIndex: Int) {
+        scope.launch {
+            userResult {
+                    container.playlistRepository.moveTrack(playlistId, fromIndex, toIndex)
+                    refreshSelected(playlistId)
+                }
+                .onFailure { message.value = "Could not move this song" }
+        }
+    }
+
+    fun removeTracks(playlistId: String, indices: Collection<Int>) {
+        if (indices.isEmpty()) return
+        scope.launch {
+            userResult {
+                    container.playlistRepository.removeTracksAt(playlistId, indices)
+                    refreshSelected(playlistId)
+                }
+                .onSuccess {
+                    message.value = if (indices.size == 1) "Song removed" else "Songs removed"
+                }
+                .onFailure { message.value = "Could not remove songs" }
         }
     }
 
@@ -84,7 +110,8 @@ internal class PlaylistActions(
         scope.launch {
             userResult { container.playlistRepository.delete(playlistId) }
                 .onSuccess {
-                    if (_selectedPlaylist.value?.playlistId == playlistId) _selectedPlaylist.value = null
+                    if (_selectedPlaylist.value?.playlistId == playlistId)
+                        _selectedPlaylist.value = null
                     message.value = "Playlist deleted"
                 }
                 .onFailure { message.value = "Could not delete playlist" }
@@ -108,22 +135,33 @@ internal class PlaylistActions(
     fun export(playlistId: String, destination: Uri) {
         scope.launch {
             withBusyOperation {
-                userResult {
-                    val detail = container.playlistRepository.get(playlistId) ?: error("Playlist not found")
-                    val text = M3uCodec.encode(detail.tracks.map { track ->
-                        M3uEntry(
-                            reference = container.trackRepository.exportReference(track.trackId)
-                                ?: track.originalFileName
-                                ?: "unison-${track.trackId.value}.audio",
-                            durationSeconds = track.durationMs.takeIf { it > 0 }?.div(1000),
-                            displayTitle = listOfNotNull(track.artist, track.displayTitle).joinToString(" - "),
-                        )
-                    })
-                    application.contentResolver.openOutputStream(destination, "wt")
-                        ?.bufferedWriter(Charsets.UTF_8)?.use { it.write(text) }
-                        ?: error("Could not create export file")
+                    userResult {
+                        val detail =
+                            container.playlistRepository.get(playlistId)
+                                ?: error("Playlist not found")
+                        val text =
+                            M3uCodec.encode(
+                                detail.tracks.map { track ->
+                                    M3uEntry(
+                                        reference =
+                                            container.trackRepository.exportReference(track.trackId)
+                                                ?: track.originalFileName
+                                                ?: "unison-${track.trackId.value}.audio",
+                                        durationSeconds =
+                                            track.durationMs.takeIf { it > 0 }?.div(1000),
+                                        displayTitle =
+                                            listOfNotNull(track.artist, track.displayTitle)
+                                                .joinToString(" - "),
+                                    )
+                                }
+                            )
+                        application.contentResolver
+                            .openOutputStream(destination, "wt")
+                            ?.bufferedWriter(Charsets.UTF_8)
+                            ?.use { it.write(text) } ?: error("Could not create export file")
+                    }
                 }
-            }.onSuccess { message.value = "Playlist exported" }
+                .onSuccess { message.value = "Playlist exported" }
                 .onFailure { message.value = "Could not export playlist" }
         }
     }
@@ -143,11 +181,12 @@ internal class PlaylistActions(
         }
     }
 
-    private suspend fun <T> userResult(block: suspend () -> T): Result<T> = try {
-        Result.success(block())
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Exception) {
-        Result.failure(error)
-    }
+    private suspend fun <T> userResult(block: suspend () -> T): Result<T> =
+        try {
+            Result.success(block())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
 }

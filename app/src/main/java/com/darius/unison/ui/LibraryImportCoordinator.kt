@@ -10,9 +10,9 @@ import com.darius.unison.library.LibraryImportProgress
 import com.darius.unison.library.LibraryImportStage
 import com.darius.unison.library.M3uResolutionPolicy
 import com.darius.unison.library.M3uUnresolvedEntry
-import com.darius.unison.model.AppCommand
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackId
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -41,7 +41,8 @@ internal class LibraryImportCoordinator(
     fun importMusic(uris: List<Uri>, toRoom: Boolean) {
         startAudioImport(
             uris = uris,
-            retention = if (toRoom) RetentionPolicy.TEMPORARY_24_HOURS else RetentionPolicy.KEEP_IN_LIBRARY,
+            retention =
+                if (toRoom) RetentionPolicy.TEMPORARY_24_HOURS else RetentionPolicy.KEEP_IN_LIBRARY,
             addToRoom = toRoom,
             completion = if (toRoom) ImportCompletion.ROOM else ImportCompletion.LIBRARY,
         )
@@ -77,21 +78,27 @@ internal class LibraryImportCoordinator(
         val selected = ambiguity.candidates.firstOrNull { it.trackId == trackId } ?: return
         scope.launch {
             withBusyOperation {
-                userResult {
-                    val resolved = checkNotNull(
-                        M3uResolutionPolicy.choose(pending.resolvedEntries, ambiguity, selected.trackId),
-                    )
-                    container.playlistRepository.replaceTracks(
-                        pending.playlistId,
-                        M3uResolutionPolicy.orderedTrackIds(resolved),
-                    )
-                    pending.copy(
-                        resolvedEntries = resolved,
-                        ambiguous = pending.ambiguous.filterNot { it.entryIndex == entryIndex },
-                        manualSelections = pending.manualSelections + (entryIndex to trackId),
-                    )
+                    userResult {
+                        val resolved =
+                            checkNotNull(
+                                M3uResolutionPolicy.choose(
+                                    pending.resolvedEntries,
+                                    ambiguity,
+                                    selected.trackId,
+                                )
+                            )
+                        container.playlistRepository.replaceTracks(
+                            pending.playlistId,
+                            M3uResolutionPolicy.orderedTrackIds(resolved),
+                        )
+                        pending.copy(
+                            resolvedEntries = resolved,
+                            ambiguous = pending.ambiguous.filterNot { it.entryIndex == entryIndex },
+                            manualSelections = pending.manualSelections + (entryIndex to trackId),
+                        )
+                    }
                 }
-            }.onSuccess(::updatePendingM3u)
+                .onSuccess(::updatePendingM3u)
                 .onFailure { message.value = "Could not update this playlist match" }
         }
     }
@@ -102,12 +109,15 @@ internal class LibraryImportCoordinator(
         updatePendingM3u(
             pending.copy(
                 ambiguous = pending.ambiguous.filterNot { it.entryIndex == entryIndex },
-                unresolved = (pending.unresolved + M3uUnresolvedEntry(
-                    entryIndex = entryIndex,
-                    entry = ambiguity.entry,
-                    reason = "Ambiguous match skipped",
-                )).sortedBy(M3uUnresolvedEntry::entryIndex),
-            ),
+                unresolved =
+                    (pending.unresolved +
+                            M3uUnresolvedEntry(
+                                entryIndex = entryIndex,
+                                entry = ambiguity.entry,
+                                reason = "Ambiguous match skipped",
+                            ))
+                        .sortedBy(M3uUnresolvedEntry::entryIndex),
+            )
         )
     }
 
@@ -118,29 +128,24 @@ internal class LibraryImportCoordinator(
             roomActions.addTracksToRoom(pending.availableTracks.map { it.trackId })
         }
         val skipped = pending.unresolved.size + pending.ambiguous.size
-        message.value = when {
-            pending.availableTracks.isEmpty() -> "No playlist tracks were available"
-            skipped > 0 -> "Imported ${pending.availableTracks.size}; skipped $skipped unavailable"
-            else -> "Imported ${pending.availableTracks.size} track${if (pending.availableTracks.size == 1) "" else "s"}"
-        }
+        message.value =
+            when {
+                pending.availableTracks.isEmpty() -> "No playlist tracks were available"
+                skipped > 0 ->
+                    "Imported ${pending.availableTracks.size}; skipped $skipped unavailable"
+                else ->
+                    "Imported ${pending.availableTracks.size} track${if (pending.availableTracks.size == 1) "" else "s"}"
+            }
     }
 
     fun handleIntent(intent: Intent?) {
         if (intent == null) return
-        val data = intent.data
-        if (Intent.ACTION_VIEW == intent.action && data?.scheme == "unison") {
-            val invitation = RoomJoinLinkCodec.decode(data)
-            if (invitation == null) {
-                message.value = "This room invite is invalid or made for a different Unison version"
-            } else {
-                roomActions.command(AppCommand.JoinRoom(invitation.first, invitation.second))
+        val uris =
+            when (intent.action) {
+                Intent.ACTION_SEND,
+                Intent.ACTION_SEND_MULTIPLE -> intent.readSharedUris()
+                else -> emptyList()
             }
-            return
-        }
-        val uris = when (intent.action) {
-            Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> intent.readSharedUris()
-            else -> emptyList()
-        }
         if (uris.isEmpty()) return
         val isPlaylist = uris.size == 1 && isM3u(intent.type, uris.single())
         if (container.roomStore.structure.value.snapshot != null) {
@@ -157,18 +162,20 @@ internal class LibraryImportCoordinator(
         _pendingShare.value = null
         if (destination == null) return
         when {
-            pending.isM3u -> importM3u(
-                pending.uris.single(),
-                toRoom = destination != ShareDestination.LIBRARY,
-            )
+            pending.isM3u ->
+                importM3u(
+                    pending.uris.single(),
+                    toRoom = destination != ShareDestination.LIBRARY,
+                )
             destination == ShareDestination.ROOM -> importMusic(pending.uris, toRoom = true)
             destination == ShareDestination.LIBRARY -> importMusic(pending.uris, toRoom = false)
-            destination == ShareDestination.BOTH -> startAudioImport(
-                uris = pending.uris,
-                retention = RetentionPolicy.KEEP_IN_LIBRARY,
-                addToRoom = true,
-                completion = ImportCompletion.BOTH,
-            )
+            destination == ShareDestination.BOTH ->
+                startAudioImport(
+                    uris = pending.uris,
+                    retention = RetentionPolicy.KEEP_IN_LIBRARY,
+                    addToRoom = true,
+                    completion = ImportCompletion.BOTH,
+                )
         }
     }
 
@@ -193,12 +200,19 @@ internal class LibraryImportCoordinator(
                         musicTreeUri = treeUri,
                         existingPlaylistId = existingPlaylistId,
                         manualSelections = manualSelections,
-                        onProgress = { progress -> _importProgress.value = progress.toUiProgress() },
+                        onProgress = { progress ->
+                            _importProgress.value = progress.toUiProgress()
+                        },
                     )
                 }
-                val result = if (treeUri == null) block() else {
-                    container.persistedUriPermissions.withTemporaryReadPermission(treeUri, block)
-                }
+                val result =
+                    if (treeUri == null) block()
+                    else {
+                        container.persistedUriPermissions.withTemporaryReadPermission(
+                            treeUri,
+                            block,
+                        )
+                    }
                 updatePendingM3u(
                     PendingM3uResolution(
                         sourceUri = sourceUri,
@@ -208,16 +222,17 @@ internal class LibraryImportCoordinator(
                         unresolved = result.unresolved,
                         ambiguous = result.ambiguous,
                         manualSelections = manualSelections,
-                    ),
+                    )
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                message.value = if (treeUri == null) {
-                    "Unison could not import this playlist"
-                } else {
-                    "Unison could not read this folder"
-                }
+                message.value =
+                    if (treeUri == null) {
+                        "Unison could not import this playlist"
+                    } else {
+                        "Unison could not read this folder"
+                    }
             } finally {
                 _importProgress.value = null
                 activeOperationCount.update { (it - 1).coerceAtLeast(0) }
@@ -232,14 +247,17 @@ internal class LibraryImportCoordinator(
             if (pending.toRoom && pending.availableTracks.isNotEmpty()) {
                 roomActions.addTracksToRoom(pending.availableTracks.map { it.trackId })
             }
-            message.value = "Imported ${pending.availableTracks.size} track${if (pending.availableTracks.size == 1) "" else "s"}"
+            message.value =
+                "Imported ${pending.availableTracks.size} track${if (pending.availableTracks.size == 1) "" else "s"}"
         } else {
             _pendingM3uResolution.value = pending
-            message.value = when {
-                pending.ambiguous.isNotEmpty() ->
-                    "${pending.ambiguous.size} playlist match${if (pending.ambiguous.size == 1) " needs" else "es need"} review"
-                else -> "${pending.unresolved.size} playlist track${if (pending.unresolved.size == 1) " needs" else "s need"} their music folder"
-            }
+            message.value =
+                when {
+                    pending.ambiguous.isNotEmpty() ->
+                        "${pending.ambiguous.size} playlist match${if (pending.ambiguous.size == 1) " needs" else "es need"} review"
+                    else ->
+                        "${pending.unresolved.size} playlist track${if (pending.unresolved.size == 1) " needs" else "s need"} their music folder"
+                }
         }
     }
 
@@ -259,20 +277,25 @@ internal class LibraryImportCoordinator(
             activeOperationCount.update { it + 1 }
             _importProgress.value = ImportProgress(0, uniqueUris.size)
             try {
-                val result = container.importManager.importAudio(uniqueUris, retention) { completed, total ->
-                    _importProgress.value = ImportProgress(completed, total)
-                }
+                val result =
+                    container.importManager.importAudio(uniqueUris, retention) { completed, total ->
+                        _importProgress.value = ImportProgress(completed, total)
+                    }
                 if (addToRoom && result.tracks.isNotEmpty()) {
                     roomActions.addTracksToRoom(result.tracks.map { it.trackId })
                 }
-                message.value = when {
-                    result.tracks.isEmpty() -> result.errors.firstOrNull() ?: "Unison could not add this music"
-                    result.errors.isNotEmpty() -> "Added ${result.tracks.size}; ${result.errors.size} could not be opened"
-                    completion == ImportCompletion.BOTH -> "Added to your library and room"
-                    completion == ImportCompletion.ROOM ->
-                        "Added ${result.tracks.size} song${if (result.tracks.size == 1) "" else "s"} to the room"
-                    else -> "Added ${result.tracks.size} song${if (result.tracks.size == 1) "" else "s"}"
-                }
+                message.value =
+                    when {
+                        result.tracks.isEmpty() ->
+                            result.errors.firstOrNull() ?: "Unison could not add this music"
+                        result.errors.isNotEmpty() ->
+                            "Added ${result.tracks.size}; ${result.errors.size} could not be opened"
+                        completion == ImportCompletion.BOTH -> "Added to your library and room"
+                        completion == ImportCompletion.ROOM ->
+                            "Added ${result.tracks.size} song${if (result.tracks.size == 1) "" else "s"} to the room"
+                        else ->
+                            "Added ${result.tracks.size} song${if (result.tracks.size == 1) "" else "s"}"
+                    }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -286,25 +309,30 @@ internal class LibraryImportCoordinator(
     }
 
     private fun LibraryImportProgress.toUiProgress(): ImportProgress {
-        val headline = when (stage) {
-            LibraryImportStage.READING_PLAYLIST -> "Reading playlist"
-            LibraryImportStage.INDEXING_FOLDER -> "Scanning music folder"
-            LibraryImportStage.RESOLVING_ENTRIES -> "Matching playlist music"
-            LibraryImportStage.IMPORTING_AUDIO -> "Importing playlist music"
-            LibraryImportStage.FINALIZING -> "Saving playlist"
-        }
-        val detail = when (stage) {
-            LibraryImportStage.INDEXING_FOLDER -> buildString {
-                append("$documentsScanned documents scanned")
-                currentDirectory?.takeIf(String::isNotBlank)?.let { append(" • ").append(it.takeLast(80)) }
-                append(" • ").append(elapsedMs / 1_000L).append('s')
+        val headline =
+            when (stage) {
+                LibraryImportStage.READING_PLAYLIST -> "Reading playlist"
+                LibraryImportStage.INDEXING_FOLDER -> "Scanning music folder"
+                LibraryImportStage.RESOLVING_ENTRIES -> "Matching playlist music"
+                LibraryImportStage.IMPORTING_AUDIO -> "Importing playlist music"
+                LibraryImportStage.FINALIZING -> "Saving playlist"
             }
-            LibraryImportStage.RESOLVING_ENTRIES,
-            LibraryImportStage.IMPORTING_AUDIO,
-            LibraryImportStage.FINALIZING ->
-                "$tracksResolved matched • $unresolvedEntries missing • $ambiguousEntries ambiguous • ${elapsedMs / 1_000L}s"
-            LibraryImportStage.READING_PLAYLIST -> null
-        }
+        val detail =
+            when (stage) {
+                LibraryImportStage.INDEXING_FOLDER ->
+                    buildString {
+                        append("$documentsScanned documents scanned")
+                        currentDirectory?.takeIf(String::isNotBlank)?.let {
+                            append(" • ").append(it.takeLast(80))
+                        }
+                        append(" • ").append(elapsedMs / 1_000L).append('s')
+                    }
+                LibraryImportStage.RESOLVING_ENTRIES,
+                LibraryImportStage.IMPORTING_AUDIO,
+                LibraryImportStage.FINALIZING ->
+                    "$tracksResolved matched • $unresolvedEntries missing • $ambiguousEntries ambiguous • ${elapsedMs / 1_000L}s"
+                LibraryImportStage.READING_PLAYLIST -> null
+            }
         return ImportProgress(
             completed = playlistEntriesProcessed,
             total = totalPlaylistEntries,
@@ -315,27 +343,38 @@ internal class LibraryImportCoordinator(
 
     private fun isM3u(mimeType: String?, uri: Uri): Boolean {
         if (mimeType in M3U_MIME_TYPES) return true
-        val name = runCatching {
-            application.contentResolver.query(
-                uri,
-                arrayOf(OpenableColumns.DISPLAY_NAME),
-                null,
-                null,
-                null,
-            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-        }.getOrNull()
-        return name?.lowercase()?.let { it.endsWith(".m3u") || it.endsWith(".m3u8") } == true
+        val name =
+            runCatching {
+                    application.contentResolver
+                        .query(
+                            uri,
+                            arrayOf(OpenableColumns.DISPLAY_NAME),
+                            null,
+                            null,
+                            null,
+                        )
+                        ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+                }
+                .getOrNull()
+        return name?.lowercase(Locale.ROOT)?.let { it.endsWith(".m3u") || it.endsWith(".m3u8") } ==
+            true
     }
 
     private fun Intent.readSharedUris(): List<Uri> {
         val fromExtras = buildList {
-            IntentCompat.getParcelableExtra(this@readSharedUris, Intent.EXTRA_STREAM, Uri::class.java)?.let(::add)
-            addAll(
-                IntentCompat.getParcelableArrayListExtra(
+            IntentCompat.getParcelableExtra(
                     this@readSharedUris,
                     Intent.EXTRA_STREAM,
                     Uri::class.java,
-                ).orEmpty(),
+                )
+                ?.let(::add)
+            addAll(
+                IntentCompat.getParcelableArrayListExtra(
+                        this@readSharedUris,
+                        Intent.EXTRA_STREAM,
+                        Uri::class.java,
+                    )
+                    .orEmpty()
             )
         }
         val fromClip = buildList {
@@ -354,19 +393,21 @@ internal class LibraryImportCoordinator(
         }
     }
 
-    private suspend fun <T> userResult(block: suspend () -> T): Result<T> = try {
-        Result.success(block())
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Exception) {
-        Result.failure(error)
-    }
+    private suspend fun <T> userResult(block: suspend () -> T): Result<T> =
+        try {
+            Result.success(block())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
 
     private companion object {
-        val M3U_MIME_TYPES = setOf(
-            "audio/x-mpegurl",
-            "application/vnd.apple.mpegurl",
-            "application/x-mpegurl",
-        )
+        val M3U_MIME_TYPES =
+            setOf(
+                "audio/x-mpegurl",
+                "application/vnd.apple.mpegurl",
+                "application/x-mpegurl",
+            )
     }
 }

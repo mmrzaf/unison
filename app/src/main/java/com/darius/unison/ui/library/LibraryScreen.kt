@@ -1,72 +1,33 @@
 package com.darius.unison.ui
 
-import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Equalizer
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QrCode2
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SearchOff
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.AlertDialog
@@ -76,82 +37,32 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
-import com.darius.unison.app.unisonContainer
 import com.darius.unison.library.LibrarySort
-import com.darius.unison.library.PlaylistDetail
-import com.darius.unison.model.AppCommand
-import com.darius.unison.model.DiscoveredRoom
-import com.darius.unison.model.MemberTrackState
-import com.darius.unison.model.QueueItemId
-import com.darius.unison.model.RepeatMode
-import com.darius.unison.model.RetentionPolicy
-import com.darius.unison.model.RoomLifecycleState
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
-import com.darius.unison.model.TransferProgress
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import java.util.Locale
-import kotlin.math.roundToInt
 
 @Composable
 internal fun LibraryScreen(
@@ -179,6 +90,7 @@ internal fun LibraryScreen(
     onAddTrackToPlaylist: (String, TrackId) -> Unit,
     onAddTracksToPlaylist: (String, List<TrackId>) -> Unit,
     onSelectAll: (String, (Set<TrackId>) -> Unit) -> Unit,
+    onAddAllToRoom: (String) -> Unit,
 ) {
     var sortMenu by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -190,6 +102,7 @@ internal fun LibraryScreen(
     var selectingMusic by rememberSaveable { mutableStateOf(false) }
     var musicSelection by remember { mutableStateOf(setOf<TrackId>()) }
     var playlistTarget by remember { mutableStateOf<Set<TrackId>?>(null) }
+    val musicListState = rememberLazyListState()
     val startPlaylistCreation = {
         createPlaylist = true
         playlistSelection = emptySet()
@@ -199,9 +112,7 @@ internal fun LibraryScreen(
 
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -214,7 +125,9 @@ internal fun LibraryScreen(
             if (!allMusicOpen) {
                 IconButton(onClick = onChooseFiles) { Icon(Icons.Default.AudioFile, "Add music") }
             }
-            IconButton(onClick = { storageDialog = true }) { Icon(Icons.Default.Storage, "Storage") }
+            IconButton(onClick = { storageDialog = true }) {
+                Icon(Icons.Default.Storage, "Storage")
+            }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -222,18 +135,27 @@ internal fun LibraryScreen(
                         DropdownMenuItem(
                             text = { Text("New playlist") },
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null) },
-                            onClick = { menu = false; startPlaylistCreation() },
+                            onClick = {
+                                menu = false
+                                startPlaylistCreation()
+                            },
                         )
                     }
                     DropdownMenuItem(
                         text = { Text("Import M3U") },
                         leadingIcon = { Icon(Icons.Default.UploadFile, null) },
-                        onClick = { menu = false; onImportM3u() },
+                        onClick = {
+                            menu = false
+                            onImportM3u()
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text("Change your name") },
                         leadingIcon = { Icon(Icons.Default.Edit, null) },
-                        onClick = { menu = false; onEditName() },
+                        onClick = {
+                            menu = false
+                            onEditName()
+                        },
                     )
                 }
             }
@@ -241,9 +163,7 @@ internal fun LibraryScreen(
 
         if (!allMusicOpen) {
             Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 SectionTitle("Your playlists")
@@ -254,9 +174,7 @@ internal fun LibraryScreen(
                 )
             }
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+                modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -271,9 +189,7 @@ internal fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 18.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
@@ -285,8 +201,9 @@ internal fun LibraryScreen(
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("All music", style = MaterialTheme.typography.titleMedium)
-                                val songCount = "${state.libraryTotalCount} " +
-                                    if (state.libraryTotalCount == 1) "song" else "songs"
+                                val songCount =
+                                    "${state.libraryTotalCount} " +
+                                        if (state.libraryTotalCount == 1) "song" else "songs"
                                 Text(
                                     "$songCount · Default playlist",
                                     style = MaterialTheme.typography.bodySmall,
@@ -299,7 +216,10 @@ internal fun LibraryScreen(
                                         onSelectAll("") { all -> onAddTracksToRoom(all.toList()) }
                                     }
                                 ) {
-                                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "Add all music to room")
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.PlaylistAdd,
+                                        "Add all music to room",
+                                    )
                                 }
                             }
                         }
@@ -311,9 +231,7 @@ internal fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 18.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
@@ -338,7 +256,10 @@ internal fun LibraryScreen(
                             }
                             if (state.room.snapshot != null) {
                                 IconButton(onClick = { onAddPlaylistToRoom(playlist.playlistId) }) {
-                                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, "Add playlist to room")
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.PlaylistAdd,
+                                        "Add playlist to room",
+                                    )
                                 }
                             }
                         }
@@ -348,15 +269,21 @@ internal fun LibraryScreen(
                     item(key = "empty-playlists") {
                         Card(onClick = startPlaylistCreation, modifier = Modifier.fillMaxWidth()) {
                             Row(
-                                Modifier
-                                    .fillMaxWidth()
+                                Modifier.fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    Icons.Default.Add,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
                                 Spacer(Modifier.width(14.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text("Create your first playlist", fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "Create your first playlist",
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
                                     Text(
                                         "Group songs before sharing them with a room.",
                                         style = MaterialTheme.typography.bodySmall,
@@ -370,18 +297,14 @@ internal fun LibraryScreen(
             }
         } else {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 8.dp, top = 10.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SectionTitle("All music")
                 Spacer(Modifier.weight(1f))
                 if (state.room.snapshot != null) {
                     FilledTonalButton(
-                        onClick = {
-                            onSelectAll("") { all -> onAddTracksToRoom(all.toList()) }
-                        },
+                        onClick = { onAddAllToRoom("") },
                         enabled = state.libraryTotalCount > 0,
                     ) {
                         Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
@@ -395,12 +318,12 @@ internal fun LibraryScreen(
                         if (!selectingMusic) musicSelection = emptySet()
                     },
                     enabled = tracks.itemCount > 0,
-                ) { Text(if (selectingMusic) "Done" else "Select") }
+                ) {
+                    Text(if (selectingMusic) "Done" else "Select")
+                }
             }
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -412,19 +335,28 @@ internal fun LibraryScreen(
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     trailingIcon = {
                         if (state.libraryQuery.isNotEmpty()) {
-                            IconButton(onClick = { onQueryChange("") }) { Icon(Icons.Default.Close, "Clear") }
+                            IconButton(onClick = { onQueryChange("") }) {
+                                Icon(Icons.Default.Close, "Clear")
+                            }
                         }
                     },
                     singleLine = true,
                 )
                 Box {
-                    IconButton(onClick = { sortMenu = true }) { Icon(Icons.AutoMirrored.Filled.Sort, "Sort") }
+                    IconButton(onClick = { sortMenu = true }) {
+                        Icon(Icons.AutoMirrored.Filled.Sort, "Sort")
+                    }
                     DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
                         LibrarySort.entries.forEach { sort ->
                             DropdownMenuItem(
                                 text = { Text(sort.displayName()) },
-                                trailingIcon = { if (sort == state.librarySort) Icon(Icons.Default.Check, null) },
-                                onClick = { sortMenu = false; onSortChange(sort) },
+                                trailingIcon = {
+                                    if (sort == state.librarySort) Icon(Icons.Default.Check, null)
+                                },
+                                onClick = {
+                                    sortMenu = false
+                                    onSortChange(sort)
+                                },
                             )
                         }
                     }
@@ -432,9 +364,7 @@ internal fun LibraryScreen(
             }
             if (selectingMusic) {
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -443,14 +373,19 @@ internal fun LibraryScreen(
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = {
-                        if (musicSelection.size == state.libraryVisibleCount) {
-                            musicSelection = emptySet()
-                        } else {
-                            onSelectAll(state.libraryQuery) { musicSelection = it }
+                    TextButton(
+                        onClick = {
+                            if (musicSelection.size == state.libraryVisibleCount) {
+                                musicSelection = emptySet()
+                            } else {
+                                onSelectAll(state.libraryQuery) { musicSelection = it }
+                            }
                         }
-                    }) {
-                        Text(if (musicSelection.size == state.libraryVisibleCount) "Clear" else "Select all")
+                    ) {
+                        Text(
+                            if (musicSelection.size == state.libraryVisibleCount) "Clear"
+                            else "Select all"
+                        )
                     }
                     IconButton(
                         onClick = { playlistTarget = musicSelection },
@@ -474,9 +409,7 @@ internal fun LibraryScreen(
                     }
                 }
             }
-            Box(Modifier
-                .fillMaxWidth()
-                .weight(1f)) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
                 when {
                     tracks.loadState.refresh is LoadState.Loading && tracks.itemCount == 0 -> {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -490,8 +423,11 @@ internal fun LibraryScreen(
 
                     tracks.itemCount == 0 -> {
                         EmptyState(
-                            title = if (state.libraryQuery.isBlank()) "No music yet" else "No matches",
-                            text = if (state.libraryQuery.isBlank()) "Add local audio files to start." else "Try another search.",
+                            title =
+                                if (state.libraryQuery.isBlank()) "No music yet" else "No matches",
+                            text =
+                                if (state.libraryQuery.isBlank()) "Add local audio files to start."
+                                else "Try another search.",
                             icon = Icons.Default.AudioFile,
                             actionLabel = if (state.libraryQuery.isBlank()) "Add music" else null,
                             onAction = onChooseFiles,
@@ -499,7 +435,10 @@ internal fun LibraryScreen(
                     }
 
                     else -> {
-                        LazyColumn(Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = musicListState,
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
                             items(
                                 count = tracks.itemCount,
                                 key = tracks.itemKey { it.trackId.value },
@@ -512,11 +451,12 @@ internal fun LibraryScreen(
                                         selectionMode = selectingMusic,
                                         selected = track.trackId in musicSelection,
                                         onSelectionChange = { checked ->
-                                            musicSelection = if (checked) {
-                                                musicSelection + track.trackId
-                                            } else {
-                                                musicSelection - track.trackId
-                                            }
+                                            musicSelection =
+                                                if (checked) {
+                                                    musicSelection + track.trackId
+                                                } else {
+                                                    musicSelection - track.trackId
+                                                }
                                         },
                                         onAddToRoom = { onAddTrackToRoom(track.trackId) },
                                         onPlayNext = { onPlayNext(track.trackId) },
@@ -528,19 +468,28 @@ internal fun LibraryScreen(
                                 }
                             }
                             when (tracks.loadState.append) {
-                                is LoadState.Loading -> item {
-                                    Box(Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                                is LoadState.Loading ->
+                                    item {
+                                        Box(
+                                            Modifier.fillMaxWidth().padding(16.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            CircularProgressIndicator(
+                                                Modifier.size(22.dp),
+                                                strokeWidth = 2.dp,
+                                            )
+                                        }
                                     }
-                                }
 
-                                is LoadState.Error -> item {
-                                    TextButton(onClick = tracks::retry, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Try loading more")
+                                is LoadState.Error ->
+                                    item {
+                                        TextButton(
+                                            onClick = tracks::retry,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text("Try loading more")
+                                        }
                                     }
-                                }
 
                                 else -> Unit
                             }
@@ -556,7 +505,8 @@ internal fun LibraryScreen(
             onDismissRequest = { playlistTarget = null },
             title = {
                 Text(
-                    if (trackIds.size == 1) "Add to playlist" else "Add ${trackIds.size} songs to playlist"
+                    if (trackIds.size == 1) "Add to playlist"
+                    else "Add ${trackIds.size} songs to playlist"
                 )
             },
             text = {
@@ -570,25 +520,34 @@ internal fun LibraryScreen(
                                     if (trackIds.size == 1) {
                                         onAddTrackToPlaylist(playlist.playlistId, trackIds.first())
                                     } else {
-                                        onAddTracksToPlaylist(playlist.playlistId, trackIds.toList())
+                                        onAddTracksToPlaylist(
+                                            playlist.playlistId,
+                                            trackIds.toList(),
+                                        )
                                     }
                                     playlistTarget = null
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                            ) { Text(playlist.name, modifier = Modifier.fillMaxWidth()) }
+                            ) {
+                                Text(playlist.name, modifier = Modifier.fillMaxWidth())
+                            }
                         }
                     }
                 }
             },
             confirmButton = {
                 if (state.playlists.isEmpty()) {
-                    Button(onClick = {
-                        playlistSelection = trackIds
-                        playlistName = ""
-                        onPickerQueryChange("")
-                        playlistTarget = null
-                        createPlaylist = true
-                    }) { Text("Create playlist") }
+                    Button(
+                        onClick = {
+                            playlistSelection = trackIds
+                            playlistName = ""
+                            onPickerQueryChange("")
+                            playlistTarget = null
+                            createPlaylist = true
+                        }
+                    ) {
+                        Text("Create playlist")
+                    }
                 } else {
                     TextButton(onClick = { playlistTarget = null }) { Text("Cancel") }
                 }
@@ -616,9 +575,14 @@ internal fun LibraryScreen(
             confirmButton = { TextButton(onClick = { storageDialog = false }) { Text("Done") } },
             dismissButton = {
                 TextButton(
-                    onClick = { storageDialog = false; confirmClearTemporary = true },
+                    onClick = {
+                        storageDialog = false
+                        confirmClearTemporary = true
+                    },
                     enabled = state.storageSummary.temporaryBytes > 0,
-                ) { Text("Clear temporary") }
+                ) {
+                    Text("Clear temporary")
+                }
             },
         )
     }
@@ -629,10 +593,14 @@ internal fun LibraryScreen(
             title = { Text("Clear temporary music?") },
             text = { Text("Songs used by the active room will stay available.") },
             confirmButton = {
-                Button(onClick = {
-                    confirmClearTemporary = false
-                    onClearTemporaryMusic()
-                }) { Text("Clear") }
+                Button(
+                    onClick = {
+                        confirmClearTemporary = false
+                        onClearTemporaryMusic()
+                    }
+                ) {
+                    Text("Clear")
+                }
             },
             dismissButton = {
                 TextButton(onClick = { confirmClearTemporary = false }) { Text("Cancel") }
@@ -665,11 +633,14 @@ internal fun LibraryScreen(
                             style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = {
-                            onSelectAll(pickerQuery) { all ->
-                                playlistSelection = if (playlistSelection.size == all.size) emptySet() else all
+                        TextButton(
+                            onClick = {
+                                onSelectAll(pickerQuery) { all ->
+                                    playlistSelection =
+                                        if (playlistSelection.size == all.size) emptySet() else all
+                                }
                             }
-                        }) {
+                        ) {
                             Text("Select all")
                         }
                     }
@@ -680,22 +651,25 @@ internal fun LibraryScreen(
                         ) { index ->
                             pickerTracks[index]?.let { track ->
                                 Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp),
+                                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Checkbox(
                                         checked = track.trackId in playlistSelection,
                                         onCheckedChange = { checked ->
-                                            playlistSelection = if (checked) {
-                                                playlistSelection + track.trackId
-                                            } else {
-                                                playlistSelection - track.trackId
-                                            }
+                                            playlistSelection =
+                                                if (checked) {
+                                                    playlistSelection + track.trackId
+                                                } else {
+                                                    playlistSelection - track.trackId
+                                                }
                                         },
                                     )
-                                    Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        track.displayTitle,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
                             }
                         }
@@ -709,7 +683,9 @@ internal fun LibraryScreen(
                         createPlaylist = false
                     },
                     enabled = playlistName.isNotBlank(),
-                ) { Text("Create") }
+                ) {
+                    Text("Create")
+                }
             },
             dismissButton = { TextButton(onClick = { createPlaylist = false }) { Text("Cancel") } },
         )
@@ -733,23 +709,26 @@ internal fun TrackRow(
     var menu by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     ListItem(
-        modifier = if (selectionMode) {
-            Modifier.clickable { onSelectionChange(!selected) }
-        } else {
-            Modifier
+        modifier =
+            if (selectionMode) {
+                Modifier.clickable { onSelectionChange(!selected) }
+            } else {
+                Modifier
+            },
+        headlineContent = {
+            Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
-        headlineContent = { Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             Text(
                 listOfNotNull(
-                    track.artist?.takeIf(String::isNotBlank),
-                    formatDuration(track.durationMs)
-                ).joinToString(" • "),
+                        track.artist?.takeIf(String::isNotBlank),
+                        formatDuration(track.durationMs),
+                    )
+                    .joinToString(" • "),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         },
-        leadingContent = { TrackArtwork(track, 40.dp) },
         trailingContent = {
             if (selectionMode) {
                 Checkbox(
@@ -764,26 +743,40 @@ internal fun TrackRow(
                         }
                     }
                     Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "More") }
+                        IconButton(onClick = { menu = true }) {
+                            Icon(Icons.Default.MoreVert, "More")
+                        }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             if (roomActive) {
                                 DropdownMenuItem(
                                     text = { Text("Play next") },
-                                    onClick = { menu = false; onPlayNext() },
+                                    onClick = {
+                                        menu = false
+                                        onPlayNext()
+                                    },
                                 )
                             }
                             DropdownMenuItem(
                                 text = { Text("Add to playlist") },
-                                onClick = { menu = false; onAddToPlaylist() },
+                                onClick = {
+                                    menu = false
+                                    onAddToPlaylist()
+                                },
                             )
                             if (temporary) {
                                 DropdownMenuItem(
                                     text = { Text("Keep on this phone") },
-                                    onClick = { menu = false; onKeep() },
+                                    onClick = {
+                                        menu = false
+                                        onKeep()
+                                    },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Remove temporary copy") },
-                                    onClick = { menu = false; confirmRemove = true },
+                                    onClick = {
+                                        menu = false
+                                        confirmRemove = true
+                                    },
                                 )
                             }
                         }
@@ -798,10 +791,14 @@ internal fun TrackRow(
             title = { Text("Remove this song?") },
             text = { Text("The temporary copy will be deleted from this phone.") },
             confirmButton = {
-                Button(onClick = {
-                    confirmRemove = false
-                    onRemove()
-                }) { Text("Remove") }
+                Button(
+                    onClick = {
+                        confirmRemove = false
+                        onRemove()
+                    }
+                ) {
+                    Text("Remove")
+                }
             },
             dismissButton = {
                 TextButton(onClick = { confirmRemove = false }) { Text("Cancel") }
