@@ -10,6 +10,7 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransferProgress
 import com.darius.unison.network.NetworkAddressPolicy
+import com.darius.unison.protocol.AuthenticatedFileStreamCodec
 import com.darius.unison.protocol.ChannelType
 import com.darius.unison.protocol.Crypto
 import com.darius.unison.protocol.FileRequest
@@ -22,10 +23,17 @@ import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.storage.ManagedFileLeaseReason
 import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.util.DiagnosticLog
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.util.Base64
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -33,11 +41,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.withTimeoutOrNull
 
 class TransferManager(
     private val localIdentity: LocalIdentity,
@@ -51,149 +55,228 @@ class TransferManager(
     private val onProgress: (TransferProgress) -> Unit,
     private val onCompleted: suspend (TrackDescriptor) -> Unit,
     private val onFailed: suspend (TrackId, PeerId?, String) -> Unit,
+    private val onActiveTransferCountChanged: (Int) -> Unit = {},
 ) {
-    private data class Authorization(
-        val trackId: TrackId,
-        val destinationPeerId: PeerId,
-        val expiresAtElapsedMs: Long,
-    )
-
-    private val authorizations = ConcurrentHashMap<String, Authorization>()
+    private val authorizations =
+        TransferAuthorizationRegistry(
+            maxEntries = MAX_TRACKED_AUTHORIZATIONS,
+            nowElapsedMs = { android.os.SystemClock.elapsedRealtime() },
+            onCapacityEviction = {
+                log.w(TAG, "Evicted oldest transfer authorization at capacity")
+            },
+        )
     private val outgoingSemaphore = Semaphore(1)
-    private val incomingSemaphore = Semaphore(1)
+    private val incomingSemaphore = Semaphore(MAX_CONCURRENT_DOWNLOADS)
     private val cancellationRegistry = TransferCancellationRegistry()
     private val activeUploadSockets = ConcurrentHashMap<String, Socket>()
 
-    @Synchronized
-    fun authorize(trackId: TrackId, destinationPeerId: PeerId, token: String, expiresAtElapsedMs: Long) {
-        val now = android.os.SystemClock.elapsedRealtime()
-        authorizations.entries.removeIf { it.value.expiresAtElapsedMs <= now }
-        if (authorizations.size >= MAX_TRACKED_AUTHORIZATIONS && !authorizations.containsKey(token)) {
-            authorizations.entries.minByOrNull { it.value.expiresAtElapsedMs }?.let { eldest ->
-                authorizations.remove(eldest.key, eldest.value)
-                log.w(TAG, "Evicted oldest transfer authorization at capacity")
-            }
-        }
-        authorizations[token] = Authorization(trackId, destinationPeerId, expiresAtElapsedMs)
+    val activeTransferCount: Int
+        get() = cancellationRegistry.activeCount + activeUploadSockets.size
+
+    val pendingAuthorizationCount: Int
+        get() = authorizations.size
+
+    fun authorize(
+        roomId: String,
+        trackId: TrackId,
+        destinationPeerId: PeerId,
+        token: String,
+        expiresAtElapsedMs: Long,
+    ) {
+        authorizations.authorize(
+            roomId = roomId,
+            trackId = trackId,
+            destinationPeerId = destinationPeerId,
+            token = token,
+            expiresAtElapsedMs = expiresAtElapsedMs,
+        )
     }
 
     suspend fun handleIncomingFileSocket(socket: Socket, hello: HandshakeMessage.ClientHello) {
         outgoingSemaphore.withPermit {
-            val uploadOperationId = hello.fileRequest?.requestId ?: UUID.randomUUID().toString()
+            val request = hello.fileRequest
+            val uploadOperationId = request?.requestId ?: UUID.randomUUID().toString()
             activeUploadSockets.put(uploadOperationId, socket)?.let { previous ->
                 runCatching { previous.close() }
             }
+            notifyActiveTransferCount()
             val lastProgressMs = AtomicLong(android.os.SystemClock.elapsedRealtime())
-            val watchdog = scope.launch(Dispatchers.IO) {
-                while (isActive && !socket.isClosed) {
-                    delay(UPLOAD_WATCHDOG_INTERVAL_MS)
-                    if (android.os.SystemClock.elapsedRealtime() - lastProgressMs.get() > UPLOAD_IDLE_TIMEOUT_MS) {
-                        log.w(TAG, "Closing stalled upload peer=${hello.peerId.value.take(8)}")
-                        runCatching { socket.close() }
-                        break
+            val watchdog =
+                scope.launch(Dispatchers.IO) {
+                    while (isActive && !socket.isClosed) {
+                        delay(UPLOAD_WATCHDOG_INTERVAL_MS)
+                        if (
+                            android.os.SystemClock.elapsedRealtime() - lastProgressMs.get() >
+                                UPLOAD_IDLE_TIMEOUT_MS
+                        ) {
+                            log.w(TAG, "Closing stalled upload peer=${hello.peerId.value.take(8)}")
+                            runCatching { socket.close() }
+                            break
+                        }
                     }
                 }
-            }
             try {
-                val request = hello.fileRequest
                 if (request == null) {
-                    HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Rejected("Missing file request"))
+                    HandshakeCodec.write(
+                        socket.getOutputStream(),
+                        HandshakeMessage.Rejected("Missing file request"),
+                    )
                     return@withPermit
                 }
                 if (request.roomId != hello.roomId) {
-                    HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Rejected("Room mismatch"))
-                    return@withPermit
-                }
-                val authorization = authorizations[request.authorizationToken]
-                if (authorization == null || authorization.trackId != request.trackId || authorization.destinationPeerId != hello.peerId) {
-                    HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Rejected("Transfer not authorized"))
-                    return@withPermit
-                }
-                if (android.os.SystemClock.elapsedRealtime() > authorization.expiresAtElapsedMs) {
-                    authorizations.remove(request.authorizationToken, authorization)
                     HandshakeCodec.write(
                         socket.getOutputStream(),
-                        HandshakeMessage.Rejected("Transfer authorization expired")
+                        HandshakeMessage.Rejected("Room mismatch"),
                     )
                     return@withPermit
                 }
-                if (!authorizations.remove(request.authorizationToken, authorization)) {
+                val authorization =
+                    authorizations.findMatching(
+                        authorizationId = request.authorizationId,
+                        roomId = request.roomId,
+                        trackId = request.trackId,
+                        destinationPeerId = hello.peerId,
+                    )
+                if (authorization == null) {
                     HandshakeCodec.write(
                         socket.getOutputStream(),
-                        HandshakeMessage.Rejected("Transfer authorization already used")
+                        HandshakeMessage.Rejected("Transfer not authorized"),
                     )
                     return@withPermit
                 }
+
+                val serverNonce = Crypto.randomBase64(18)
+                HandshakeCodec.write(
+                    socket.getOutputStream(),
+                    HandshakeMessage.FileChallenge(request.requestId, serverNonce),
+                )
+                val proof =
+                    HandshakeCodec.read(socket.getInputStream()) as? HandshakeMessage.FileProof
+                val expectedProof =
+                    Crypto.fileTransferProof(
+                        authorizationToken = authorization.token,
+                        roomId = request.roomId,
+                        trackId = request.trackId.value,
+                        requestId = request.requestId,
+                        sourcePeerId = localIdentity.peerId.value,
+                        destinationPeerId = hello.peerId.value,
+                        offset = request.offset,
+                        clientNonce = hello.clientNonce,
+                        serverNonce = serverNonce,
+                    )
+                if (
+                    proof == null ||
+                        proof.requestId != request.requestId ||
+                        !constantTimeStringEquals(expectedProof, proof.proofBase64)
+                ) {
+                    HandshakeCodec.write(
+                        socket.getOutputStream(),
+                        HandshakeMessage.Rejected("Transfer proof rejected"),
+                    )
+                    return@withPermit
+                }
+
+                // Validate the source before consuming the one-use authorization. Temporary file
+                // unavailability and invalid resume offsets must remain retryable.
                 val file = trackRepository.requireReadableFile(request.trackId)
                 if (file == null) {
-                    HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Accepted(Crypto.randomBase64(12)))
-                    FileWireCodec.writeHeader(
+                    HandshakeCodec.write(
                         socket.getOutputStream(),
-                        FileResponseHeader(
-                            request.requestId,
-                            FileResponseStatus.NOT_FOUND,
-                            request.trackId,
-                            0,
-                            0,
-                            "File unavailable"
-                        )
+                        HandshakeMessage.Rejected("File unavailable"),
                     )
                     return@withPermit
                 }
-                val uploadLease = fileStore.acquireLease(request.trackId, ManagedFileLeaseReason.TRANSFER_UPLOAD)
+                val uploadLease =
+                    fileStore.acquireLease(
+                        request.trackId,
+                        ManagedFileLeaseReason.TRANSFER_UPLOAD,
+                    )
                 try {
                     if (request.offset !in 0..file.length()) {
                         HandshakeCodec.write(
                             socket.getOutputStream(),
-                            HandshakeMessage.Accepted(Crypto.randomBase64(12)),
-                        )
-                        FileWireCodec.writeHeader(
-                            socket.getOutputStream(),
-                            FileResponseHeader(
-                                request.requestId,
-                                FileResponseStatus.INVALID_OFFSET,
-                                request.trackId,
-                                file.length(),
-                                0,
-                                "Invalid offset",
-                            )
+                            HandshakeMessage.Rejected("Invalid transfer offset"),
                         )
                         return@withPermit
                     }
-                    HandshakeCodec.write(socket.getOutputStream(), HandshakeMessage.Accepted(Crypto.randomBase64(12)))
-                    FileWireCodec.writeHeader(
-                        socket.getOutputStream(),
-                        FileResponseHeader(
-                            request.requestId,
-                            FileResponseStatus.OK,
-                            request.trackId,
-                            file.length(),
-                            request.offset,
+                    if (!authorizations.consume(request.authorizationId, authorization)) {
+                        HandshakeCodec.write(
+                            socket.getOutputStream(),
+                            HandshakeMessage.Rejected("Transfer authorization already used"),
                         )
-                    )
-                    lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
-                    file.inputStream().buffered(128 * 1024).use { input ->
-                        if (request.offset > 0) input.skipFully(request.offset)
-                        socket.getOutputStream().buffered(128 * 1024).use { output ->
-                            val buffer = ByteArray(128 * 1024)
-                            while (currentCoroutineContext().isActive) {
-                                val read = input.read(buffer)
-                                if (read < 0) break
-                                if (read > 0) {
-                                    output.write(buffer, 0, read)
+                        return@withPermit
+                    }
+
+                    val sessionKey =
+                        Crypto.deriveFileTransferSessionKey(
+                            authorization.token,
+                            request.roomId,
+                            request.trackId.value,
+                            hello.clientNonce,
+                            serverNonce,
+                        )
+                    val associatedData =
+                        Crypto.fileTransferAssociatedData(
+                            request.roomId,
+                            request.trackId.value,
+                            request.requestId,
+                            localIdentity.peerId.value,
+                            hello.peerId.value,
+                            request.offset,
+                            hello.clientNonce,
+                            serverNonce,
+                        )
+                    val baseNonce = Crypto.randomBytes(12)
+                    try {
+                        HandshakeCodec.write(
+                            socket.getOutputStream(),
+                            HandshakeMessage.FileReady(
+                                request.requestId,
+                                Base64.getUrlEncoder().withoutPadding().encodeToString(baseNonce),
+                            ),
+                        )
+                        FileWireCodec.writeEncryptedHeader(
+                            socket.getOutputStream(),
+                            FileResponseHeader(
+                                request.requestId,
+                                FileResponseStatus.OK,
+                                request.trackId,
+                                file.length(),
+                                request.offset,
+                            ),
+                            sessionKey,
+                            baseNonce,
+                            associatedData,
+                        )
+                        lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+                        file
+                            .inputStream()
+                            .buffered(AuthenticatedFileStreamCodec.MAX_CHUNK_BYTES)
+                            .use { input ->
+                                if (request.offset > 0) input.skipFully(request.offset)
+                                FileWireCodec.writeEncryptedBody(
+                                    input = input,
+                                    output = socket.getOutputStream(),
+                                    byteCount = file.length() - request.offset,
+                                    key = sessionKey,
+                                    baseNonce = baseNonce,
+                                    associatedData = associatedData,
+                                ) {
                                     lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
                                 }
                             }
-                            currentCoroutineContext().ensureActive()
-                            output.flush()
-                        }
+                    } finally {
+                        sessionKey.fill(0)
+                        associatedData.fill(0)
+                        baseNonce.fill(0)
                     }
                 } finally {
                     uploadLease.close()
                 }
             } finally {
-                watchdog.cancel()
+                watchdog.cancelAndJoin()
                 activeUploadSockets.remove(uploadOperationId, socket)
+                notifyActiveTransferCount()
                 runCatching { socket.close() }
             }
         }
@@ -206,62 +289,80 @@ class TransferManager(
         authorizationToken: String,
     ) {
         cancel(track.trackId)
-        val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
-            val lease = fileStore.acquireLease(track.trackId, ManagedFileLeaseReason.TRANSFER_DOWNLOAD)
-            try {
-                if (fileStore.hasVerified(track.trackId, track.sizeBytes)) {
-                    // A process may have committed the content-addressed file just before crashing,
-                    // leaving the database registration incomplete. Repair that state before
-                    // announcing readiness, and keep the operation tracked by cancelAll().
-                    trackRepository.registerManagedFile(track, retentionPolicyProvider())
+        val job =
+            scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+                try {
+                    cancellationRegistry.withTrackOperation(track.trackId) {
+                        currentCoroutineContext().ensureActive()
+                        val lease =
+                            fileStore.acquireLease(
+                                track.trackId,
+                                ManagedFileLeaseReason.TRANSFER_DOWNLOAD,
+                            )
+                        try {
+                            if (fileStore.hasVerified(track.trackId, track.sizeBytes)) {
+                                // A process may have committed the content-addressed file just
+                                // before crashing,
+                                // leaving the database registration incomplete. Repair that state
+                                // before
+                                // announcing readiness, and keep the operation tracked by
+                                // cancelAll().
+                                trackRepository.registerManagedFile(
+                                    track,
+                                    retentionPolicyProvider(),
+                                )
+                                onProgress(
+                                    TransferProgress(
+                                        track.trackId,
+                                        track.sizeBytes,
+                                        track.sizeBytes,
+                                        source.peerId,
+                                        localIdentity.peerId,
+                                        MemberTrackState.READY,
+                                    )
+                                )
+                                onCompleted(track)
+                            } else {
+                                incomingSemaphore.withPermit {
+                                    performDownload(roomId, track, source, authorizationToken)
+                                }
+                            }
+                        } finally {
+                            lease.close()
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
                     onProgress(
                         TransferProgress(
                             track.trackId,
-                            track.sizeBytes,
+                            fileStore.partialFile(track.trackId).length(),
                             track.sizeBytes,
                             source.peerId,
                             localIdentity.peerId,
-                            MemberTrackState.READY,
+                            MemberTrackState.CANCELLED,
+                            "Cancelled",
                         )
                     )
-                    onCompleted(track)
-                } else {
-                    incomingSemaphore.withPermit {
-                        performDownload(roomId, track, source, authorizationToken)
-                    }
+                    throw cancelled
+                } catch (error: Exception) {
+                    log.w(TAG, "Transfer failed track=${track.trackId.value.take(8)}", error)
+                    onProgress(
+                        TransferProgress(
+                            track.trackId,
+                            fileStore.partialFile(track.trackId).length(),
+                            track.sizeBytes,
+                            source.peerId,
+                            localIdentity.peerId,
+                            MemberTrackState.FAILED,
+                            error.message,
+                        )
+                    )
+                    onFailed(track.trackId, source.peerId, error.message ?: "Transfer failed")
                 }
-            } catch (cancelled: CancellationException) {
-                onProgress(
-                    TransferProgress(
-                        track.trackId,
-                        fileStore.partialFile(track.trackId).length(),
-                        track.sizeBytes,
-                        source.peerId,
-                        localIdentity.peerId,
-                        MemberTrackState.CANCELLED,
-                        "Cancelled",
-                    )
-                )
-                throw cancelled
-            } catch (error: Exception) {
-                log.w(TAG, "Transfer failed track=${track.trackId.value.take(8)}", error)
-                onProgress(
-                    TransferProgress(
-                        track.trackId,
-                        fileStore.partialFile(track.trackId).length(),
-                        track.sizeBytes,
-                        source.peerId,
-                        localIdentity.peerId,
-                        MemberTrackState.FAILED,
-                        error.message,
-                    )
-                )
-                onFailed(track.trackId, source.peerId, error.message ?: "Transfer failed")
-            } finally {
-                lease.close()
             }
-        }
         cancellationRegistry.registerJob(track.trackId, job)
+        job.invokeOnCompletion { notifyActiveTransferCount() }
+        notifyActiveTransferCount()
         job.start()
     }
 
@@ -283,16 +384,28 @@ class TransferManager(
             offset = 0
         }
         val remaining = track.sizeBytes - offset
-        require(partial.parentFile?.usableSpace ?: 0L >= remaining + MIN_FREE_SPACE_BYTES) { "Not enough storage space" }
-        val socket = Socket().apply {
-            tcpNoDelay = true
-            keepAlive = true
-            connect(InetSocketAddress(address, source.port), 10_000)
-            soTimeout = 20_000
+        require(partial.parentFile?.usableSpace ?: 0L >= remaining + MIN_FREE_SPACE_BYTES) {
+            "Not enough storage space"
         }
+        val socket = Socket()
+        // Attach before the blocking connect so cancellation can close the socket immediately.
         cancellationRegistry.attachSocket(track.trackId, socket)
         try {
-            val request = FileRequest(UUID.randomUUID().toString(), roomId, track.trackId, offset, authorizationToken)
+            currentCoroutineContext().ensureActive()
+            socket.tcpNoDelay = true
+            socket.keepAlive = true
+            socket.connect(InetSocketAddress(address, source.port), 10_000)
+            socket.soTimeout = 20_000
+            currentCoroutineContext().ensureActive()
+            val clientNonce = Crypto.randomBase64(18)
+            val request =
+                FileRequest(
+                    requestId = UUID.randomUUID().toString(),
+                    roomId = roomId,
+                    trackId = track.trackId,
+                    offset = offset,
+                    authorizationId = Crypto.fileTransferAuthorizationId(authorizationToken),
+                )
             HandshakeCodec.write(
                 socket.getOutputStream(),
                 HandshakeMessage.ClientHello(
@@ -303,83 +416,166 @@ class TransferManager(
                     protocolVersions = listOf(PROTOCOL_VERSION),
                     listeningPort = listeningPort(),
                     roomId = roomId,
-                    clientNonce = Crypto.randomBase64(12),
+                    clientNonce = clientNonce,
                     fileRequest = request,
-                )
+                ),
             )
-            when (val response = HandshakeCodec.read(socket.getInputStream())) {
-                is HandshakeMessage.Rejected -> error(response.reason)
-                is HandshakeMessage.Accepted -> Unit
-                else -> error("Unexpected file handshake")
-            }
-            val header = FileWireCodec.readHeader(socket.getInputStream())
-            check(header.requestId == request.requestId) { "Mismatched transfer response" }
-            if (header.status == FileResponseStatus.INVALID_OFFSET && offset > 0) {
-                partial.delete()
-                error("Resume offset rejected; requesting a fresh transfer")
-            }
-            check(header.status == FileResponseStatus.OK) { header.message ?: "File source rejected request" }
-            check(header.trackId == track.trackId && header.totalSize == track.sizeBytes) { "Track descriptor changed" }
-            check(header.acceptedOffset == offset) { "Resume offset rejected" }
-
-            onProgress(
-                TransferProgress(
-                    track.trackId,
-                    offset,
-                    track.sizeBytes,
-                    source.peerId,
-                    localIdentity.peerId,
-                    MemberTrackState.RECEIVING
-                )
-            )
-            var lastReport = android.os.SystemClock.elapsedRealtime()
-            fileStore.receivePartial(
-                trackId = track.trackId,
-                offset = offset,
-                expectedSize = track.sizeBytes,
-                input = socket.getInputStream().buffered(128 * 1024),
-            ) { total ->
-                val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastReport >= 250 || total == track.sizeBytes) {
-                    onProgress(
-                        TransferProgress(
-                            track.trackId,
-                            total,
-                            track.sizeBytes,
-                            source.peerId,
-                            localIdentity.peerId,
-                            MemberTrackState.RECEIVING
-                        )
-                    )
-                    lastReport = now
+            val challenge =
+                when (val response = HandshakeCodec.read(socket.getInputStream())) {
+                    is HandshakeMessage.Rejected -> error(response.reason)
+                    is HandshakeMessage.FileChallenge -> response
+                    else -> error("Unexpected file handshake challenge")
                 }
-            }
-            onProgress(
-                TransferProgress(
-                    track.trackId,
-                    track.sizeBytes,
-                    track.sizeBytes,
-                    source.peerId,
-                    localIdentity.peerId,
-                    MemberTrackState.VERIFYING
+            check(challenge.requestId == request.requestId) { "Mismatched transfer challenge" }
+            val proof =
+                Crypto.fileTransferProof(
+                    authorizationToken = authorizationToken,
+                    roomId = roomId,
+                    trackId = track.trackId.value,
+                    requestId = request.requestId,
+                    sourcePeerId = source.peerId.value,
+                    destinationPeerId = localIdentity.peerId.value,
+                    offset = offset,
+                    clientNonce = clientNonce,
+                    serverNonce = challenge.serverNonce,
                 )
+            HandshakeCodec.write(
+                socket.getOutputStream(),
+                HandshakeMessage.FileProof(request.requestId, proof),
             )
-            if (!fileStore.verifyPartial(track.trackId, track.sizeBytes)) {
-                fileStore.discardPartial(track.trackId)
-                error("SHA-256 verification failed")
-            }
-            trackRepository.registerManagedFile(track, retentionPolicyProvider())
-            onProgress(
-                TransferProgress(
-                    track.trackId,
-                    track.sizeBytes,
-                    track.sizeBytes,
-                    source.peerId,
-                    localIdentity.peerId,
-                    MemberTrackState.READY
+            val ready =
+                when (val response = HandshakeCodec.read(socket.getInputStream())) {
+                    is HandshakeMessage.Rejected -> {
+                        if (offset > 0 && response.reason.contains("offset", ignoreCase = true)) {
+                            partial.delete()
+                        }
+                        error(response.reason)
+                    }
+                    is HandshakeMessage.FileReady -> response
+                    else -> error("Unexpected file handshake completion")
+                }
+            check(ready.requestId == request.requestId) { "Mismatched transfer session" }
+            val baseNonce = Base64.getUrlDecoder().decode(ready.baseNonceBase64)
+            check(baseNonce.size == 12) { "Invalid transfer nonce" }
+            val sessionKey =
+                Crypto.deriveFileTransferSessionKey(
+                    authorizationToken,
+                    roomId,
+                    track.trackId.value,
+                    clientNonce,
+                    challenge.serverNonce,
                 )
-            )
-            onCompleted(track)
+            val associatedData =
+                Crypto.fileTransferAssociatedData(
+                    roomId,
+                    track.trackId.value,
+                    request.requestId,
+                    source.peerId.value,
+                    localIdentity.peerId.value,
+                    offset,
+                    clientNonce,
+                    challenge.serverNonce,
+                )
+            try {
+                val header =
+                    FileWireCodec.readEncryptedHeader(
+                        socket.getInputStream(),
+                        sessionKey,
+                        baseNonce,
+                        associatedData,
+                    )
+                check(header.requestId == request.requestId) { "Mismatched transfer response" }
+                if (header.status == FileResponseStatus.INVALID_OFFSET && offset > 0) {
+                    partial.delete()
+                    error("Resume offset rejected; retry the transfer from the beginning")
+                }
+                check(header.status == FileResponseStatus.OK) {
+                    header.message ?: "File source rejected request"
+                }
+                check(header.trackId == track.trackId && header.totalSize == track.sizeBytes) {
+                    "Track descriptor changed"
+                }
+                check(header.acceptedOffset == offset) { "Resume offset rejected" }
+
+                onProgress(
+                    TransferProgress(
+                        track.trackId,
+                        offset,
+                        track.sizeBytes,
+                        source.peerId,
+                        localIdentity.peerId,
+                        MemberTrackState.RECEIVING,
+                    )
+                )
+                var lastReport = android.os.SystemClock.elapsedRealtime()
+                val receiveResult =
+                    FileWireCodec.encryptedBodyInputStream(
+                            input = socket.getInputStream(),
+                            expectedBytes = track.sizeBytes - offset,
+                            key = sessionKey,
+                            baseNonce = baseNonce,
+                            associatedData = associatedData,
+                        )
+                        .use { authenticatedInput ->
+                            fileStore.receivePartialAndHash(
+                                trackId = track.trackId,
+                                offset = offset,
+                                expectedSize = track.sizeBytes,
+                                input = authenticatedInput,
+                            ) { total ->
+                                val now = android.os.SystemClock.elapsedRealtime()
+                                if (now - lastReport >= 250 || total == track.sizeBytes) {
+                                    onProgress(
+                                        TransferProgress(
+                                            track.trackId,
+                                            total,
+                                            track.sizeBytes,
+                                            source.peerId,
+                                            localIdentity.peerId,
+                                            MemberTrackState.RECEIVING,
+                                        )
+                                    )
+                                    lastReport = now
+                                }
+                            }
+                        }
+                onProgress(
+                    TransferProgress(
+                        track.trackId,
+                        track.sizeBytes,
+                        track.sizeBytes,
+                        source.peerId,
+                        localIdentity.peerId,
+                        MemberTrackState.VERIFYING,
+                    )
+                )
+                if (
+                    !fileStore.commitPartialWithDigest(
+                        track.trackId,
+                        track.sizeBytes,
+                        receiveResult.sha256Hex,
+                    )
+                ) {
+                    fileStore.discardPartial(track.trackId)
+                    error("SHA-256 verification failed")
+                }
+                trackRepository.registerManagedFile(track, retentionPolicyProvider())
+                onProgress(
+                    TransferProgress(
+                        track.trackId,
+                        track.sizeBytes,
+                        track.sizeBytes,
+                        source.peerId,
+                        localIdentity.peerId,
+                        MemberTrackState.READY,
+                    )
+                )
+                onCompleted(track)
+            } finally {
+                sessionKey.fill(0)
+                associatedData.fill(0)
+                baseNonce.fill(0)
+            }
         } finally {
             cancellationRegistry.detachSocket(track.trackId, socket)
             runCatching { socket.close() }
@@ -388,13 +584,40 @@ class TransferManager(
 
     fun cancel(trackId: TrackId) {
         cancellationRegistry.cancel(trackId)
+        notifyActiveTransferCount()
     }
 
     fun cancelAll() {
         activeUploadSockets.values.forEach { socket -> runCatching { socket.close() } }
-        activeUploadSockets.clear()
         authorizations.clear()
         cancellationRegistry.cancelAll()
+        notifyActiveTransferCount()
+    }
+
+    suspend fun cancelAllAndJoin(timeoutMs: Long): Boolean {
+        cancelAll()
+        val downloadsClosed = cancellationRegistry.cancelAllAndJoin(timeoutMs = timeoutMs)
+        val uploadsClosed =
+            withTimeoutOrNull(timeoutMs) {
+                while (activeUploadSockets.isNotEmpty()) delay(10)
+                true
+            } ?: false
+        return downloadsClosed && uploadsClosed
+    }
+
+    private fun constantTimeStringEquals(expected: String, actual: String): Boolean {
+        val expectedBytes = expected.encodeToByteArray()
+        val actualBytes = actual.encodeToByteArray()
+        return try {
+            Crypto.constantTimeEquals(expectedBytes, actualBytes)
+        } finally {
+            expectedBytes.fill(0)
+            actualBytes.fill(0)
+        }
+    }
+
+    private fun notifyActiveTransferCount() {
+        onActiveTransferCountChanged(activeTransferCount)
     }
 
     private fun java.io.InputStream.skipFully(byteCount: Long) {
@@ -414,6 +637,7 @@ class TransferManager(
 
     companion object {
         private const val TAG = "TransferManager"
+        private const val MAX_CONCURRENT_DOWNLOADS = 2
         private const val MAX_TRACK_SIZE_BYTES = 1_073_741_824L // 1 GiB
         private const val MAX_TRACKED_AUTHORIZATIONS = 512
         private const val MIN_FREE_SPACE_BYTES = 32L * 1024L * 1024L
