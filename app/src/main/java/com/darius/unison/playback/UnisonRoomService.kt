@@ -101,6 +101,7 @@ class UnisonRoomService : MediaSessionService() {
                 player = playerAdapter.exoPlayer,
                 commandBus = unisonContainer.roomCommandBus,
                 log = unisonContainer.diagnostics,
+                systemArtworkData = UnisonMediaArtwork.createPng(),
             )
         mediaSession =
             MediaSession.Builder(this, sessionPlayer)

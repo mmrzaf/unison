@@ -21,12 +21,10 @@ class RoomMediaSessionPlayer(
     player: Player,
     private val commandBus: RoomCommandBus,
     private val log: DiagnosticLog,
+    private val systemArtworkData: ByteArray,
 ) : ForwardingPlayer(player) {
 
-    /**
-     * Exposes text metadata only. Embedded pictures from local files are intentionally excluded
-     * from Android's media notification and lock-screen surfaces.
-     */
+    /** Exposes fixed Unison branding instead of embedded pictures from local music files. */
     override fun getMediaMetadata(): MediaMetadata {
         val source = super.getMediaMetadata()
         return MediaMetadata.Builder()
@@ -35,6 +33,7 @@ class RoomMediaSessionPlayer(
             .setAlbumTitle(source.albumTitle)
             .setDisplayTitle(source.displayTitle)
             .setSubtitle(source.subtitle)
+            .setArtworkData(systemArtworkData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
             .build()
     }
 
