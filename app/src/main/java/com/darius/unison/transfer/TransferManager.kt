@@ -11,7 +11,6 @@ import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransferProgress
 import com.darius.unison.network.NetworkAddressPolicy
 import com.darius.unison.protocol.AuthenticatedFileStreamCodec
-import com.darius.unison.protocol.ChannelType
 import com.darius.unison.protocol.Crypto
 import com.darius.unison.protocol.FileRequest
 import com.darius.unison.protocol.FileResponseHeader
@@ -19,6 +18,7 @@ import com.darius.unison.protocol.FileResponseStatus
 import com.darius.unison.protocol.FileWireCodec
 import com.darius.unison.protocol.HandshakeCodec
 import com.darius.unison.protocol.HandshakeMessage
+import com.darius.unison.protocol.HandshakeRejectionCode
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.storage.ManagedFileLeaseReason
 import com.darius.unison.storage.ManagedFileStore
@@ -65,7 +65,7 @@ class TransferManager(
                 log.w(TAG, "Evicted oldest transfer authorization at capacity")
             },
         )
-    private val outgoingSemaphore = Semaphore(1)
+    private val uploadGate = TransferUploadGate(MAX_CONCURRENT_UPLOADS)
     private val incomingSemaphore = Semaphore(MAX_CONCURRENT_DOWNLOADS)
     private val cancellationRegistry = TransferCancellationRegistry()
     private val activeUploadSockets = ConcurrentHashMap<String, Socket>()
@@ -92,10 +92,12 @@ class TransferManager(
         )
     }
 
-    suspend fun handleIncomingFileSocket(socket: Socket, hello: HandshakeMessage.ClientHello) {
-        outgoingSemaphore.withPermit {
-            val request = hello.fileRequest
-            val uploadOperationId = request?.requestId ?: UUID.randomUUID().toString()
+    suspend fun handleIncomingFileSocket(socket: Socket, hello: HandshakeMessage.FileClientHello) {
+        // Independent listeners can download concurrently, while duplicate requests from one
+        // destination are serialized and cannot occupy every global upload slot.
+        uploadGate.withPermit(hello.peerId) {
+            val request = hello.request
+            val uploadOperationId = request.requestId
             activeUploadSockets.put(uploadOperationId, socket)?.let { previous ->
                 runCatching { previous.close() }
             }
@@ -116,17 +118,13 @@ class TransferManager(
                     }
                 }
             try {
-                if (request == null) {
-                    HandshakeCodec.write(
-                        socket.getOutputStream(),
-                        HandshakeMessage.Rejected("Missing file request"),
-                    )
-                    return@withPermit
-                }
                 if (request.roomId != hello.roomId) {
                     HandshakeCodec.write(
                         socket.getOutputStream(),
-                        HandshakeMessage.Rejected("Room mismatch"),
+                        HandshakeMessage.Rejected(
+                            "Room mismatch",
+                            HandshakeRejectionCode.WRONG_ROOM,
+                        ),
                     )
                     return@withPermit
                 }
@@ -140,7 +138,10 @@ class TransferManager(
                 if (authorization == null) {
                     HandshakeCodec.write(
                         socket.getOutputStream(),
-                        HandshakeMessage.Rejected("Transfer not authorized"),
+                        HandshakeMessage.Rejected(
+                            "Transfer not authorized",
+                            HandshakeRejectionCode.AUTHENTICATION_FAILED,
+                        ),
                     )
                     return@withPermit
                 }
@@ -171,7 +172,10 @@ class TransferManager(
                 ) {
                     HandshakeCodec.write(
                         socket.getOutputStream(),
-                        HandshakeMessage.Rejected("Transfer proof rejected"),
+                        HandshakeMessage.Rejected(
+                            "Transfer proof rejected",
+                            HandshakeRejectionCode.AUTHENTICATION_FAILED,
+                        ),
                     )
                     return@withPermit
                 }
@@ -182,7 +186,10 @@ class TransferManager(
                 if (file == null) {
                     HandshakeCodec.write(
                         socket.getOutputStream(),
-                        HandshakeMessage.Rejected("File unavailable"),
+                        HandshakeMessage.Rejected(
+                            "File unavailable",
+                            HandshakeRejectionCode.INVALID_REQUEST,
+                        ),
                     )
                     return@withPermit
                 }
@@ -195,14 +202,20 @@ class TransferManager(
                     if (request.offset !in 0..file.length()) {
                         HandshakeCodec.write(
                             socket.getOutputStream(),
-                            HandshakeMessage.Rejected("Invalid transfer offset"),
+                            HandshakeMessage.Rejected(
+                                "Invalid transfer offset",
+                                HandshakeRejectionCode.INVALID_REQUEST,
+                            ),
                         )
                         return@withPermit
                     }
                     if (!authorizations.consume(request.authorizationId, authorization)) {
                         HandshakeCodec.write(
                             socket.getOutputStream(),
-                            HandshakeMessage.Rejected("Transfer authorization already used"),
+                            HandshakeMessage.Rejected(
+                                "Transfer authorization already used",
+                                HandshakeRejectionCode.AUTHENTICATION_FAILED,
+                            ),
                         )
                         return@withPermit
                     }
@@ -408,16 +421,15 @@ class TransferManager(
                 )
             HandshakeCodec.write(
                 socket.getOutputStream(),
-                HandshakeMessage.ClientHello(
-                    channel = ChannelType.FILE,
+                HandshakeMessage.FileClientHello(
                     peerId = localIdentity.peerId,
                     displayName = localIdentity.displayName,
                     appVersion = appVersion,
-                    protocolVersions = listOf(PROTOCOL_VERSION),
+                    protocolVersion = PROTOCOL_VERSION,
                     listeningPort = listeningPort(),
                     roomId = roomId,
                     clientNonce = clientNonce,
-                    fileRequest = request,
+                    request = request,
                 ),
             )
             val challenge =
@@ -638,6 +650,7 @@ class TransferManager(
     companion object {
         private const val TAG = "TransferManager"
         private const val MAX_CONCURRENT_DOWNLOADS = 2
+        private const val MAX_CONCURRENT_UPLOADS = 3
         private const val MAX_TRACK_SIZE_BYTES = 1_073_741_824L // 1 GiB
         private const val MAX_TRACKED_AUTHORIZATIONS = 512
         private const val MIN_FREE_SPACE_BYTES = 32L * 1024L * 1024L
