@@ -21,14 +21,8 @@ const val PROTOCOL_VERSION = 1
 const val MAX_CONTROL_PAYLOAD_BYTES = 4 * 1024 * 1024
 
 @Serializable
-enum class ChannelType {
-    CONTROL,
-    FILE,
-}
-
-@Serializable
 data class Envelope(
-    val protocolVersion: Int = PROTOCOL_VERSION,
+    val protocolVersion: Int,
     val roomId: String,
     val term: Long,
     val coordinatorPeerId: PeerId? = null,
@@ -213,7 +207,13 @@ sealed interface ProtocolBody {
 
     @Serializable
     @SerialName("playback_state_sync")
-    data class PlaybackStateSync(val playback: CanonicalPlaybackState) : ProtocolBody
+    data class PlaybackStateSync(
+        val playback: CanonicalPlaybackState,
+        val canonicalSequence: Long,
+        val queueRevision: Long,
+        /** Recovery frames use the ordered guaranteed control queue instead of conflation. */
+        val recovery: Boolean,
+    ) : ProtocolBody
 
     @Serializable
     @SerialName("playback_status_report")
@@ -221,7 +221,10 @@ sealed interface ProtocolBody {
         val queueItemId: QueueItemId?,
         val positionMs: Long,
         val isPlaying: Boolean,
-        val driftMs: Long? = null,
+        val driftMs: Long?,
+        val playbackRevision: Long,
+        val queueRevision: Long,
+        val canonicalSequence: Long,
     ) : ProtocolBody
 
     /** Ephemeral UI telemetry. It is deliberately not part of canonical room sequencing. */
@@ -232,7 +235,8 @@ sealed interface ProtocolBody {
         val queueItemId: QueueItemId?,
         val positionMs: Long,
         val isPlaying: Boolean,
-        val driftMs: Long? = null,
+        val driftMs: Long?,
+        val playbackRevision: Long,
     ) : ProtocolBody
 
     @Serializable
@@ -289,7 +293,6 @@ enum class ControlCredentialMode {
 
 @Serializable
 enum class HandshakeRejectionCode {
-    UNKNOWN,
     ROOM_INACTIVE,
     COORDINATOR_MOVED,
     WRONG_ROOM,
@@ -304,19 +307,52 @@ enum class HandshakeRejectionCode {
 @Serializable
 sealed interface HandshakeMessage {
     @Serializable
-    @SerialName("client_hello")
-    data class ClientHello(
-        val channel: ChannelType,
+    sealed interface ControlHello : HandshakeMessage {
+        val peerId: PeerId
+        val displayName: String
+        val appVersion: String
+        val protocolVersion: Int
+        val listeningPort: Int
+        val roomId: String
+        val clientNonce: String
+    }
+
+    @Serializable
+    @SerialName("pin_client_hello")
+    data class PinClientHello(
+        override val peerId: PeerId,
+        override val displayName: String,
+        override val appVersion: String,
+        override val protocolVersion: Int,
+        override val listeningPort: Int,
+        override val roomId: String,
+        override val clientNonce: String,
+        val pinPublicValueBase64: String,
+    ) : ControlHello
+
+    @Serializable
+    @SerialName("reconnect_client_hello")
+    data class ReconnectClientHello(
+        override val peerId: PeerId,
+        override val displayName: String,
+        override val appVersion: String,
+        override val protocolVersion: Int,
+        override val listeningPort: Int,
+        override val roomId: String,
+        override val clientNonce: String,
+    ) : ControlHello
+
+    @Serializable
+    @SerialName("file_client_hello")
+    data class FileClientHello(
         val peerId: PeerId,
         val displayName: String,
         val appVersion: String,
-        val protocolVersions: List<Int>,
+        val protocolVersion: Int,
         val listeningPort: Int,
         val roomId: String,
         val clientNonce: String,
-        val pinPublicValueBase64: String? = null,
-        val reconnectProof: String? = null,
-        val fileRequest: FileRequest? = null,
+        val request: FileRequest,
     ) : HandshakeMessage
 
     @Serializable
@@ -332,22 +368,26 @@ sealed interface HandshakeMessage {
     data class PinResponse(val proofBase64: String) : HandshakeMessage
 
     @Serializable
+    @SerialName("reconnect_challenge")
+    data class ReconnectChallenge(val serverNonce: String) : HandshakeMessage
+
+    @Serializable
+    @SerialName("reconnect_response")
+    data class ReconnectResponse(val proofBase64: String) : HandshakeMessage
+
+    @Serializable
     @SerialName("coordinator_hello")
     data class CoordinatorHello(
-        val acceptedVersion: Int,
+        val protocolVersion: Int,
         val term: Long,
         val coordinatorPeerId: PeerId,
         val serverNonce: String,
         val encryptedRoomSecretBase64: String,
         val roomSecretIvBase64: String,
-        val credentialMode: ControlCredentialMode = ControlCredentialMode.PIN,
-        val pinServerProofBase64: String? = null,
+        val credentialMode: ControlCredentialMode,
+        val pinServerProofBase64: String?,
         val snapshotSequence: Long,
     ) : HandshakeMessage
-
-    @Serializable
-    @SerialName("accepted")
-    data class Accepted(val serverNonce: String) : HandshakeMessage
 
     @Serializable
     @SerialName("file_challenge")
@@ -365,7 +405,7 @@ sealed interface HandshakeMessage {
     @SerialName("rejected")
     data class Rejected(
         val reason: String,
-        val code: HandshakeRejectionCode = HandshakeRejectionCode.UNKNOWN,
+        val code: HandshakeRejectionCode,
     ) : HandshakeMessage
 }
 
