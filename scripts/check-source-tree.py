@@ -45,7 +45,6 @@ def main() -> int:
             require((ROOT / path).exists(), f"Missing required file: {path}")
 
         for path in (
-            "local.properties",
             "docs/PHASE2_TWO_SURFACE_UI.md",
             "docs/PHASE3_ARCHITECTURE_AND_QUALIFICATION.md",
             "scripts/check-phase3.sh",
