@@ -101,6 +101,7 @@ object RoomReducer {
                     val addedIds = body.items.map { it.queueItemId }
                     snapshot.copy(
                         queue = updatedQueue,
+                        queueRevision = sequence,
                         unshuffledQueueItemIds =
                             if (snapshot.shuffleEnabled) {
                                 (snapshot.unshuffledQueueItemIds.ifEmpty {
@@ -109,7 +110,10 @@ object RoomReducer {
                             } else emptyList(),
                         playback =
                             if (snapshot.playback.queueItemId == null) {
-                                snapshot.playback.copy(queueItemId = body.items.first().queueItemId)
+                                snapshot.playback.copy(
+                                    queueItemId = body.items.first().queueItemId,
+                                    revision = sequence,
+                                )
                             } else {
                                 snapshot.playback
                             },
@@ -120,6 +124,7 @@ object RoomReducer {
                     val removed = body.queueItemIds.toHashSet()
                     snapshot.copy(
                         queue = snapshot.queue.filterNot { it.queueItemId in removed },
+                        queueRevision = sequence,
                         preparedQueueItemIds = snapshot.preparedQueueItemIds - removed,
                         unshuffledQueueItemIds =
                             snapshot.unshuffledQueueItemIds.filterNot { it in removed },
@@ -140,7 +145,7 @@ object RoomReducer {
                         val item = list.removeAt(old)
                         list.add(body.newIndex.coerceIn(0, list.size), item)
                     }
-                    snapshot.copy(queue = list)
+                    snapshot.copy(queue = list, queueRevision = sequence)
                 }
 
                 ProtocolBody.QueueCleared ->
@@ -150,7 +155,8 @@ object RoomReducer {
                         unshuffledQueueItemIds = emptyList(),
                         shuffleEnabled = false,
                         repeatMode = RepeatMode.OFF,
-                        playback = CanonicalPlaybackState(),
+                        playback = CanonicalPlaybackState(revision = sequence),
+                        queueRevision = sequence,
                     )
 
                 is ProtocolBody.QueuePreparedSetChanged ->
@@ -175,6 +181,7 @@ object RoomReducer {
                         shuffleEnabled = body.shuffleEnabled,
                         repeatMode = body.repeatMode,
                         unshuffledQueueItemIds = body.unshuffledQueueItemIds,
+                        queueRevision = sequence,
                     )
                 }
 
@@ -186,6 +193,7 @@ object RoomReducer {
                                 positionAtTimestampMs = body.positionMs.coerceAtLeast(0),
                                 coordinatorTimestampNs = body.executeAtCoordinatorNs,
                                 isPlaying = true,
+                                revision = sequence,
                             )
                     )
 
@@ -198,6 +206,7 @@ object RoomReducer {
                                 coordinatorTimestampNs = body.executeAtCoordinatorNs,
                                 isPlaying = false,
                                 playbackSpeed = 1f,
+                                revision = sequence,
                             )
                     )
 
@@ -209,6 +218,7 @@ object RoomReducer {
                                 positionAtTimestampMs = body.positionMs.coerceAtLeast(0),
                                 coordinatorTimestampNs = body.executeAtCoordinatorNs,
                                 isPlaying = body.resumePlayback,
+                                revision = sequence,
                             )
                     )
 
@@ -220,6 +230,7 @@ object RoomReducer {
                                 positionAtTimestampMs = body.positionMs.coerceAtLeast(0),
                                 coordinatorTimestampNs = body.executeAtCoordinatorNs,
                                 isPlaying = body.resumePlayback,
+                                revision = sequence,
                             )
                     )
 

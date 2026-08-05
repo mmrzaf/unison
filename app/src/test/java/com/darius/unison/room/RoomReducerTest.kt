@@ -44,6 +44,8 @@ class RoomReducerTest {
         val mutation = (result as RoomReducer.Decision.Accepted).mutations.single()
         assertEquals(1, mutation.sequence)
         assertEquals(track.trackId, mutation.snapshot.queue.single().track.trackId)
+        assertEquals(mutation.sequence, mutation.snapshot.queueRevision)
+        assertEquals(mutation.sequence, mutation.snapshot.playback.revision)
         assertTrue(mutation.body is ProtocolBody.QueueItemsAdded)
         assertEquals(1, (mutation.body as ProtocolBody.QueueItemsAdded).items.size)
     }
@@ -60,6 +62,10 @@ class RoomReducerTest {
         assertEquals(item.queueItemId, body.queueItemId)
         assertTrue(body.executeAtCoordinatorNs > now)
         assertTrue(result.mutations.single().snapshot.playback.isPlaying)
+        assertEquals(
+            result.mutations.single().sequence,
+            result.mutations.single().snapshot.playback.revision,
+        )
     }
 
     @Test
@@ -685,5 +691,31 @@ class RoomReducerTest {
                 0,
             )
         assertTrue(result is RoomReducer.Decision.Rejected)
+    }
+
+    @Test
+    fun clearQueueAdvancesBothQueueAndPlaybackRevisions() {
+        val item = QueueItem.create(track, peer)
+        val room =
+            snapshot(listOf(item))
+                .copy(
+                    sequence = 8,
+                    queueRevision = 6,
+                    playback =
+                        CanonicalPlaybackState(
+                            queueItemId = item.queueItemId,
+                            isPlaying = true,
+                            revision = 7,
+                        ),
+                )
+        val result =
+            RoomReducer.decide(room, UserCommand.QueueClear(requestedBy = peer), 0)
+                as RoomReducer.Decision.Accepted
+        val mutation = result.mutations.single()
+
+        assertEquals(9L, mutation.snapshot.queueRevision)
+        assertEquals(9L, mutation.snapshot.playback.revision)
+        assertTrue(mutation.snapshot.queue.isEmpty())
+        assertFalse(mutation.snapshot.playback.isPlaying)
     }
 }
