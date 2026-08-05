@@ -23,15 +23,41 @@ object AuthenticatedFileStreamCodec {
         sequence: Int,
         plaintext: ByteArray,
     ) {
+        val data = output as? DataOutputStream ?: DataOutputStream(output)
+        writeRecord(
+            output = data,
+            key = key,
+            baseNonce = baseNonce,
+            associatedData = associatedData,
+            sequence = sequence,
+            plaintext = plaintext,
+            plaintextLength = plaintext.size,
+        )
+        data.flush()
+    }
+
+    private fun writeRecord(
+        output: DataOutputStream,
+        key: ByteArray,
+        baseNonce: ByteArray,
+        associatedData: ByteArray,
+        sequence: Int,
+        plaintext: ByteArray,
+        plaintextLength: Int,
+    ) {
         require(sequence >= 0) { "Invalid file record sequence" }
-        require(plaintext.size in 1..MAX_CHUNK_BYTES) { "Invalid file record size" }
+        require(plaintextLength in 1..minOf(MAX_CHUNK_BYTES, plaintext.size)) {
+            "Invalid file record size"
+        }
         val nonce = nonceFor(baseNonce, sequence)
-        val recordData = recordAssociatedData(associatedData, sequence, plaintext.size)
+        val recordData = recordAssociatedData(associatedData, sequence, plaintextLength)
         val ciphertext =
             try {
                 Crypto.encryptAesGcm(
                     key = key,
                     plaintext = plaintext,
+                    plaintextOffset = 0,
+                    plaintextLength = plaintextLength,
                     iv = nonce,
                     associatedData = recordData,
                 )
@@ -40,12 +66,9 @@ object AuthenticatedFileStreamCodec {
                 recordData.fill(0)
             }
         try {
-            DataOutputStream(output).apply {
-                writeInt(sequence)
-                writeInt(plaintext.size)
-                write(ciphertext)
-                flush()
-            }
+            output.writeInt(sequence)
+            output.writeInt(plaintextLength)
+            output.write(ciphertext)
         } finally {
             ciphertext.fill(0)
         }
@@ -100,6 +123,7 @@ object AuthenticatedFileStreamCodec {
         var sequence = 1
         var total = 0L
         val buffer = ByteArray(MAX_CHUNK_BYTES)
+        val data = output as? DataOutputStream ?: DataOutputStream(output)
         try {
             while (remaining > 0L) {
                 val wanted = minOf(buffer.size.toLong(), remaining).toInt()
@@ -110,17 +134,21 @@ object AuthenticatedFileStreamCodec {
                     if (read == 0) continue
                     filled += read
                 }
-                val chunk = buffer.copyOf(filled)
-                try {
-                    writeRecord(output, key, baseNonce, associatedData, sequence, chunk)
-                } finally {
-                    chunk.fill(0)
-                }
+                writeRecord(
+                    output = data,
+                    key = key,
+                    baseNonce = baseNonce,
+                    associatedData = associatedData,
+                    sequence = sequence,
+                    plaintext = buffer,
+                    plaintextLength = filled,
+                )
                 sequence++
                 remaining -= filled
                 total += filled
                 onBytesWritten(total)
             }
+            data.flush()
         } finally {
             buffer.fill(0)
         }

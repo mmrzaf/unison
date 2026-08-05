@@ -2,6 +2,7 @@ package com.darius.unison.protocol
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,6 +37,23 @@ class AuthenticatedFileStreamCodecTest {
                 .readBytes()
 
         assertTrue(bytes.contentEquals(decoded))
+    }
+
+    @Test
+    fun bodyFlushesOnlyAfterTheCompleteEncryptedStream() {
+        val bytes = ByteArray(AuthenticatedFileStreamCodec.MAX_CHUNK_BYTES * 3 + 1) { 7 }
+        val output = FlushCountingOutputStream()
+
+        AuthenticatedFileStreamCodec.writeBody(
+            ByteArrayInputStream(bytes),
+            output,
+            bytes.size.toLong(),
+            Crypto.randomBytes(32),
+            Crypto.randomBytes(12),
+            "stream".encodeToByteArray(),
+        )
+
+        assertEquals(1, output.flushCount)
     }
 
     @Test
@@ -183,6 +201,16 @@ class AuthenticatedFileStreamCodecTest {
                 byteArrayOf(1),
                 expectedSequence = 1,
             )
+        }
+    }
+
+    private class FlushCountingOutputStream : ByteArrayOutputStream() {
+        var flushCount: Int = 0
+            private set
+
+        override fun flush() {
+            flushCount++
+            super.flush()
         }
     }
 
