@@ -7,8 +7,8 @@ compileSdk = "36"
 minSdk = "30"
 targetSdk = "33"
 composeBom = "2026.06.00"
-# Runtime support is Android 11–13 (API 30–33). compileSdk 36 is build-tool compatibility
-# for the pinned 2026 libraries; targetSdk remains 33 and no API 34+ runtime path is used.
+# Runtime support is Android 11–13 (API 30–33). compileSdk 36 is required by the
+# pinned AndroidX toolchain; targetSdk remains 33 and no API 34+ runtime path is used.
 coreKtx = "1.18.0"
 activityCompose = "1.13.0"
 lifecycle = "2.10.0"

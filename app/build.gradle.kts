@@ -91,11 +91,10 @@ android {
         abortOnError = true
         checkReleaseBuilds = true
         warningsAsErrors = true
-        // These upgrades require the deliberate API 37 / AGP 9 toolchain move documented in the
-        // version catalog. Keep actionable source, API, accessibility, and deprecation checks on.
-        disable += "GradleDependency"
-        // Unison 1.0 intentionally supports and targets Android 11–13. Raising targetSdk changes
-        // runtime behavior and permission contracts outside this release's tested product scope.
+        // Dependency and toolchain upgrades are explicit release work, not lint findings. Keep all
+        // source, API-use, accessibility, lifecycle, and correctness checks enabled.
+        disable += setOf("AndroidGradlePluginVersion", "GradleDependency")
+        // Runtime behavior is qualified only on Android 11–13 for 1.0.0.
         disable += "OldTargetApi"
     }
 }
