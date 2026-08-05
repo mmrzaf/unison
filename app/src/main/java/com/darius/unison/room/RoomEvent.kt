@@ -19,6 +19,8 @@ import kotlinx.coroutines.CompletableDeferred
 internal sealed interface RoomEvent {
     data class AppCommandReceived(
         val command: AppCommand,
+        /** Issued at ordered command ingress so later destructive commands can invalidate it. */
+        val queuePreparationTicket: QueuePreparationFence.Ticket? = null,
         val completion: CompletableDeferred<Unit>,
     ) : RoomEvent
 
@@ -100,6 +102,7 @@ internal sealed interface RoomEvent {
 
     data class TracksPrepared(
         val generation: Long,
+        val fenceTicket: QueuePreparationFence.Ticket,
         val requestedCount: Int,
         val selectedCount: Int,
         val available: List<TrackDescriptor>,

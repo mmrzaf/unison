@@ -130,6 +130,10 @@ data class CanonicalPlaybackState(
     val coordinatorTimestampNs: Long = 0,
     val isPlaying: Boolean = false,
     val playbackSpeed: Float = 1f,
+    /**
+     * Monotonic identity of the canonical playback intent. Zero represents the initial idle state.
+     */
+    val revision: Long = 0,
 ) {
     fun projectedPositionMs(atCoordinatorNs: Long): Long {
         if (!isPlaying || coordinatorTimestampNs <= 0) return positionAtTimestampMs.coerceAtLeast(0)
@@ -211,6 +215,8 @@ data class RoomSnapshot(
     val shuffleEnabled: Boolean = false,
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val unshuffledQueueItemIds: List<QueueItemId> = emptyList(),
+    /** Sequence of the most recent mutation that changed queue membership or ordering. */
+    val queueRevision: Long = 0,
 )
 
 @Serializable

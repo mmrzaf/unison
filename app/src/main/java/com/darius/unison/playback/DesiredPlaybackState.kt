@@ -11,6 +11,8 @@ import com.darius.unison.model.RoomSnapshot
  */
 data class DesiredPlaybackState(
     val canonicalSequence: Long,
+    val queueRevision: Long,
+    val playbackRevision: Long,
     val contentRevision: Long,
     val queueItemIds: List<QueueItemId>,
     val preparedQueueItemIds: Set<QueueItemId>,
@@ -28,6 +30,8 @@ data class DesiredPlaybackState(
             val preparedIds = snapshot.preparedQueueItemIds.toSet()
             return DesiredPlaybackState(
                 canonicalSequence = snapshot.sequence,
+                queueRevision = snapshot.queueRevision,
+                playbackRevision = snapshot.playback.revision,
                 contentRevision = stableRevision(snapshot, queueIds, preparedIds),
                 queueItemIds = queueIds,
                 preparedQueueItemIds = preparedIds,
@@ -52,6 +56,8 @@ data class DesiredPlaybackState(
             }
             fun mix(value: String) = value.forEach { mix(it.code.toLong()) }
 
+            mix(snapshot.queueRevision)
+            mix(snapshot.playback.revision)
             queueIds.forEach { mix(it.value) }
             preparedIds.map { it.value }.sorted().forEach(::mix)
             mix(snapshot.playback.queueItemId?.value ?: "none")
