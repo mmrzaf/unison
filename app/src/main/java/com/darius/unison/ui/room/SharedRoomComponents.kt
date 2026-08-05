@@ -53,7 +53,12 @@ internal fun ParticipantStatus(
             modifier = Modifier.size(10.dp),
             tint = memberStatusColor(connected, trackState),
         )
-        Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            name,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -61,7 +66,8 @@ internal fun ParticipantStatus(
 private fun memberStatusColor(connected: Boolean, trackState: MemberTrackState): Color =
     when {
         !connected -> MaterialTheme.colorScheme.outline
-        trackState == MemberTrackState.FAILED || trackState == MemberTrackState.CANCELLED -> MaterialTheme.colorScheme.error
+        trackState == MemberTrackState.FAILED || trackState == MemberTrackState.CANCELLED ->
+            MaterialTheme.colorScheme.error
         trackState == MemberTrackState.RECEIVING ||
             trackState == MemberTrackState.VERIFYING ||
             trackState == MemberTrackState.PREPARING_PLAYER ||
@@ -72,9 +78,12 @@ private fun memberStatusColor(connected: Boolean, trackState: MemberTrackState):
 internal fun memberStatusLabel(connected: Boolean, trackState: MemberTrackState): String =
     when {
         !connected -> "Offline"
-        trackState == MemberTrackState.RECEIVING || trackState == MemberTrackState.VERIFYING -> "Receiving music"
-        trackState == MemberTrackState.PREPARING_PLAYER || trackState == MemberTrackState.CHECKING -> "Getting ready"
-        trackState == MemberTrackState.FAILED || trackState == MemberTrackState.CANCELLED -> "Needs attention"
+        trackState == MemberTrackState.RECEIVING || trackState == MemberTrackState.VERIFYING ->
+            "Receiving music"
+        trackState == MemberTrackState.PREPARING_PLAYER ||
+            trackState == MemberTrackState.CHECKING -> "Getting ready"
+        trackState == MemberTrackState.FAILED || trackState == MemberTrackState.CANCELLED ->
+            "Needs attention"
         else -> "Ready"
     }
 
@@ -103,7 +112,8 @@ internal fun SharedCompactPlayer(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    track?.artist?.takeIf(String::isNotBlank) ?: if (isPlaying) "Playing" else "Paused",
+                    track?.artist?.takeIf(String::isNotBlank)
+                        ?: if (isPlaying) "Playing" else "Paused",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -121,8 +131,7 @@ internal fun SharedCompactPlayer(
             TransportPlayPauseButton(
                 isPlaying = isPlaying,
                 pending =
-                    pendingAction == TransportAction.PLAY ||
-                        pendingAction == TransportAction.PAUSE,
+                    pendingAction == TransportAction.PLAY || pendingAction == TransportAction.PAUSE,
                 onClick = onPlayPause,
                 enabled = playPauseEnabled,
                 compact = true,
@@ -164,16 +173,28 @@ internal fun RoomQueueToolbar(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Default.Search, null, Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(
+                    Icons.Default.Search,
+                    null,
+                    Modifier.size(19.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 BasicTextField(
                     value = query,
                     onValueChange = { onQueryChange(it.take(80)) },
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+                    textStyle =
+                        MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
-                            if (query.isEmpty()) Text("Search queue", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (query.isEmpty())
+                                Text(
+                                    "Search queue",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             inner()
                         }
                     },
@@ -189,7 +210,9 @@ internal fun RoomQueueToolbar(
             Icon(
                 Icons.Default.Shuffle,
                 if (shuffleEnabled) "Turn shuffle off" else "Shuffle queue",
-                tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint =
+                    if (shuffleEnabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         IconButton(onClick = onRepeat, enabled = queueEnabled) {
@@ -200,7 +223,9 @@ internal fun RoomQueueToolbar(
                     RepeatMode.ALL -> "Repeat queue"
                     RepeatMode.ONE -> "Repeat one"
                 },
-                tint = if (repeatMode == RepeatMode.OFF) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+                tint =
+                    if (repeatMode == RepeatMode.OFF) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.primary,
             )
         }
         IconButton(onClick = onClear, enabled = queueEnabled) {

@@ -3,7 +3,9 @@ package com.darius.unison.ui
 import com.darius.unison.library.PlaylistDetail
 import com.darius.unison.model.TrackId
 
-/** Builds one deterministic queue mutation from All Music, playlists, and direct song selections. */
+/**
+ * Builds one deterministic queue mutation from All Music, playlists, and direct song selections.
+ */
 internal object QueueAddSelectionPolicy {
     fun merge(
         allMusicTracks: Collection<TrackId>,

@@ -68,7 +68,8 @@ internal fun RoomCodeDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clipboard =
+                        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("Unison room code", roomCode))
                     copied = true
                 }

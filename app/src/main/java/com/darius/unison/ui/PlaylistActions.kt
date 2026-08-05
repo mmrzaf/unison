@@ -165,8 +165,7 @@ internal class PlaylistActions(
                             playlistIds.distinct().mapNotNull { playlistId ->
                                 container.playlistRepository.get(playlistId)
                             }
-                        QueueAddSelectionPolicy
-                            .merge(allMusicTracks, details, trackIds)
+                        QueueAddSelectionPolicy.merge(allMusicTracks, details, trackIds)
                             .take(availableSlots)
                     }
                 }

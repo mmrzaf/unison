@@ -24,7 +24,10 @@ class QueueAddSelectionPolicyTest {
                 directTracks = listOf(three.trackId, TrackId("four")),
             )
 
-        assertEquals(listOf(TrackId("one"), TrackId("two"), TrackId("three"), TrackId("four")), result)
+        assertEquals(
+            listOf(TrackId("one"), TrackId("two"), TrackId("three"), TrackId("four")),
+            result,
+        )
     }
 
     @Test

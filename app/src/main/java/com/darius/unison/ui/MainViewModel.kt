@@ -292,8 +292,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             withBusyOperation {
-                userResult { removable.forEach { container.trackRepository.deleteTemporary(it) } }
-            }
+                    userResult {
+                        removable.forEach { container.trackRepository.deleteTemporary(it) }
+                    }
+                }
                 .onSuccess {
                     message.value =
                         when (removable.size) {

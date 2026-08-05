@@ -53,7 +53,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
-import androidx.paging.compose.itemKey
 import com.darius.unison.library.PlaylistDetail
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -86,7 +85,6 @@ internal fun PlaylistDetailScreen(
     var selectingPlaylist by rememberSaveable(detail.playlistId) { mutableStateOf(false) }
     var selectedIndices by remember(detail.playlistId) { mutableStateOf(setOf<Int>()) }
     var confirmDelete by remember { mutableStateOf(false) }
-
 
     LaunchedEffect(pickerSnapshot, pickerRefreshState) {
         if (pickerRefreshState !is LoadState.Loading) stablePickerTracks = pickerSnapshot
@@ -353,7 +351,9 @@ internal fun PlaylistDetailScreen(
                             Text("Select all")
                         }
                     }
-                    if (pickerRefreshState is LoadState.Loading && stablePickerTracks.isNotEmpty()) {
+                    if (
+                        pickerRefreshState is LoadState.Loading && stablePickerTracks.isNotEmpty()
+                    ) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                     LazyColumn(Modifier.heightIn(max = 300.dp)) {

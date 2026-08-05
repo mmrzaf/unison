@@ -2,10 +2,9 @@ package com.darius.unison.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.progressSemantics
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +19,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.progressSemantics
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
@@ -45,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -116,14 +116,12 @@ internal fun RoomSeekSlider(
     val updateFromX: (Float, Float) -> Unit = { x, width ->
         if (width > 0f) {
             dragPreview =
-                ((x / width).coerceIn(0f, 1f) * durationMs)
-                    .coerceIn(0f, durationMs.toFloat())
+                ((x / width).coerceIn(0f, 1f) * durationMs).coerceIn(0f, durationMs.toFloat())
         }
     }
     val gestures =
         if (enabled) {
-            Modifier
-                .pointerInput(durationMs) {
+            Modifier.pointerInput(durationMs) {
                     detectTapGestures { offset ->
                         updateFromX(offset.x, size.width.toFloat())
                         val requested = dragPreview.toLong()
@@ -181,8 +179,14 @@ internal fun RoomSeekSlider(
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatDuration(displayedPosition.toLong()), style = MaterialTheme.typography.labelSmall)
-            Text(if (enabled) formatDuration(durationMs) else "—:—", style = MaterialTheme.typography.labelSmall)
+            Text(
+                formatDuration(displayedPosition.toLong()),
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Text(
+                if (enabled) formatDuration(durationMs) else "—:—",
+                style = MaterialTheme.typography.labelSmall,
+            )
         }
     }
 }
@@ -371,8 +375,10 @@ internal fun QueueRow(
     val displacedOffsetPx =
         when {
             draggedIndex == null || dragTargetIndex == null || draggedIndex == index -> 0f
-            draggedIndex < dragTargetIndex && index in (draggedIndex + 1)..dragTargetIndex -> -estimatedRowHeightPx
-            draggedIndex > dragTargetIndex && index in dragTargetIndex until draggedIndex -> estimatedRowHeightPx
+            draggedIndex < dragTargetIndex && index in (draggedIndex + 1)..dragTargetIndex ->
+                -estimatedRowHeightPx
+            draggedIndex > dragTargetIndex && index in dragTargetIndex until draggedIndex ->
+                estimatedRowHeightPx
             else -> 0f
         }
     Row(
@@ -385,11 +391,39 @@ internal fun QueueRow(
             }
             .semantics {
                 customActions = buildList {
-                    if (canReorder && index > 0) add(CustomAccessibilityAction("Move up") { onMove(index - 1); true })
-                    if (canReorder && index < lastIndex) add(CustomAccessibilityAction("Move down") { onMove(index + 1); true })
-                    add(CustomAccessibilityAction("Play next") { onMoveNext(); true })
-                    if (temporary) add(CustomAccessibilityAction("Keep on this phone") { onKeep(); true })
-                    add(CustomAccessibilityAction("Remove from queue") { onRemove(); true })
+                    if (canReorder && index > 0)
+                        add(
+                            CustomAccessibilityAction("Move up") {
+                                onMove(index - 1)
+                                true
+                            }
+                        )
+                    if (canReorder && index < lastIndex)
+                        add(
+                            CustomAccessibilityAction("Move down") {
+                                onMove(index + 1)
+                                true
+                            }
+                        )
+                    add(
+                        CustomAccessibilityAction("Play next") {
+                            onMoveNext()
+                            true
+                        }
+                    )
+                    if (temporary)
+                        add(
+                            CustomAccessibilityAction("Keep on this phone") {
+                                onKeep()
+                                true
+                            }
+                        )
+                    add(
+                        CustomAccessibilityAction("Remove from queue") {
+                            onRemove()
+                            true
+                        }
+                    )
                 }
             }
             .clickable(enabled = draggedIndex == null && playEnabled, onClick = onPlay)
@@ -399,9 +433,26 @@ internal fun QueueRow(
         Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
             when {
                 pending -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                playing -> Icon(Icons.Default.Pause, "Playing", Modifier.size(19.dp), tint = MaterialTheme.colorScheme.primary)
-                current -> Icon(Icons.Default.PlayArrow, "Paused", Modifier.size(19.dp), tint = MaterialTheme.colorScheme.primary)
-                else -> Text("${index + 1}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                playing ->
+                    Icon(
+                        Icons.Default.Pause,
+                        "Playing",
+                        Modifier.size(19.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                current ->
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        "Paused",
+                        Modifier.size(19.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                else ->
+                    Text(
+                        "${index + 1}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
             }
         }
         Column(Modifier.weight(1f).padding(horizontal = 6.dp)) {
@@ -412,10 +463,12 @@ internal fun QueueRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val detail = listOfNotNull(
-                track.artist?.takeIf(String::isNotBlank),
-                "Temporary".takeIf { temporary },
-            ).joinToString(" • ")
+            val detail =
+                listOfNotNull(
+                        track.artist?.takeIf(String::isNotBlank),
+                        "Temporary".takeIf { temporary },
+                    )
+                    .joinToString(" • ")
             if (detail.isNotEmpty()) {
                 Text(
                     detail,
@@ -435,17 +488,18 @@ internal fun QueueRow(
             Icon(
                 Icons.Default.DragHandle,
                 "Hold and drag to reorder",
-                modifier = Modifier.size(40.dp).padding(10.dp).pointerInput(index, lastIndex) {
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = { onDragStart() },
-                        onDragCancel = onDragCancel,
-                        onDragEnd = onDragEnd,
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            onDragDelta(dragAmount.y)
-                        },
-                    )
-                },
+                modifier =
+                    Modifier.size(40.dp).padding(10.dp).pointerInput(index, lastIndex) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { onDragStart() },
+                            onDragCancel = onDragCancel,
+                            onDragEnd = onDragEnd,
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                onDragDelta(dragAmount.y)
+                            },
+                        )
+                    },
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -454,17 +508,48 @@ internal fun QueueRow(
                 Icon(Icons.Default.MoreVert, "Queue actions", Modifier.size(20.dp))
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text("Play next") }, onClick = { menu = false; onMoveNext() })
+                DropdownMenuItem(
+                    text = { Text("Play next") },
+                    onClick = {
+                        menu = false
+                        onMoveNext()
+                    },
+                )
                 if (temporary) {
-                    DropdownMenuItem(text = { Text("Keep on this phone") }, onClick = { menu = false; onKeep() })
+                    DropdownMenuItem(
+                        text = { Text("Keep on this phone") },
+                        onClick = {
+                            menu = false
+                            onKeep()
+                        },
+                    )
                 }
                 if (canReorder) {
-                    DropdownMenuItem(text = { Text("Move up") }, enabled = index > 0, onClick = { menu = false; onMove(index - 1) })
-                    DropdownMenuItem(text = { Text("Move down") }, enabled = index < lastIndex, onClick = { menu = false; onMove(index + 1) })
+                    DropdownMenuItem(
+                        text = { Text("Move up") },
+                        enabled = index > 0,
+                        onClick = {
+                            menu = false
+                            onMove(index - 1)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Move down") },
+                        enabled = index < lastIndex,
+                        onClick = {
+                            menu = false
+                            onMove(index + 1)
+                        },
+                    )
                 }
-                DropdownMenuItem(text = { Text("Remove from queue") }, onClick = { menu = false; onRemove() })
+                DropdownMenuItem(
+                    text = { Text("Remove from queue") },
+                    onClick = {
+                        menu = false
+                        onRemove()
+                    },
+                )
             }
         }
     }
 }
-

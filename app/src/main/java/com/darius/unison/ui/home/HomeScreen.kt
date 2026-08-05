@@ -22,7 +22,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
@@ -127,7 +126,8 @@ internal fun HomeScreen(
         stickyHeader(key = "app-bar") {
             Card(Modifier.fillMaxWidth()) {
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                    Modifier.fillMaxWidth()
+                        .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -140,7 +140,10 @@ internal fun HomeScreen(
                         IconButton(onClick = { settingsOpen = true }) {
                             Icon(Icons.Default.Settings, "Settings")
                         }
-                        DropdownMenu(expanded = settingsOpen, onDismissRequest = { settingsOpen = false }) {
+                        DropdownMenu(
+                            expanded = settingsOpen,
+                            onDismissRequest = { settingsOpen = false },
+                        ) {
                             DropdownMenuItem(
                                 text = { Text("Change your name") },
                                 leadingIcon = { Icon(Icons.Default.Person, null) },
@@ -194,7 +197,11 @@ internal fun HomeScreen(
 
         item(key = "nearby-title") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Nearby", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Nearby",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Spacer(Modifier.weight(1f))
                 if (state.room.lifecycle == RoomLifecycleState.DISCOVERING) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -233,15 +240,24 @@ internal fun HomeScreen(
             items(state.room.discoveredRooms, key = { "room:${it.roomId}" }) { room ->
                 ListItem(
                     headlineContent = {
-                        Text(room.roomName, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            room.roomName,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     },
                     supportingContent = { Text("Nearby") },
                     leadingContent = { Icon(Icons.Default.Groups, null) },
                     trailingContent = {
-                        FilledTonalButton(onClick = {
-                            joiningRoom = room
-                            joinPin = ""
-                        }) { Text("Join") }
+                        FilledTonalButton(
+                            onClick = {
+                                joiningRoom = room
+                                joinPin = ""
+                            }
+                        ) {
+                            Text("Join")
+                        }
                     },
                 )
             }
@@ -254,7 +270,11 @@ internal fun HomeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Default.WifiTethering, null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            Icons.Default.WifiTethering,
+                            null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Local connection active", fontWeight = FontWeight.SemiBold)
@@ -267,24 +287,39 @@ internal fun HomeScreen(
         }
 
         item(key = "music-divider") {
-            Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                Modifier.padding(top = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 HorizontalDivider()
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Your music", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                        Text("Playlists and saved music", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Your music",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Playlists and saved music",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    IconButton(onClick = {
-                        playlistName = ""
-                        createPlaylistOpen = true
-                    }) {
+                    IconButton(
+                        onClick = {
+                            playlistName = ""
+                            createPlaylistOpen = true
+                        }
+                    ) {
                         Icon(Icons.Default.Add, "New playlist")
                     }
                     Box {
                         IconButton(onClick = { musicMenuOpen = true }) {
                             Icon(Icons.Default.MoreVert, "Music actions")
                         }
-                        DropdownMenu(expanded = musicMenuOpen, onDismissRequest = { musicMenuOpen = false }) {
+                        DropdownMenu(
+                            expanded = musicMenuOpen,
+                            onDismissRequest = { musicMenuOpen = false },
+                        ) {
                             DropdownMenuItem(
                                 text = { Text("Add audio files") },
                                 leadingIcon = { Icon(Icons.Default.AudioFile, null) },
@@ -378,10 +413,14 @@ internal fun HomeScreen(
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    createRoomOpen = false
-                    onCreateRoom(roomName.trim().takeIf(String::isNotEmpty))
-                }) { Text("Create") }
+                Button(
+                    onClick = {
+                        createRoomOpen = false
+                        onCreateRoom(roomName.trim().takeIf(String::isNotEmpty))
+                    }
+                ) {
+                    Text("Create")
+                }
             },
             dismissButton = { TextButton(onClick = { createRoomOpen = false }) { Text("Cancel") } },
         )
@@ -407,7 +446,9 @@ internal fun HomeScreen(
                         onJoinRoom(room, joinPin)
                     },
                     enabled = joinPin.length == 4,
-                ) { Text("Join") }
+                ) {
+                    Text("Join")
+                }
             },
             dismissButton = { TextButton(onClick = { joiningRoom = null }) { Text("Cancel") } },
         )
@@ -432,9 +473,13 @@ internal fun HomeScreen(
                         createPlaylistOpen = false
                     },
                     enabled = playlistName.isNotBlank(),
-                ) { Text("Create") }
+                ) {
+                    Text("Create")
+                }
             },
-            dismissButton = { TextButton(onClick = { createPlaylistOpen = false }) { Text("Cancel") } },
+            dismissButton = {
+                TextButton(onClick = { createPlaylistOpen = false }) { Text("Cancel") }
+            },
         )
     }
 
@@ -449,14 +494,22 @@ internal fun HomeScreen(
                 )
             },
             confirmButton = {
-                Button(onClick = {
-                    connectionHelpOpen = false
-                    if (state.room.hotspot == null) onCreateOfflineNetwork() else onStopOfflineNetwork()
-                }) {
-                    Text(if (state.room.hotspot == null) "Create local connection" else "Stop local connection")
+                Button(
+                    onClick = {
+                        connectionHelpOpen = false
+                        if (state.room.hotspot == null) onCreateOfflineNetwork()
+                        else onStopOfflineNetwork()
+                    }
+                ) {
+                    Text(
+                        if (state.room.hotspot == null) "Create local connection"
+                        else "Stop local connection"
+                    )
                 }
             },
-            dismissButton = { TextButton(onClick = { connectionHelpOpen = false }) { Text("Done") } },
+            dismissButton = {
+                TextButton(onClick = { connectionHelpOpen = false }) { Text("Done") }
+            },
         )
     }
 
@@ -480,7 +533,9 @@ internal fun HomeScreen(
                         confirmClearTemporary = true
                     },
                     enabled = state.storageSummary.temporaryBytes > 0,
-                ) { Text("Clear temporary") }
+                ) {
+                    Text("Clear temporary")
+                }
             },
         )
     }
@@ -491,12 +546,18 @@ internal fun HomeScreen(
             title = { Text("Clear temporary music?") },
             text = { Text("Songs used by an active room are kept available.") },
             confirmButton = {
-                Button(onClick = {
-                    confirmClearTemporary = false
-                    onClearTemporaryMusic()
-                }) { Text("Clear") }
+                Button(
+                    onClick = {
+                        confirmClearTemporary = false
+                        onClearTemporaryMusic()
+                    }
+                ) {
+                    Text("Clear")
+                }
             },
-            dismissButton = { TextButton(onClick = { confirmClearTemporary = false }) { Text("Cancel") } },
+            dismissButton = {
+                TextButton(onClick = { confirmClearTemporary = false }) { Text("Cancel") }
+            },
         )
     }
 }

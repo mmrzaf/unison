@@ -128,15 +128,12 @@ internal fun RoomAddMusicSheet(
     fun toggleSavedPlaylist(playlistId: String, selected: Boolean) {
         if (selected) allMusicSelected = false
         selectedPlaylistIds =
-            if (selected) selectedPlaylistIds + playlistId
-            else selectedPlaylistIds - playlistId
+            if (selected) selectedPlaylistIds + playlistId else selectedPlaylistIds - playlistId
     }
 
     fun toggleTrack(trackId: TrackId, selected: Boolean) {
         if (selected) allMusicSelected = false
-        selectedTracks =
-            if (selected) selectedTracks + trackId
-            else selectedTracks - trackId
+        selectedTracks = if (selected) selectedTracks + trackId else selectedTracks - trackId
     }
 
     ModalBottomSheet(
@@ -156,7 +153,11 @@ internal fun RoomAddMusicSheet(
                     )
                     if (hasSelection) {
                         Text(
-                            buildSelectionSummary(allMusicSelected, selectedPlaylistIds.size, selectedTracks.size),
+                            buildSelectionSummary(
+                                allMusicSelected,
+                                selectedPlaylistIds.size,
+                                selectedTracks.size,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -166,7 +167,10 @@ internal fun RoomAddMusicSheet(
                     IconButton(onClick = { actionsOpen = true }) {
                         Icon(Icons.Default.MoreVert, "More ways to add music")
                     }
-                    DropdownMenu(expanded = actionsOpen, onDismissRequest = { actionsOpen = false }) {
+                    DropdownMenu(
+                        expanded = actionsOpen,
+                        onDismissRequest = { actionsOpen = false },
+                    ) {
                         DropdownMenuItem(
                             text = { Text("Choose audio files") },
                             leadingIcon = { Icon(Icons.Default.AudioFile, null) },
@@ -196,7 +200,9 @@ internal fun RoomAddMusicSheet(
                     selected = section == QueueMusicPickerSection.PLAYLISTS,
                     onClick = { section = QueueMusicPickerSection.PLAYLISTS },
                     label = { Text("Playlists") },
-                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(18.dp)) },
+                    leadingIcon = {
+                        Icon(Icons.AutoMirrored.Filled.QueueMusic, null, Modifier.size(18.dp))
+                    },
                 )
                 FilterChip(
                     selected = section == QueueMusicPickerSection.SONGS,
@@ -211,7 +217,8 @@ internal fun RoomAddMusicSheet(
                     OutlinedTextField(
                         value = playlistQuery,
                         onValueChange = { playlistQuery = it.take(120) },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                        modifier =
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                         placeholder = { Text("Search playlists") },
                         leadingIcon = { Icon(Icons.Default.Search, null) },
                         trailingIcon = {
@@ -225,7 +232,8 @@ internal fun RoomAddMusicSheet(
                     )
                     SelectionHeader(
                         selectedCount = selectedSourceCount,
-                        selectAllLabel = if (allVisibleSavedSelected) "Clear shown" else "Select shown",
+                        selectAllLabel =
+                            if (allVisibleSavedSelected) "Clear shown" else "Select shown",
                         onSelectAll = {
                             allMusicSelected = false
                             selectedPlaylistIds =
@@ -239,53 +247,75 @@ internal fun RoomAddMusicSheet(
                         enabled = visibleSavedIds.isNotEmpty(),
                     )
                     if (playlistOptions.isEmpty()) {
-                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Text("No playlists found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box(
+                            Modifier.weight(1f).fillMaxWidth(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "No playlists found",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     } else {
                         LazyColumn(Modifier.weight(1f)) {
                             items(playlistOptions, key = { it.key }) { option ->
                                 when (option) {
-                                is QueuePlaylistOption.AllMusic -> {
-                                    ListItem(
-                                        headlineContent = { Text("All Music") },
-                                        supportingContent = {
-                                            Text("${option.trackCount} ${if (option.trackCount == 1) "song" else "songs"}")
-                                        },
-                                        leadingContent = {
-                                            Checkbox(
-                                                checked = allMusicSelected,
-                                                onCheckedChange = ::selectAllMusic,
-                                            )
-                                        },
-                                        modifier = Modifier.clickable {
-                                            selectAllMusic(!allMusicSelected)
-                                        },
-                                    )
-                                }
-                                is QueuePlaylistOption.Saved -> {
-                                    val playlist = option.summary
-                                    val selected = playlist.playlistId in selectedPlaylistIds
-                                    ListItem(
-                                        headlineContent = {
-                                            Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        },
-                                        supportingContent = {
-                                            Text("${playlist.trackCount} ${if (playlist.trackCount == 1) "song" else "songs"}")
-                                        },
-                                        leadingContent = {
-                                            Checkbox(
-                                                checked = selected,
-                                                onCheckedChange = { checked ->
-                                                    toggleSavedPlaylist(playlist.playlistId, checked)
+                                    is QueuePlaylistOption.AllMusic -> {
+                                        ListItem(
+                                            headlineContent = { Text("All Music") },
+                                            supportingContent = {
+                                                Text(
+                                                    "${option.trackCount} ${if (option.trackCount == 1) "song" else "songs"}"
+                                                )
+                                            },
+                                            leadingContent = {
+                                                Checkbox(
+                                                    checked = allMusicSelected,
+                                                    onCheckedChange = ::selectAllMusic,
+                                                )
+                                            },
+                                            modifier =
+                                                Modifier.clickable {
+                                                    selectAllMusic(!allMusicSelected)
                                                 },
-                                            )
-                                        },
-                                        modifier = Modifier.clickable {
-                                            toggleSavedPlaylist(playlist.playlistId, !selected)
-                                        },
-                                    )
-                                }
+                                        )
+                                    }
+                                    is QueuePlaylistOption.Saved -> {
+                                        val playlist = option.summary
+                                        val selected = playlist.playlistId in selectedPlaylistIds
+                                        ListItem(
+                                            headlineContent = {
+                                                Text(
+                                                    playlist.name,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            },
+                                            supportingContent = {
+                                                Text(
+                                                    "${playlist.trackCount} ${if (playlist.trackCount == 1) "song" else "songs"}"
+                                                )
+                                            },
+                                            leadingContent = {
+                                                Checkbox(
+                                                    checked = selected,
+                                                    onCheckedChange = { checked ->
+                                                        toggleSavedPlaylist(
+                                                            playlist.playlistId,
+                                                            checked,
+                                                        )
+                                                    },
+                                                )
+                                            },
+                                            modifier =
+                                                Modifier.clickable {
+                                                    toggleSavedPlaylist(
+                                                        playlist.playlistId,
+                                                        !selected,
+                                                    )
+                                                },
+                                        )
+                                    }
                                 }
                                 HorizontalDivider(Modifier.padding(start = 56.dp))
                             }
@@ -297,7 +327,8 @@ internal fun RoomAddMusicSheet(
                     OutlinedTextField(
                         value = pickerQuery,
                         onValueChange = onPickerQueryChange,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                        modifier =
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                         placeholder = { Text("Search songs") },
                         leadingIcon = { Icon(Icons.Default.Search, null) },
                         trailingIcon = {
@@ -314,7 +345,8 @@ internal fun RoomAddMusicSheet(
                     }
                     SelectionHeader(
                         selectedCount = selectedTracks.size,
-                        selectAllLabel = if (pickerQuery.isBlank()) "Select all" else "Select results",
+                        selectAllLabel =
+                            if (pickerQuery.isBlank()) "Select all" else "Select results",
                         onSelectAll = {
                             onSelectAllTracks(pickerQuery) { ids ->
                                 allMusicSelected = false
@@ -326,15 +358,26 @@ internal fun RoomAddMusicSheet(
                     )
                     when {
                         stableTracks.isEmpty() && refreshState is LoadState.Loading ->
-                            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Box(
+                                Modifier.weight(1f).fillMaxWidth(),
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 CircularProgressIndicator()
                             }
                         stableTracks.isEmpty() && refreshState is LoadState.Error ->
-                            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                TextButton(onClick = pickerTracks::retry) { Text("Try loading again") }
+                            Box(
+                                Modifier.weight(1f).fillMaxWidth(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                TextButton(onClick = pickerTracks::retry) {
+                                    Text("Try loading again")
+                                }
                             }
                         stableTracks.isEmpty() ->
-                            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Box(
+                                Modifier.weight(1f).fillMaxWidth(),
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 Text(
                                     if (pickerQuery.isBlank()) "No songs yet" else "No songs found",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -342,18 +385,24 @@ internal fun RoomAddMusicSheet(
                             }
                         else ->
                             LazyColumn(Modifier.weight(1f)) {
-                                items(stableTracks, key = { "picker:${it.trackId.value}" }) { track ->
+                                items(stableTracks, key = { "picker:${it.trackId.value}" }) { track
+                                    ->
                                     val selected = track.trackId in selectedTracks
                                     ListItem(
                                         headlineContent = {
-                                            Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(
+                                                track.displayTitle,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
                                         },
                                         supportingContent = {
                                             Text(
                                                 listOfNotNull(
-                                                    track.artist?.takeIf(String::isNotBlank),
-                                                    formatDuration(track.durationMs),
-                                                ).joinToString(" • "),
+                                                        track.artist?.takeIf(String::isNotBlank),
+                                                        formatDuration(track.durationMs),
+                                                    )
+                                                    .joinToString(" • "),
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                             )
@@ -366,23 +415,35 @@ internal fun RoomAddMusicSheet(
                                                 },
                                             )
                                         },
-                                        modifier = Modifier.clickable {
-                                            toggleTrack(track.trackId, !selected)
-                                        },
+                                        modifier =
+                                            Modifier.clickable {
+                                                toggleTrack(track.trackId, !selected)
+                                            },
                                     )
                                     HorizontalDivider(Modifier.padding(start = 56.dp))
                                 }
                                 when (pickerTracks.loadState.append) {
-                                    is LoadState.Loading -> item(key = "picker-loading") {
-                                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                                    is LoadState.Loading ->
+                                        item(key = "picker-loading") {
+                                            Box(
+                                                Modifier.fillMaxWidth().padding(16.dp),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    Modifier.size(22.dp),
+                                                    strokeWidth = 2.dp,
+                                                )
+                                            }
                                         }
-                                    }
-                                    is LoadState.Error -> item(key = "picker-error") {
-                                        TextButton(onClick = pickerTracks::retry, modifier = Modifier.fillMaxWidth()) {
-                                            Text("Try loading more")
+                                    is LoadState.Error ->
+                                        item(key = "picker-error") {
+                                            TextButton(
+                                                onClick = pickerTracks::retry,
+                                                modifier = Modifier.fillMaxWidth(),
+                                            ) {
+                                                Text("Try loading more")
+                                            }
                                         }
-                                    }
                                     else -> Unit
                                 }
                             }
@@ -402,7 +463,13 @@ internal fun RoomAddMusicSheet(
                 enabled = hasSelection,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
-                Text(addSelectionButtonLabel(allMusicSelected, selectedPlaylistIds.size, selectedTracks.size))
+                Text(
+                    addSelectionButtonLabel(
+                        allMusicSelected,
+                        selectedPlaylistIds.size,
+                        selectedTracks.size,
+                    )
+                )
             }
         }
     }
@@ -423,7 +490,9 @@ private fun SelectionHeader(
         Text(
             "$selectedCount selected",
             style = MaterialTheme.typography.labelLarge,
-            color = if (selectedCount == 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+            color =
+                if (selectedCount == 0) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.primary,
             modifier = Modifier.weight(1f),
         )
         if (selectedCount > 0) TextButton(onClick = onClear) { Text("Clear") }
@@ -439,7 +508,9 @@ private fun buildSelectionSummary(
     buildList {
             if (allMusicSelected) add("All Music")
             if (selectedPlaylistCount > 0) {
-                add("$selectedPlaylistCount ${if (selectedPlaylistCount == 1) "playlist" else "playlists"}")
+                add(
+                    "$selectedPlaylistCount ${if (selectedPlaylistCount == 1) "playlist" else "playlists"}"
+                )
             }
             if (selectedTrackCount > 0) {
                 add("$selectedTrackCount ${if (selectedTrackCount == 1) "song" else "songs"}")
@@ -456,7 +527,8 @@ private fun addSelectionButtonLabel(
         allMusicSelected -> "Add All Music"
         selectedPlaylistCount == 0 && selectedTrackCount == 0 -> "Add to queue"
         selectedPlaylistCount == 1 && selectedTrackCount == 0 -> "Add playlist"
-        selectedPlaylistCount > 1 && selectedTrackCount == 0 -> "Add $selectedPlaylistCount playlists"
+        selectedPlaylistCount > 1 && selectedTrackCount == 0 ->
+            "Add $selectedPlaylistCount playlists"
         selectedPlaylistCount == 0 ->
             "Add $selectedTrackCount ${if (selectedTrackCount == 1) "song" else "songs"}"
         else -> "Add selection"
