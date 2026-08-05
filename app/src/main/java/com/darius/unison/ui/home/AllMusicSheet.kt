@@ -16,18 +16,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -91,7 +89,8 @@ internal fun AllMusicSheet(
     val refreshState = tracks.loadState.refresh
 
     // Keep the last rendered result set while Paging swaps generations. The list never blanks or
-    // flashes during search/database invalidation; it is replaced only when the new generation is ready.
+    // flashes during search/database invalidation; it is replaced only when the new generation is
+    // ready.
     LaunchedEffect(currentSnapshot, refreshState) {
         if (refreshState !is LoadState.Loading) stableTracks = currentSnapshot
     }
@@ -103,10 +102,19 @@ internal fun AllMusicSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("All Music", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text("$totalCount ${if (totalCount == 1) "song" else "songs"}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "All Music",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "$totalCount ${if (totalCount == 1) "song" else "songs"}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
-                IconButton(onClick = onChooseFiles) { Icon(Icons.Default.AudioFile, "Add audio files") }
+                IconButton(onClick = onChooseFiles) {
+                    Icon(Icons.Default.AudioFile, "Add audio files")
+                }
                 IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close All Music") }
             }
 
@@ -126,7 +134,8 @@ internal fun AllMusicSheet(
                         selected = emptySet()
                     },
                     onRemoveTemporary = {
-                        val removable = selected.filterTo(mutableSetOf()) { it in temporaryTrackIds }
+                        val removable =
+                            selected.filterTo(mutableSetOf()) { it in temporaryTrackIds }
                         onRemoveTemporaryTracks(removable)
                         selected = emptySet()
                     },
@@ -159,7 +168,9 @@ internal fun AllMusicSheet(
                             LibrarySort.entries.forEach { item ->
                                 DropdownMenuItem(
                                     text = { Text(item.label()) },
-                                    trailingIcon = { if (item == sort) Icon(Icons.Default.Check, null) },
+                                    trailingIcon = {
+                                        if (item == sort) Icon(Icons.Default.Check, null)
+                                    },
                                     onClick = {
                                         sortOpen = false
                                         onSortChange(item)
@@ -187,8 +198,12 @@ internal fun AllMusicSheet(
                 stableTracks.isEmpty() ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(if (query.isBlank()) "No music yet" else "No songs found", fontWeight = FontWeight.SemiBold)
-                            if (query.isBlank()) TextButton(onClick = onChooseFiles) { Text("Add audio files") }
+                            Text(
+                                if (query.isBlank()) "No music yet" else "No songs found",
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            if (query.isBlank())
+                                TextButton(onClick = onChooseFiles) { Text("Add audio files") }
                         }
                     }
                 else ->
@@ -200,23 +215,35 @@ internal fun AllMusicSheet(
                                     Modifier.combinedClickable(
                                         onClick = {
                                             if (selected.isNotEmpty()) {
-                                                selected = if (isSelected) selected - track.trackId else selected + track.trackId
+                                                selected =
+                                                    if (isSelected) selected - track.trackId
+                                                    else selected + track.trackId
                                             } else {
                                                 rowMenuTrack = track
                                             }
                                         },
                                         onLongClick = {
-                                            selected = if (isSelected) selected - track.trackId else selected + track.trackId
+                                            selected =
+                                                if (isSelected) selected - track.trackId
+                                                else selected + track.trackId
                                         },
                                     ),
-                                headlineContent = { Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                headlineContent = {
+                                    Text(
+                                        track.displayTitle,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
                                 supportingContent = {
                                     Text(
                                         listOfNotNull(
-                                            track.artist?.takeIf(String::isNotBlank),
-                                            formatDuration(track.durationMs),
-                                            "Temporary".takeIf { track.trackId in temporaryTrackIds },
-                                        ).joinToString(" • "),
+                                                track.artist?.takeIf(String::isNotBlank),
+                                                formatDuration(track.durationMs),
+                                                "Temporary"
+                                                    .takeIf { track.trackId in temporaryTrackIds },
+                                            )
+                                            .joinToString(" • "),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -226,7 +253,9 @@ internal fun AllMusicSheet(
                                         Checkbox(
                                             checked = isSelected,
                                             onCheckedChange = { checked ->
-                                                selected = if (checked) selected + track.trackId else selected - track.trackId
+                                                selected =
+                                                    if (checked) selected + track.trackId
+                                                    else selected - track.trackId
                                             },
                                         )
                                     }
@@ -239,17 +268,32 @@ internal fun AllMusicSheet(
                                     }
                                 },
                             )
-                            HorizontalDivider(Modifier.padding(start = if (selected.isEmpty()) 16.dp else 56.dp))
+                            HorizontalDivider(
+                                Modifier.padding(start = if (selected.isEmpty()) 16.dp else 56.dp)
+                            )
                         }
                         when (tracks.loadState.append) {
-                            is LoadState.Loading -> item("append-loading") {
-                                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                            is LoadState.Loading ->
+                                item("append-loading") {
+                                    Box(
+                                        Modifier.fillMaxWidth().padding(16.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(22.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    }
                                 }
-                            }
-                            is LoadState.Error -> item("append-error") {
-                                TextButton(onClick = tracks::retry, modifier = Modifier.fillMaxWidth()) { Text("Try loading more") }
-                            }
+                            is LoadState.Error ->
+                                item("append-error") {
+                                    TextButton(
+                                        onClick = tracks::retry,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text("Try loading more")
+                                    }
+                                }
                             else -> Unit
                         }
                     }
@@ -265,38 +309,41 @@ internal fun AllMusicSheet(
                 Column {
                     ListItem(
                         headlineContent = { Text("Add to playlist") },
-                        leadingContent = { Icon(Icons.Default.PlaylistAdd, null) },
-                        modifier = Modifier.combinedClickable(
-                            onClick = {
-                                selected = setOf(track.trackId)
-                                rowMenuTrack = null
-                                playlistPickerOpen = true
-                            },
-                            onLongClick = {},
-                        ),
+                        leadingContent = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null) },
+                        modifier =
+                            Modifier.combinedClickable(
+                                onClick = {
+                                    selected = setOf(track.trackId)
+                                    rowMenuTrack = null
+                                    playlistPickerOpen = true
+                                },
+                                onLongClick = {},
+                            ),
                     )
                     ListItem(
                         headlineContent = { Text("Keep on this phone") },
                         leadingContent = { Icon(Icons.Default.DownloadDone, null) },
-                        modifier = Modifier.combinedClickable(
-                            onClick = {
-                                rowMenuTrack = null
-                                onKeepTracks(setOf(track.trackId))
-                            },
-                            onLongClick = {},
-                        ),
+                        modifier =
+                            Modifier.combinedClickable(
+                                onClick = {
+                                    rowMenuTrack = null
+                                    onKeepTracks(setOf(track.trackId))
+                                },
+                                onLongClick = {},
+                            ),
                     )
                     if (track.trackId in temporaryTrackIds) {
                         ListItem(
                             headlineContent = { Text("Remove temporary copy") },
                             leadingContent = { Icon(Icons.Default.DeleteOutline, null) },
-                            modifier = Modifier.combinedClickable(
-                                onClick = {
-                                    rowMenuTrack = null
-                                    onRemoveTemporaryTracks(setOf(track.trackId))
-                                },
-                                onLongClick = {},
-                            ),
+                            modifier =
+                                Modifier.combinedClickable(
+                                    onClick = {
+                                        rowMenuTrack = null
+                                        onRemoveTemporaryTracks(setOf(track.trackId))
+                                    },
+                                    onLongClick = {},
+                                ),
                         )
                     }
                 }
@@ -316,22 +363,38 @@ internal fun AllMusicSheet(
                     LazyColumn(Modifier.heightIn(max = 380.dp)) {
                         items(playlists, key = { it.playlistId }) { playlist ->
                             ListItem(
-                                headlineContent = { Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                                supportingContent = { Text("${playlist.trackCount} ${if (playlist.trackCount == 1) "song" else "songs"}") },
-                                modifier = Modifier.combinedClickable(
-                                    onClick = {
-                                        playlistPickerOpen = false
-                                        onAddTracksToPlaylist(playlist.playlistId, selected.toList())
-                                        selected = emptySet()
-                                    },
-                                    onLongClick = {},
-                                ),
+                                headlineContent = {
+                                    Text(
+                                        playlist.name,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                                supportingContent = {
+                                    Text(
+                                        "${playlist.trackCount} ${if (playlist.trackCount == 1) "song" else "songs"}"
+                                    )
+                                },
+                                modifier =
+                                    Modifier.combinedClickable(
+                                        onClick = {
+                                            playlistPickerOpen = false
+                                            onAddTracksToPlaylist(
+                                                playlist.playlistId,
+                                                selected.toList(),
+                                            )
+                                            selected = emptySet()
+                                        },
+                                        onLongClick = {},
+                                    ),
                             )
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { playlistPickerOpen = false }) { Text("Cancel") } },
+            confirmButton = {
+                TextButton(onClick = { playlistPickerOpen = false }) { Text("Cancel") }
+            },
         )
     }
 }
@@ -350,12 +413,18 @@ private fun SelectionToolbar(
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Exit selection") }
-            Text("$selectedCount selected", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            TextButton(onClick = onSelectAll) { Text(if (allSelected) "Clear all" else "Select all") }
+            Text(
+                "$selectedCount selected",
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onSelectAll) {
+                Text(if (allSelected) "Clear all" else "Select all")
+            }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FilledTonalButton(onClick = onAddToPlaylist, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Default.PlaylistAdd, null, Modifier.size(18.dp))
+                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Playlist")
             }
@@ -364,7 +433,11 @@ private fun SelectionToolbar(
                 Spacer(Modifier.width(4.dp))
                 Text("Keep")
             }
-            FilledTonalButton(onClick = onRemoveTemporary, enabled = hasTemporary, modifier = Modifier.weight(1f)) {
+            FilledTonalButton(
+                onClick = onRemoveTemporary,
+                enabled = hasTemporary,
+                modifier = Modifier.weight(1f),
+            ) {
                 Icon(Icons.Default.DeleteOutline, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Remove")
