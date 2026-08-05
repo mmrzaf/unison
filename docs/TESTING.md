@@ -1,92 +1,55 @@
 # Testing
 
-## Network-free repository checks
+## Complete repository gate
 
-```bash
-./scripts/check-static.sh
-./scripts/check-core.sh
-./scripts/check-data.sh
-./scripts/check-risky-kotlin.sh
-./scripts/check-player-kotlin.sh
-./scripts/check-session-player-kotlin.sh
-./scripts/check-network-lifecycle-kotlin.sh
-./scripts/check-release-quality.sh
-./scripts/benchmark-library-search.py --max-p95-ms 50
-```
-
-The core harness compiles selected production sources with Kotlin/JVM and runs deterministic
-protocol encryption, transfer authentication, reducer, lifecycle, synchronization, storage, search,
-playlist-resolution, path-security, SAF-ledger, sanitization, service lifecycle, coordinator playback, and
-player-event-isolation, playback-dispatch, timeline-reconciliation, and room-UI policy tests without Android SDK downloads.
-The network-lifecycle harness also executes stale-callback, late-reservation, active-resolver cleanup, and
-multicast-lock ownership tests against Android API stubs.
-
-## Android release checks
-
-After the Android SDK, pinned Gradle distribution, and Maven dependencies are available locally:
+After the pinned Gradle distribution and dependency cache are available:
 
 ```bash
 ./scripts/verify-offline-ready.sh
-./gradlew clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease --offline
+./scripts/check-release-quality.sh
+./gradlew --offline --no-daemon --stacktrace \
+  testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
 ```
 
-These checks are mandatory before installing a release candidate. Repository JVM gates do not prove
-Compose compilation, manifest integration, Media3 runtime behavior, or device power-management behavior.
+`check-release-quality.sh` runs:
 
-## Manual device matrix
-
-Test at least three physical devices covering Android 11, Android 12, and Android 13:
-
-1. one-participant room playback for at least one hour with repeated screen-off/on cycles;
-2. confirm the only persistent notification is the Media3 player-control notification and that
-   play, pause, seek, previous, and next remain synchronized;
-3. confirm no music thumbnail appears in library, playlist, queue, full player, compact player,
-   notification, or lock screen, including audio files containing embedded pictures; the notification
-   and lock screen must show the same fixed dark Unison brand tile instead;
-4. first launch, permission denial/recovery, file-picker import, share-sheet import, and malformed M3U rejection;
-5. room creation, four-digit SRP join, wrong-code throttling, bounded discovery, and join cancellation;
-6. LocalOnlyHotspot creation and explicit teardown, including task removal while active;
-7. three-device play/pause/seek/skip for at least 30 minutes without speed churn, seek churn, or button flicker;
-8. transfer interruption/resume, insufficient space, corrupted partial recovery, and source loss;
-9. coordinator leave/recovery, terminal reconnect cleanup, transient Wi-Fi loss, and sleep/wake recovery;
-10. repeated create/join/leave cycles followed by post-room CPU, network, storage, coroutine, and notification quiescence;
-11. signed APK upgrade over the previous locally signed build.
-
-Record device model, Android version, battery restrictions, router/hotspot topology, notification
-behavior, audio interruptions, and observed drift for every release candidate.
+- source-tree, protocol, schema, security, and architecture invariants;
+- Kotlin source sanity checks;
+- deterministic reducer, authentication, transfer, lifecycle, playback, and synchronization tests;
+- focused Media3/state-machine compilation checks;
+- Android network lifecycle tests against stubs;
+- playback-log analyzer self-test;
+- 100,000-track search benchmark.
 
 ## Stability invariants
 
-Keep these cases green:
+Keep these green:
 
-- coordinator and participant players use the same canonical timeline and bounded correction policy;
-- speed commands are quantized, hysteresis-gated, and rate-limited before reaching Media3;
-- UI commands refresh service start ownership without foreground promotion, and an idle-stop timer
-  cannot stop a newer command;
-- generic foreground notifications and repeated `startForegroundService` calls are absent;
-- position and duration changes do not enter the serialized room actor; meaningful player transitions do;
-- same-size managed-file corruption is rejected by SHA-256;
-- active leases block deletion and cleanup;
-- cancellation closes transfer sockets before cancelling jobs;
-- control frames and file records reject tampering and replay;
-- generation-scoped teardown leaves no tracked room jobs;
-- screen-off heartbeat grace, reconnect pacing, and bounded CPU/Wi-Fi ownership remain covered;
-- private IPv4/IPv6 parsing rejects public addresses and DNS names.
+- all connected ready peers converge on the latest queue revision, playback revision, queue item, and
+  play/pause intent;
+- stale callbacks, packets, schedules, imports, and transfer results cannot mutate newer state;
+- wrong item and wrong play/pause are repaired before position drift;
+- coordinator and participant players use the same canonical application path;
+- clear and leave invalidate pending queue preparation;
+- control and file traffic reject tampering and replay;
+- active leases prevent deletion or replacement;
+- cancellation closes sockets and releases locks/jobs;
+- meaningful player transitions enter the actor, position telemetry does not;
+- one user action creates at most one effective canonical transition.
 
-## Architecture boundaries
+## Device qualification
 
-- structural room changes publish independently from playback and transfer telemetry;
-- all canonical mutations remain actor-serialized and queue bulk work remains batched;
-- high-frequency playback position remains outside the actor;
-- `UnisonApp.kt` remains a shell and `MainViewModel.kt` remains a flow coordinator;
-- no music-thumbnail extraction, image cache, image worker, image UI, or track artwork metadata is
-  reintroduced; only the fixed Unison system-media artwork is allowed;
-- admitted members have the same room controls; the private room code appears only after selecting
-  Room code from the overflow menu on the device that locally owns the credential. Discovery never
-  grants admission and the credential is not redistributed after joining.
+Repository tests cannot prove real Wi-Fi scheduling, vendor Media3 behavior, Bluetooth buffering,
+foreground restrictions, process death, or power management. Complete
+[Physical-device qualification](PHYSICAL_DEVICE_QUALIFICATION.md) for every release candidate.
 
-## Playback trace analysis
+## Playback trace
 
-Use `scripts/analyze-playback-log.py` on every playback soak trace. The strict mode rejects transition
-storms, unavailable-song failures, circuit-breaker activation, and reported playback-dispatch failures.
-See [Release qualification](RELEASE_QUALIFICATION.md) for the device matrix and acceptance criteria.
+Capture Logcat from before room creation until after leaving, then run:
+
+```bash
+./scripts/analyze-playback-log.py path/to/logcat.txt --strict
+```
+
+Strict analysis rejects transition storms, unavailable-song failures, circuit-breaker activation,
+and playback-dispatch failures.
