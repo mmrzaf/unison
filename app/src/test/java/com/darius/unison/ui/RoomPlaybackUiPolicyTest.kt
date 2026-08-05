@@ -28,6 +28,7 @@ class RoomPlaybackUiPolicyTest {
 
         assertTrue(controls.navigationPending)
         assertFalse(controls.canNavigate)
+        assertFalse(controls.canSelectItem)
         assertFalse(controls.canSeek)
         assertTrue(controls.canPlayPause)
     }
@@ -61,6 +62,21 @@ class RoomPlaybackUiPolicyTest {
         assertFalse(controls.navigationPending)
         assertTrue(controls.canNavigate)
         assertTrue(controls.canSeek)
+    }
+
+    @Test
+    fun queueItemCanBeSelectedBeforePlaybackStarts() {
+        val controls =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = false,
+                hasSeekableDuration = false,
+                localIsPlaying = false,
+                status = null,
+            )
+
+        assertFalse(controls.canNavigate)
+        assertFalse(controls.canPlayPause)
+        assertTrue(controls.canSelectItem)
     }
 
     @Test
