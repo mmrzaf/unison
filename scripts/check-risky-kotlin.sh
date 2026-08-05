@@ -35,10 +35,12 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/network/PeerServer.kt \
   app/src/main/java/com/darius/unison/playback/PlayerPort.kt \
   app/src/main/java/com/darius/unison/room/TransportCommandTracker.kt \
+  app/src/main/java/com/darius/unison/room/QueuePreparationFence.kt \
   app/src/main/java/com/darius/unison/room/RoomEvent.kt \
   app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt \
   app/src/main/java/com/darius/unison/transfer/TransferCancellationRegistry.kt \
   app/src/main/java/com/darius/unison/transfer/TransferAuthorizationRegistry.kt \
+  app/src/main/java/com/darius/unison/transfer/TransferUploadGate.kt \
   app/src/main/java/com/darius/unison/transfer/TransferManager.kt \
   app/src/main/java/com/darius/unison/util/DiagnosticSanitizer.kt \
   app/src/main/java/com/darius/unison/util/DiagnosticLog.kt \

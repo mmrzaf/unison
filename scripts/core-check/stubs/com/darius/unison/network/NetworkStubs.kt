@@ -25,6 +25,11 @@ class PeerServer {
             val complete: suspend (HandshakeMessage.PinResponse) -> ControlAdmission,
         ) : ControlAdmission
 
+        data class ReconnectChallenge(
+            val response: HandshakeMessage.ReconnectChallenge,
+            val complete: suspend (HandshakeMessage.ReconnectResponse) -> ControlAdmission,
+        ) : ControlAdmission
+
         data class Rejected(val reason: String, val code: HandshakeRejectionCode) : ControlAdmission
     }
 }
