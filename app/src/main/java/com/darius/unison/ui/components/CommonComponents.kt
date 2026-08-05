@@ -12,7 +12,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -93,23 +92,6 @@ internal fun OperationBanner(
             }
         }
     }
-}
-
-@Composable
-internal fun LoadError(onRetry: () -> Unit) {
-    Column(
-        Modifier.fillMaxWidth().padding(36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("Music could not be loaded", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = onRetry) { Text("Try again") }
-    }
-}
-
-@Composable
-internal fun SectionTitle(value: String) {
-    Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 }
 
 @Composable
