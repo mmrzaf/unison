@@ -263,11 +263,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun keepTrack(trackId: TrackId) {
+    fun keepTrack(trackId: TrackId) = keepTracks(setOf(trackId))
+
+    fun keepTracks(trackIds: Set<TrackId>) {
+        if (trackIds.isEmpty()) return
         viewModelScope.launch {
-            userResult { container.trackRepository.keep(trackId) }
-                .onSuccess { message.value = "Kept in library" }
-                .onFailure { message.value = "Could not keep this song" }
+            userResult { container.trackRepository.keepMany(trackIds) }
+                .onSuccess {
+                    message.value =
+                        if (trackIds.size == 1) "Kept in library"
+                        else "Kept ${trackIds.size} songs in library"
+                }
+                .onFailure { message.value = "Could not keep this music" }
+        }
+    }
+
+    fun removeTemporaryTracks(trackIds: Set<TrackId>) {
+        if (trackIds.isEmpty()) return
+        val activeTrackIds =
+            container.roomStore.structure.value.snapshot
+                ?.queue
+                ?.mapTo(mutableSetOf()) { it.track.trackId }
+                .orEmpty()
+        val removable = trackIds - activeTrackIds
+        if (removable.isEmpty()) {
+            message.value = "Music used by the active room was kept"
+            return
+        }
+        viewModelScope.launch {
+            withBusyOperation {
+                userResult { removable.forEach { container.trackRepository.deleteTemporary(it) } }
+            }
+                .onSuccess {
+                    message.value =
+                        when (removable.size) {
+                            1 -> "Temporary copy removed"
+                            else -> "Removed ${removable.size} temporary songs"
+                        }
+                }
+                .onFailure { message.value = "Could not remove temporary music" }
         }
     }
 
@@ -340,6 +374,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deletePlaylist(playlistId: String) = playlistActions.delete(playlistId)
 
     fun addPlaylistToRoom(playlistId: String) = playlistActions.addToRoom(playlistId)
+
+    fun addLibrarySelectionToRoom(
+        includeAllMusic: Boolean,
+        playlistIds: List<String>,
+        trackIds: List<TrackId>,
+    ) = playlistActions.addSelectionToRoom(includeAllMusic, playlistIds, trackIds)
 
     fun exportPlaylist(playlistId: String, destination: Uri) =
         playlistActions.export(playlistId, destination)

@@ -10,24 +10,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,14 +30,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -63,24 +55,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.RoomJoinCredential
-import com.darius.unison.model.RoomLifecycleState
-
-private enum class Destination(val label: String) {
-    LIBRARY("Library"),
-    ROOM("Room"),
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UnisonApp(viewModel: MainViewModel) {
     val ui by viewModel.state.collectAsStateWithLifecycle()
-    val playbackPositionState = viewModel.playbackPositionMs.collectAsStateWithLifecycle()
-    val pickerQuery by viewModel.pickerQuery.collectAsStateWithLifecycle()
-    val libraryTracks = viewModel.libraryTracks.collectAsLazyPagingItems()
-    val pickerTracks = viewModel.pickerTracks.collectAsLazyPagingItems()
-    var destination by rememberSaveable { mutableStateOf(Destination.LIBRARY) }
-    var allMusicOpen by rememberSaveable { mutableStateOf(false) }
-    var lastOpenedRoomId by rememberSaveable { mutableStateOf<String?>(null) }
     var showNameEdit by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -123,6 +102,18 @@ fun UnisonApp(viewModel: MainViewModel) {
             }
             startHotspotAfterPermission = false
         }
+    val createOfflineNetwork = {
+        val missing =
+            PermissionController.offlineNetworkPermissions().filter {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+        if (missing.isEmpty()) {
+            viewModel.command(AppCommand.CreateOfflineNetwork)
+        } else {
+            startHotspotAfterPermission = true
+            hotspotPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
 
     LaunchedEffect(ui.message) {
         val value = ui.message
@@ -133,29 +124,10 @@ fun UnisonApp(viewModel: MainViewModel) {
     }
     LaunchedEffect(ui.room.errorMessage, ui.room.issue) {
         val value = ui.room.errorMessage
-        // Typed issues remain visible with contextual recovery. Untyped transient messages use a
-        // snackbar.
         if (ui.room.issue == null && !value.isNullOrBlank()) {
             snackbar.showSnackbar(value)
             viewModel.clearRoomError(value)
         }
-    }
-    val activeRoomId = ui.room.snapshot?.roomId
-    LaunchedEffect(activeRoomId) {
-        if (activeRoomId == null) {
-            lastOpenedRoomId = null
-        } else if (activeRoomId != lastOpenedRoomId) {
-            lastOpenedRoomId = activeRoomId
-            destination = Destination.ROOM
-        }
-    }
-    LaunchedEffect(destination, activeRoomId, ui.room.lifecycle) {
-        if (
-            destination != Destination.ROOM && ui.room.lifecycle == RoomLifecycleState.DISCOVERING
-        ) {
-            viewModel.command(AppCommand.StopDiscovery)
-        }
-        if (destination != Destination.LIBRARY) allMusicOpen = false
     }
 
     if (!ui.settingsLoaded) {
@@ -164,6 +136,7 @@ fun UnisonApp(viewModel: MainViewModel) {
         }
         return
     }
+
     if (!ui.onboardingComplete || showNameEdit) {
         NameDialog(
             initialName = ui.room.localIdentity?.displayName.orEmpty(),
@@ -177,11 +150,7 @@ fun UnisonApp(viewModel: MainViewModel) {
     }
 
     BackHandler(enabled = ui.selectedPlaylist != null) { viewModel.closePlaylist() }
-    BackHandler(
-        enabled = ui.selectedPlaylist == null && destination == Destination.LIBRARY && allMusicOpen
-    ) {
-        allMusicOpen = false
-    }
+
     ui.pendingShare?.let { pending ->
         AlertDialog(
             onDismissRequest = { viewModel.resolvePendingShare(null) },
@@ -232,7 +201,7 @@ fun UnisonApp(viewModel: MainViewModel) {
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            "Several library songs match this entry. Choose the exact song; Unison will not guess.",
+                            "Several library songs match this entry. Choose the exact song.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -263,11 +232,6 @@ fun UnisonApp(viewModel: MainViewModel) {
                                 HorizontalDivider()
                             }
                         }
-                        Text(
-                            "${pending.ambiguous.size} ambiguous • ${pending.unresolved.size} unavailable",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
                 },
                 confirmButton = {},
@@ -286,7 +250,7 @@ fun UnisonApp(viewModel: MainViewModel) {
                 title = { Text("Find playlist music") },
                 text = {
                     Text(
-                        "${pending.unresolved.size} ${if (pending.unresolved.size == 1) "song needs" else "songs need"} their music folder. Folder scanning is cancellable and unsafe paths are ignored."
+                        "${pending.unresolved.size} ${if (pending.unresolved.size == 1) "song needs" else "songs need"} their music folder."
                     )
                 },
                 confirmButton = {
@@ -303,280 +267,155 @@ fun UnisonApp(viewModel: MainViewModel) {
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        ui.selectedPlaylist?.name
-                            ?: when {
-                                destination == Destination.ROOM ->
-                                    ui.room.snapshot?.roomName ?: "Room"
-                                destination == Destination.LIBRARY && allMusicOpen -> "All music"
-                                destination == Destination.LIBRARY -> "Library"
-                                else -> "Unison"
-                            },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                },
-                navigationIcon = {
-                    if (
-                        ui.selectedPlaylist != null ||
-                            (destination == Destination.LIBRARY && allMusicOpen)
-                    ) {
-                        IconButton(
-                            onClick = {
-                                if (ui.selectedPlaylist != null) viewModel.closePlaylist()
-                                else allMusicOpen = false
-                            }
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                        }
-                    }
-                },
-            )
-        },
         snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = {
-            NavigationBar {
-                val destinations =
-                    listOf(
-                        Destination.LIBRARY,
-                        Destination.ROOM,
-                    )
-                destinations.forEach { item ->
-                    NavigationBarItem(
-                        selected = destination == item,
-                        onClick = {
-                            if (ui.selectedPlaylist != null) viewModel.closePlaylist()
-                            allMusicOpen = false
-                            destination = item
-                        },
-                        icon = {
-                            Icon(
-                                when (item) {
-                                    Destination.LIBRARY -> Icons.Default.LibraryMusic
-                                    Destination.ROOM -> {
-                                        if (ui.room.snapshot == null) Icons.Default.Groups
-                                        else Icons.Default.Equalizer
-                                    }
-                                },
-                                item.label,
-                            )
-                        },
-                        label = { Text(item.label) },
-                    )
-                }
-            }
-        },
-        contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
+        contentWindowInsets = WindowInsets.safeDrawing,
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            Column(Modifier.fillMaxSize()) {
-                if (destination == Destination.ROOM) {
-                    ui.room.issue?.let { issue ->
-                        PersistentRoomIssueCard(
-                            issue = issue,
-                            transportStatus = ui.room.transportStatus,
-                            onDismiss = { viewModel.clearRoomError(issue.message) },
-                            onRetryTransport = viewModel::retryRoomIssue,
-                            onChooseFiles = {
-                                importToRoom = true
-                                filesLauncher.launch(arrayOf("audio/*"))
-                            },
-                            onLeaveRoom = { viewModel.command(AppCommand.LeaveRoom) },
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            if (ui.room.snapshot == null) {
+                val libraryTracks = viewModel.libraryTracks.collectAsLazyPagingItems()
+                HomeScreen(
+                    state = ui,
+                    tracks = libraryTracks,
+                    onCreateRoom = { viewModel.command(AppCommand.CreateRoom(it)) },
+                    onStartDiscovery = {
+                        viewModel.command(AppCommand.StartDiscovery, feedback = null)
+                    },
+                    onJoinRoom = { room, pin ->
+                        viewModel.command(
+                            AppCommand.JoinRoom(room, RoomJoinCredential.Pin(pin)),
+                            feedback = null,
                         )
-                    }
-                }
-                Box(Modifier.weight(1f)) {
-                    val playlist = ui.selectedPlaylist
-                    if (playlist != null) {
-                        PlaylistDetailScreen(
-                            detail = playlist,
-                            pickerTracks = pickerTracks,
-                            pickerQuery = pickerQuery,
-                            onPickerQueryChange = viewModel::setPickerQuery,
-                            roomActive = ui.room.snapshot != null,
-                            onRename = { viewModel.renamePlaylist(playlist.playlistId, it) },
-                            onMoveTrack = { from, to ->
-                                viewModel.movePlaylistTrack(playlist.playlistId, from, to)
-                            },
-                            onRemoveTracks = { indices ->
-                                viewModel.removePlaylistTracks(playlist.playlistId, indices)
-                            },
-                            onAddTracks = {
-                                viewModel.addTracksToPlaylist(playlist.playlistId, it)
-                            },
-                            onAddToRoom = { viewModel.addPlaylistToRoom(playlist.playlistId) },
-                            onAddTracksToRoom = viewModel::addTracksToRoom,
-                            onSelectAll = viewModel::loadTrackIds,
-                            onExport = { startPlaylistExport(playlist.playlistId, playlist.name) },
-                            onDelete = { viewModel.deletePlaylist(playlist.playlistId) },
-                        )
-                    } else {
-                        when (destination) {
-                            Destination.LIBRARY ->
-                                LibraryScreen(
-                                    state = ui,
-                                    allMusicOpen = allMusicOpen,
-                                    onOpenAllMusic = { allMusicOpen = true },
-                                    tracks = libraryTracks,
-                                    pickerTracks = pickerTracks,
-                                    pickerQuery = pickerQuery,
-                                    onQueryChange = viewModel::setLibraryQuery,
-                                    onPickerQueryChange = viewModel::setPickerQuery,
-                                    onSortChange = viewModel::setLibrarySort,
-                                    onChooseFiles = {
-                                        importToRoom = false
-                                        filesLauncher.launch(arrayOf("audio/*"))
-                                    },
-                                    onImportM3u = {
-                                        importToRoom = false
-                                        m3uLauncher.launch(M3U_TYPES)
-                                    },
-                                    onEditName = { showNameEdit = true },
-                                    onAddTrackToRoom = { viewModel.addTracksToRoom(listOf(it)) },
-                                    onAddTracksToRoom = viewModel::addTracksToRoom,
-                                    onPlayNext = {
-                                        viewModel.addTracksToRoom(
-                                            listOf(it),
-                                            insertAfterCurrent = true,
-                                        )
-                                    },
-                                    onKeepTrack = viewModel::keepTrack,
-                                    onRemoveTemporaryTrack = viewModel::removeTemporaryTrack,
-                                    onClearTemporaryMusic = viewModel::clearTemporaryMusic,
-                                    onCreatePlaylist = viewModel::createPlaylist,
-                                    onOpenPlaylist = viewModel::openPlaylist,
-                                    onAddPlaylistToRoom = viewModel::addPlaylistToRoom,
-                                    onAddTrackToPlaylist = { playlistId, trackId ->
-                                        viewModel.addTracksToPlaylist(playlistId, listOf(trackId))
-                                    },
-                                    onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
-                                    onSelectAll = viewModel::loadTrackIds,
-                                    onAddAllToRoom = { query ->
-                                        viewModel.loadRoomTrackIds(query) { ids ->
-                                            viewModel.addTracksToRoom(ids.toList())
-                                        }
-                                    },
-                                )
-
-                            Destination.ROOM ->
-                                if (ui.room.snapshot == null) {
-                                    RoomLobbyScreen(
-                                        state = ui,
-                                        onCreate = { name ->
-                                            viewModel.command(AppCommand.CreateRoom(name))
-                                        },
-                                        onDiscover = {
-                                            viewModel.command(AppCommand.StartDiscovery)
-                                        },
-                                        onJoin = { room, pin ->
-                                            viewModel.command(
-                                                AppCommand.JoinRoom(
-                                                    room,
-                                                    RoomJoinCredential.Pin(pin),
-                                                )
-                                            )
-                                        },
-                                        onCancelConnection = {
-                                            viewModel.command(AppCommand.LeaveRoom)
-                                        },
-                                        onOfflineNetwork = {
-                                            val missing =
-                                                PermissionController.offlineNetworkPermissions()
-                                                    .filter {
-                                                        ContextCompat.checkSelfPermission(
-                                                            context,
-                                                            it,
-                                                        ) != PackageManager.PERMISSION_GRANTED
-                                                    }
-                                            if (missing.isEmpty())
-                                                viewModel.command(AppCommand.CreateOfflineNetwork)
-                                            else {
-                                                startHotspotAfterPermission = true
-                                                hotspotPermissionLauncher.launch(
-                                                    missing.toTypedArray()
-                                                )
-                                            }
-                                        },
-                                        onStopOfflineNetwork = {
-                                            viewModel.command(AppCommand.StopOfflineNetwork)
-                                        },
-                                        onEditName = { showNameEdit = true },
-                                    )
-                                } else
-                                    RoomScreen(
-                                        state = ui,
-                                        playbackPositionState = playbackPositionState,
-                                        onPlay = { viewModel.command(AppCommand.Play()) },
-                                        onPause = { viewModel.command(AppCommand.Pause()) },
-                                        onSeek = { viewModel.command(AppCommand.Seek(it)) },
-                                        onNext = { viewModel.command(AppCommand.SkipNext()) },
-                                        onPrevious = {
-                                            viewModel.command(AppCommand.SkipPrevious())
-                                        },
-                                        onPlayQueueItem = {
-                                            viewModel.command(AppCommand.PlayQueueItem(it))
-                                        },
-                                        onShuffle = { viewModel.command(AppCommand.ShuffleQueue) },
-                                        onRepeat = { viewModel.command(AppCommand.SetRepeat(it)) },
-                                        onChooseFiles = {
-                                            importToRoom = true
-                                            filesLauncher.launch(arrayOf("audio/*"))
-                                        },
-                                        onImportM3u = {
-                                            importToRoom = true
-                                            m3uLauncher.launch(M3U_TYPES)
-                                        },
-                                        onAddAllMusicToRoom = {
-                                            viewModel.loadRoomTrackIds("") { ids ->
-                                                viewModel.addTracksToRoom(ids.toList())
-                                            }
-                                        },
-                                        onAddPlaylistToRoom = viewModel::addPlaylistToRoom,
-                                        onRemoveQueueItem = {
-                                            viewModel.command(AppCommand.RemoveQueueItem(it))
-                                        },
-                                        onMoveQueueItem = { item, index ->
-                                            viewModel.command(AppCommand.MoveQueueItem(item, index))
-                                        },
-                                        onKeepTrack = viewModel::keepTrack,
-                                        onUpdateOptions = {
-                                            viewModel.command(AppCommand.UpdateRoomOptions(it))
-                                        },
-                                        onSetRetentionPolicy = viewModel::setRetentionPolicy,
-                                        onSaveQueue = { name ->
-                                            val ids =
-                                                ui.room.snapshot
-                                                    ?.queue
-                                                    ?.map { it.track.trackId }
-                                                    .orEmpty()
-                                            if (ids.isNotEmpty())
-                                                viewModel.createPlaylist(name, ids)
-                                        },
-                                        onClearPlayed = {
-                                            viewModel.command(AppCommand.ClearPlayed)
-                                        },
-                                        onClearQueue = { viewModel.command(AppCommand.ClearQueue) },
-                                        onLeave = {
-                                            viewModel.command(AppCommand.LeaveRoom)
-                                        },
-                                        onMoveQueueItemNext = {
-                                            viewModel.command(AppCommand.MoveQueueItemNext(it))
-                                        },
-                                    )
-                        }
-                    }
-                }
+                    },
+                    onCancelConnection = {
+                        viewModel.command(AppCommand.LeaveRoom, feedback = null)
+                    },
+                    onChooseFiles = {
+                        importToRoom = false
+                        filesLauncher.launch(arrayOf("audio/*"))
+                    },
+                    onImportM3u = {
+                        importToRoom = false
+                        m3uLauncher.launch(M3U_TYPES)
+                    },
+                    onEditName = { showNameEdit = true },
+                    onCreateOfflineNetwork = createOfflineNetwork,
+                    onStopOfflineNetwork = { viewModel.command(AppCommand.StopOfflineNetwork) },
+                    onQueryChange = viewModel::setLibraryQuery,
+                    onSortChange = viewModel::setLibrarySort,
+                    onOpenPlaylist = viewModel::openPlaylist,
+                    onCreatePlaylist = viewModel::createPlaylist,
+                    onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
+                    onKeepTracks = viewModel::keepTracks,
+                    onRemoveTemporaryTracks = viewModel::removeTemporaryTracks,
+                    onSelectAllTracks = viewModel::loadTrackIds,
+                    onClearTemporaryMusic = viewModel::clearTemporaryMusic,
+                )
+            } else {
+                SharedRoomScreen(
+                    room = ui.room,
+                    playlists = ui.playlists,
+                    libraryTotalCount = ui.libraryTotalCount,
+                    temporaryTrackIds = ui.temporaryTrackIds,
+                    retentionPolicy = ui.retentionPolicy,
+                    playbackPositionFlow = viewModel.playbackPositionMs,
+                    pickerTracksFlow = viewModel.pickerTracks,
+                    pickerQueryState = viewModel.pickerQuery,
+                    onPickerQueryChange = viewModel::setPickerQuery,
+                    onPlay = { viewModel.command(AppCommand.Play()) },
+                    onPause = { viewModel.command(AppCommand.Pause()) },
+                    onSeek = { viewModel.command(AppCommand.Seek(it)) },
+                    onNext = { viewModel.command(AppCommand.SkipNext()) },
+                    onPrevious = { viewModel.command(AppCommand.SkipPrevious()) },
+                    onPlayQueueItem = { viewModel.command(AppCommand.PlayQueueItem(it)) },
+                    onShuffle = { viewModel.command(AppCommand.ShuffleQueue) },
+                    onRepeat = { viewModel.command(AppCommand.SetRepeat(it)) },
+                    onChooseFiles = {
+                        importToRoom = true
+                        filesLauncher.launch(arrayOf("audio/*"))
+                    },
+                    onImportM3u = {
+                        importToRoom = true
+                        m3uLauncher.launch(M3U_TYPES)
+                    },
+                    onSelectAllTracks = viewModel::loadRoomTrackIds,
+                    onAddLibrarySelectionToRoom = viewModel::addLibrarySelectionToRoom,
+                    onRemoveQueueItem = { viewModel.command(AppCommand.RemoveQueueItem(it)) },
+                    onMoveQueueItem = { item, index ->
+                        viewModel.command(AppCommand.MoveQueueItem(item, index))
+                    },
+                    onMoveQueueItemNext = { viewModel.command(AppCommand.MoveQueueItemNext(it)) },
+                    onKeepTrack = viewModel::keepTrack,
+                    onUpdateOptions = { viewModel.command(AppCommand.UpdateRoomOptions(it)) },
+                    onSetRetentionPolicy = viewModel::setRetentionPolicy,
+                    onSaveQueue = { name ->
+                        val ids = ui.room.snapshot?.queue?.map { it.track.trackId }.orEmpty()
+                        if (ids.isNotEmpty()) viewModel.createPlaylist(name, ids)
+                    },
+                    onClearPlayed = { viewModel.command(AppCommand.ClearPlayed) },
+                    onClearQueue = { viewModel.command(AppCommand.ClearQueue) },
+                    onLeave = { viewModel.command(AppCommand.LeaveRoom) },
+                    onRetryIssue = viewModel::retryRoomIssue,
+                    onDismissIssue = viewModel::clearRoomError,
+                )
             }
+
             if (ui.busy) {
                 OperationBanner(
                     progress = ui.importProgress,
                     onCancel = viewModel::cancelImport,
                     modifier = Modifier.align(Alignment.TopCenter),
                 )
+            }
+        }
+    }
+
+    ui.selectedPlaylist?.let { playlist ->
+        val pickerQuery by viewModel.pickerQuery.collectAsStateWithLifecycle()
+        val pickerTracks = viewModel.pickerTracks.collectAsLazyPagingItems()
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
+            onDismissRequest = viewModel::closePlaylist,
+            sheetState = sheetState,
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        playlist.name,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = viewModel::closePlaylist) {
+                        Icon(Icons.Default.Close, "Close playlist")
+                    }
+                }
+                Box(Modifier.weight(1f)) {
+                    PlaylistDetailScreen(
+                        detail = playlist,
+                        pickerTracks = pickerTracks,
+                        pickerQuery = pickerQuery,
+                        onPickerQueryChange = viewModel::setPickerQuery,
+                        roomActive = ui.room.snapshot != null,
+                        onRename = { viewModel.renamePlaylist(playlist.playlistId, it) },
+                        onMoveTrack = { from, to ->
+                            viewModel.movePlaylistTrack(playlist.playlistId, from, to)
+                        },
+                        onRemoveTracks = { indices ->
+                            viewModel.removePlaylistTracks(playlist.playlistId, indices)
+                        },
+                        onAddTracks = { viewModel.addTracksToPlaylist(playlist.playlistId, it) },
+                        onAddToRoom = { viewModel.addPlaylistToRoom(playlist.playlistId) },
+                        onAddTracksToRoom = viewModel::addTracksToRoom,
+                        onSelectAll = viewModel::loadTrackIds,
+                        onExport = { startPlaylistExport(playlist.playlistId, playlist.name) },
+                        onDelete = { viewModel.deletePlaylist(playlist.playlistId) },
+                    )
+                }
             }
         }
     }
