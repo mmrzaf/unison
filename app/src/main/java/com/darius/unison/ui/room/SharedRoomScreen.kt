@@ -65,10 +65,10 @@ import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportAction
 import com.darius.unison.room.QueueDragPolicy
 import com.darius.unison.storage.PlaylistSummary
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import kotlin.math.abs
 
 /**
  * The complete in-room experience. Room identity, code, participants and the canonical player are
@@ -140,12 +140,14 @@ internal fun SharedRoomScreen(
             )
         }
     val displayedPlaying = transportControls.displayedPlaying
-    var optimisticAction by remember(snapshot.roomId) {
-        mutableStateOf<TransportAction?>(null)
-    }
-    var optimisticQueueItemId by remember(snapshot.roomId) {
-        mutableStateOf<QueueItemId?>(null)
-    }
+    var optimisticAction by
+        remember(snapshot.roomId) {
+            mutableStateOf<TransportAction?>(null)
+        }
+    var optimisticQueueItemId by
+        remember(snapshot.roomId) {
+            mutableStateOf<QueueItemId?>(null)
+        }
     val canonicalActiveStatus = transportStatus?.takeIf { it.active }
     val feedbackAction = canonicalActiveStatus?.action ?: optimisticAction
     val feedbackQueueItemId = canonicalActiveStatus?.queueItemId ?: optimisticQueueItemId
@@ -184,10 +186,18 @@ internal fun SharedRoomScreen(
         }
     }
     val requestPrevious = {
-        submitTransport(TransportAction.PREVIOUS, transportControls.canNavigate, onPrevious)
+        submitTransport(
+            action = TransportAction.PREVIOUS,
+            enabled = transportControls.canNavigate,
+            command = onPrevious,
+        )
     }
     val requestNext = {
-        submitTransport(TransportAction.NEXT, transportControls.canNavigate, onNext)
+        submitTransport(
+            action = TransportAction.NEXT,
+            enabled = transportControls.canNavigate,
+            command = onNext,
+        )
     }
     val requestQueueItem: (QueueItemId) -> Unit = { itemId ->
         submitTransport(
@@ -232,12 +242,13 @@ internal fun SharedRoomScreen(
         remember(snapshot.queue, queueQuery) {
             val query = queueQuery.trim()
             if (query.isEmpty()) snapshot.queue.withIndex().toList()
-            else snapshot.queue.withIndex().filter { indexed ->
-                val track = indexed.value.track
-                track.displayTitle.contains(query, ignoreCase = true) ||
-                    track.artist?.contains(query, ignoreCase = true) == true ||
-                    track.album?.contains(query, ignoreCase = true) == true
-            }
+            else
+                snapshot.queue.withIndex().filter { indexed ->
+                    val track = indexed.value.track
+                    track.displayTitle.contains(query, ignoreCase = true) ||
+                        track.artist?.contains(query, ignoreCase = true) == true ||
+                        track.album?.contains(query, ignoreCase = true) == true
+                }
         }
 
     fun openAddMusic() {
@@ -385,7 +396,10 @@ internal fun SharedRoomScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Clear played songs") },
-                                enabled = snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId } > 0,
+                                enabled =
+                                    snapshot.queue.indexOfFirst {
+                                        it.queueItemId == snapshot.playback.queueItemId
+                                    } > 0,
                                 onClick = {
                                     roomMenu = false
                                     onClearPlayed()
@@ -480,7 +494,8 @@ internal fun SharedRoomScreen(
                             ) {
                                 TransportControlButton(
                                     active = feedbackAction == TransportAction.PREVIOUS,
-                                    enabled = transportControls.canNavigate && optimisticAction == null,
+                                    enabled =
+                                        transportControls.canNavigate && optimisticAction == null,
                                     onClick = requestPrevious,
                                     contentDescription = "Previous",
                                 ) {
@@ -488,13 +503,17 @@ internal fun SharedRoomScreen(
                                 }
                                 TransportPlayPauseButton(
                                     isPlaying = displayedPlaying,
-                                    pending = feedbackAction == TransportAction.PLAY || feedbackAction == TransportAction.PAUSE,
-                                    enabled = transportControls.canPlayPause && optimisticAction == null,
+                                    pending =
+                                        feedbackAction == TransportAction.PLAY ||
+                                            feedbackAction == TransportAction.PAUSE,
+                                    enabled =
+                                        transportControls.canPlayPause && optimisticAction == null,
                                     onClick = requestPlayPause,
                                 )
                                 TransportControlButton(
                                     active = feedbackAction == TransportAction.NEXT,
-                                    enabled = transportControls.canNavigate && optimisticAction == null,
+                                    enabled =
+                                        transportControls.canNavigate && optimisticAction == null,
                                     onClick = requestNext,
                                     contentDescription = "Next",
                                 ) {
@@ -502,7 +521,9 @@ internal fun SharedRoomScreen(
                                 }
                             }
                         } else if (snapshot.queue.isNotEmpty()) {
-                            TextButton(onClick = { requestQueueItem(snapshot.queue.first().queueItemId) }) {
+                            TextButton(
+                                onClick = { requestQueueItem(snapshot.queue.first().queueItemId) }
+                            ) {
                                 Text("Play first song")
                             }
                         }
@@ -553,7 +574,11 @@ internal fun SharedRoomScreen(
             item(key = "queue-title") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Up next", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Up next",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
                         Text(
                             if (queueQuery.isBlank()) {
                                 "${snapshot.queue.size} ${if (snapshot.queue.size == 1) "song" else "songs"}"
@@ -590,7 +615,8 @@ internal fun SharedRoomScreen(
                         )
                     }
                 else ->
-                    items(visibleQueue, key = { "queue:${it.value.queueItemId.value}" }) { indexed ->
+                    items(visibleQueue, key = { "queue:${it.value.queueItemId.value}" }) { indexed
+                        ->
                         val index = indexed.index
                         val item = indexed.value
                         QueueRow(
@@ -614,7 +640,8 @@ internal fun SharedRoomScreen(
                                 if (target != index) onMoveQueueItem(item.queueItemId, target)
                             },
                             onMove = { onMoveQueueItem(item.queueItemId, it) },
-                            playEnabled = transportControls.canSelectItem && optimisticAction == null,
+                            playEnabled =
+                                transportControls.canSelectItem && optimisticAction == null,
                             onPlay = { requestQueueItem(item.queueItemId) },
                             onMoveNext = { onMoveQueueItemNext(item.queueItemId) },
                             onRemove = { onRemoveQueueItem(item.queueItemId) },
