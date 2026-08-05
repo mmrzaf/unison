@@ -36,6 +36,7 @@ internal class ControlAdmissionController(
         val mode: ControlCredentialMode,
         val unwrapKey: ByteArray,
         val pinServerProofBase64: String? = null,
+        val serverNonce: String? = null,
     )
 
     private sealed interface ValidationResult {
@@ -48,7 +49,7 @@ internal class ControlAdmissionController(
     private val authenticationSlots = Semaphore(MAX_CONCURRENT_AUTHENTICATIONS)
 
     suspend fun admit(
-        hello: HandshakeMessage.ClientHello,
+        hello: HandshakeMessage.ControlHello,
         remoteAddress: String,
     ): PeerServer.ControlAdmission {
         val current =
@@ -62,20 +63,11 @@ internal class ControlAdmissionController(
             return rejected(HandshakeRejectionCode.RATE_LIMITED, it)
         }
 
-        return if (hello.pinPublicValueBase64 != null) {
-            beginPinAdmission(current, hello, remoteAddress, nowElapsedMs)
-        } else {
-            val credential = authenticateReconnect(current, hello)
-            if (credential == null) {
-                admissionGuard.recordFailure(remoteAddress, nowElapsedMs)
-                rejected(
-                    HandshakeRejectionCode.AUTHENTICATION_FAILED,
-                    AUTHENTICATION_FAILURE_REASON,
-                )
-            } else {
-                admissionGuard.recordSuccess(remoteAddress)
-                buildAccepted(hello, remoteAddress, credential)
-            }
+        return when (hello) {
+            is HandshakeMessage.PinClientHello ->
+                beginPinAdmission(current, hello, remoteAddress, nowElapsedMs)
+            is HandshakeMessage.ReconnectClientHello ->
+                beginReconnectAdmission(current, hello, remoteAddress)
         }
     }
 
@@ -84,7 +76,7 @@ internal class ControlAdmissionController(
     }
 
     private suspend fun validateRoomAndHello(
-        hello: HandshakeMessage.ClientHello,
+        hello: HandshakeMessage.ControlHello,
         remoteAddress: String,
     ): ValidationResult {
         val current =
@@ -102,7 +94,7 @@ internal class ControlAdmissionController(
                 rejected(HandshakeRejectionCode.WRONG_ROOM, "Wrong room")
             )
         }
-        if (PROTOCOL_VERSION !in hello.protocolVersions) {
+        if (hello.protocolVersion != PROTOCOL_VERSION) {
             return ValidationResult.Invalid(
                 rejected(HandshakeRejectionCode.PROTOCOL_MISMATCH, "App versions are incompatible")
             )
@@ -127,7 +119,7 @@ internal class ControlAdmissionController(
 
     private suspend fun beginPinAdmission(
         current: RoomSnapshot,
-        hello: HandshakeMessage.ClientHello,
+        hello: HandshakeMessage.PinClientHello,
         remoteAddress: String,
         startedAtElapsedMs: Long,
     ): PeerServer.ControlAdmission {
@@ -142,7 +134,7 @@ internal class ControlAdmissionController(
                                 peerId = hello.peerId.value,
                                 clientNonce = hello.clientNonce,
                                 pin = pin,
-                                clientPublicValueBase64 = hello.pinPublicValueBase64!!,
+                                clientPublicValueBase64 = hello.pinPublicValueBase64,
                             )
                         }
                         .getOrNull()
@@ -193,39 +185,70 @@ internal class ControlAdmissionController(
         )
     }
 
-    private suspend fun authenticateReconnect(
+    private suspend fun beginReconnectAdmission(
         current: RoomSnapshot,
-        hello: HandshakeMessage.ClientHello,
-    ): CredentialResult? =
-        withTimeoutOrNull(AUTHENTICATION_TIMEOUT_MS) {
-            authenticationSlots.withPermit {
-                val reconnectProof = hello.reconnectProof ?: return@withPermit null
-                val secret = roomSecret() ?: return@withPermit null
-                val expected =
-                    Crypto.reconnectProof(
-                        secret,
-                        current.roomId,
-                        hello.peerId.value,
-                        hello.clientNonce,
+        hello: HandshakeMessage.ReconnectClientHello,
+        remoteAddress: String,
+    ): PeerServer.ControlAdmission {
+        val secret =
+            roomSecret()
+                ?: return rejected(HandshakeRejectionCode.ROOM_INACTIVE, "Room is restarting")
+        val serverNonce = Crypto.randomBase64(18)
+        return PeerServer.ControlAdmission.ReconnectChallenge(
+            response = HandshakeMessage.ReconnectChallenge(serverNonce),
+            complete = { response ->
+                val credential =
+                    withTimeoutOrNull(AUTHENTICATION_TIMEOUT_MS) {
+                        authenticationSlots.withPermit {
+                            val activeSecret = roomSecret()
+                            if (
+                                activeSecret == null ||
+                                    !Crypto.constantTimeEquals(secret, activeSecret)
+                            ) {
+                                return@withPermit null
+                            }
+                            val expected =
+                                Crypto.reconnectProof(
+                                    secret,
+                                    current.roomId,
+                                    hello.peerId.value,
+                                    hello.clientNonce,
+                                    serverNonce,
+                                )
+                            if (!constantTimeStringEquals(expected, response.proofBase64)) {
+                                null
+                            } else {
+                                CredentialResult(
+                                    mode = ControlCredentialMode.RECONNECT,
+                                    unwrapKey =
+                                        Crypto.deriveReconnectKey(
+                                            secret,
+                                            current.roomId,
+                                            hello.peerId.value,
+                                            hello.clientNonce,
+                                            serverNonce,
+                                        ),
+                                    serverNonce = serverNonce,
+                                )
+                            }
+                        }
+                    }
+                if (credential == null) {
+                    admissionGuard.recordFailure(remoteAddress, elapsedRealtimeMs())
+                    rejected(
+                        HandshakeRejectionCode.AUTHENTICATION_FAILED,
+                        AUTHENTICATION_FAILURE_REASON,
                     )
-                if (!constantTimeStringEquals(expected, reconnectProof)) {
-                    null
                 } else {
-                    CredentialResult(
-                        ControlCredentialMode.RECONNECT,
-                        Crypto.deriveReconnectKey(
-                            secret,
-                            current.roomId,
-                            hello.peerId.value,
-                            hello.clientNonce,
-                        ),
-                    )
+                    admissionGuard.recordSuccess(remoteAddress)
+                    buildAccepted(hello, remoteAddress, credential)
                 }
-            }
-        }
+            },
+        )
+    }
 
     private suspend fun buildAccepted(
-        hello: HandshakeMessage.ClientHello,
+        hello: HandshakeMessage.ControlHello,
         remoteAddress: String,
         credential: CredentialResult,
     ): PeerServer.ControlAdmission {
@@ -248,7 +271,7 @@ internal class ControlAdmissionController(
             val secret =
                 roomSecret()
                     ?: return rejected(HandshakeRejectionCode.ROOM_INACTIVE, "Room is restarting")
-            val serverNonce = Crypto.randomBase64(18)
+            val serverNonce = credential.serverNonce ?: Crypto.randomBase64(18)
             val endpoint =
                 PeerEndpoint(
                     peerId = hello.peerId,
@@ -277,7 +300,7 @@ internal class ControlAdmissionController(
             encryptedSecret.iv.fill(0)
             val response =
                 HandshakeMessage.CoordinatorHello(
-                    acceptedVersion = PROTOCOL_VERSION,
+                    protocolVersion = PROTOCOL_VERSION,
                     term = current.term.number,
                     coordinatorPeerId = identity.peerId,
                     serverNonce = serverNonce,
@@ -302,7 +325,7 @@ internal class ControlAdmissionController(
         }
     }
 
-    private fun validateHello(hello: HandshakeMessage.ClientHello): String? =
+    private fun validateHello(hello: HandshakeMessage.ControlHello): String? =
         when {
             hello.peerId.value.length !in 16..128 ||
                 !HELLO_TOKEN_PATTERN.matches(hello.peerId.value) -> "Invalid peer identity"
@@ -310,8 +333,6 @@ internal class ControlAdmissionController(
                 "Invalid client metadata"
             hello.clientNonce.length !in 16..128 ||
                 !HELLO_TOKEN_PATTERN.matches(hello.clientNonce) -> "Invalid connection request"
-            listOfNotNull(hello.pinPublicValueBase64, hello.reconnectProof).size != 1 ->
-                "Exactly one control credential is required"
             hello.listeningPort !in 1..65535 -> "Invalid peer port"
             else -> null
         }

@@ -1,12 +1,12 @@
 package com.darius.unison.network
 
 import com.darius.unison.model.PeerEndpoint
-import com.darius.unison.protocol.ChannelType
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.FrameCodec
 import com.darius.unison.protocol.HandshakeCodec
 import com.darius.unison.protocol.HandshakeMessage
 import com.darius.unison.protocol.HandshakeRejectionCode
+import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.protocol.ProtocolException
 import com.darius.unison.util.DiagnosticLog
 import java.net.InetSocketAddress
@@ -29,13 +29,13 @@ class PeerServer(
 ) {
     interface Handler {
         suspend fun admitControl(
-            hello: HandshakeMessage.ClientHello,
+            hello: HandshakeMessage.ControlHello,
             remoteAddress: String,
         ): ControlAdmission
 
         suspend fun onControlConnected(connection: ControlConnection)
 
-        suspend fun onFileConnection(socket: Socket, hello: HandshakeMessage.ClientHello)
+        suspend fun onFileConnection(socket: Socket, hello: HandshakeMessage.FileClientHello)
     }
 
     sealed interface ControlAdmission {
@@ -52,6 +52,11 @@ class PeerServer(
         data class PinChallenge(
             val response: HandshakeMessage.PinChallenge,
             val complete: suspend (HandshakeMessage.PinResponse) -> ControlAdmission,
+        ) : ControlAdmission
+
+        data class ReconnectChallenge(
+            val response: HandshakeMessage.ReconnectChallenge,
+            val complete: suspend (HandshakeMessage.ReconnectResponse) -> ControlAdmission,
         ) : ControlAdmission
 
         data class Rejected(val reason: String, val code: HandshakeRejectionCode) : ControlAdmission
@@ -109,27 +114,41 @@ class PeerServer(
             return
         }
         try {
-            val message = HandshakeCodec.read(socket.getInputStream())
-            val hello =
-                message as? HandshakeMessage.ClientHello
-                    ?: throw ProtocolException("Expected client hello")
-            when (hello.channel) {
-                ChannelType.FILE -> handler.onFileConnection(socket, hello)
-                ChannelType.CONTROL -> {
-                    val initial = handler.admitControl(hello, remote.hostAddress ?: "")
-                    val admission =
-                        if (initial is ControlAdmission.PinChallenge) {
-                            HandshakeCodec.write(socket.getOutputStream(), initial.response)
-                            val response =
-                                HandshakeCodec.read(socket.getInputStream())
-                                    as? HandshakeMessage.PinResponse
-                                    ?: throw ProtocolException("Expected PIN response")
-                            initial.complete(response)
-                        } else {
-                            initial
-                        }
-                    finishControlAdmission(socket, hello, admission)
+            when (val message = HandshakeCodec.read(socket.getInputStream())) {
+                is HandshakeMessage.FileClientHello -> {
+                    if (rejectProtocolMismatch(socket, message.protocolVersion)) return
+                    handler.onFileConnection(socket, message)
                 }
+
+                is HandshakeMessage.ControlHello -> {
+                    if (rejectProtocolMismatch(socket, message.protocolVersion)) return
+                    val initial = handler.admitControl(message, remote.hostAddress ?: "")
+                    val admission =
+                        when (initial) {
+                            is ControlAdmission.PinChallenge -> {
+                                HandshakeCodec.write(socket.getOutputStream(), initial.response)
+                                val response =
+                                    HandshakeCodec.read(socket.getInputStream())
+                                        as? HandshakeMessage.PinResponse
+                                        ?: throw ProtocolException("Expected PIN response")
+                                initial.complete(response)
+                            }
+
+                            is ControlAdmission.ReconnectChallenge -> {
+                                HandshakeCodec.write(socket.getOutputStream(), initial.response)
+                                val response =
+                                    HandshakeCodec.read(socket.getInputStream())
+                                        as? HandshakeMessage.ReconnectResponse
+                                        ?: throw ProtocolException("Expected reconnect response")
+                                initial.complete(response)
+                            }
+
+                            else -> initial
+                        }
+                    finishControlAdmission(socket, message, admission)
+                }
+
+                else -> throw ProtocolException("Expected client hello")
             }
         } catch (cancelled: CancellationException) {
             runCatching { socket.close() }
@@ -140,9 +159,22 @@ class PeerServer(
         }
     }
 
+    private fun rejectProtocolMismatch(socket: Socket, version: Int): Boolean {
+        if (version == PROTOCOL_VERSION) return false
+        HandshakeCodec.write(
+            socket.getOutputStream(),
+            HandshakeMessage.Rejected(
+                reason = "App versions are incompatible",
+                code = HandshakeRejectionCode.PROTOCOL_MISMATCH,
+            ),
+        )
+        socket.close()
+        return true
+    }
+
     private suspend fun finishControlAdmission(
         socket: Socket,
-        hello: HandshakeMessage.ClientHello,
+        hello: HandshakeMessage.ControlHello,
         admission: ControlAdmission,
     ) {
         when (admission) {
@@ -155,6 +187,8 @@ class PeerServer(
             }
 
             is ControlAdmission.PinChallenge -> throw ProtocolException("Nested PIN challenge")
+            is ControlAdmission.ReconnectChallenge ->
+                throw ProtocolException("Nested reconnect challenge")
 
             is ControlAdmission.Accepted ->
                 try {

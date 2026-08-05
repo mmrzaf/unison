@@ -3,7 +3,6 @@ package com.darius.unison.network
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
-import com.darius.unison.protocol.ChannelType
 import com.darius.unison.protocol.ControlCredentialMode
 import com.darius.unison.protocol.Crypto
 import com.darius.unison.protocol.Envelope
@@ -104,30 +103,36 @@ class ControlClient(
                                 it.value,
                             )
                         }
-                    val hello =
-                        HandshakeMessage.ClientHello(
-                            channel = ChannelType.CONTROL,
-                            peerId = identity.peerId,
-                            displayName = identity.displayName,
-                            appVersion = appVersion,
-                            protocolVersions = listOf(PROTOCOL_VERSION),
-                            listeningPort = listeningPort,
-                            roomId = roomId,
-                            clientNonce = nonce,
-                            pinPublicValueBase64 = pinSession?.publicValueBase64,
-                            reconnectProof =
-                                (credential as? Credential.RoomSecret)?.let {
-                                    Crypto.reconnectProof(
-                                        it.value,
-                                        roomId,
-                                        identity.peerId.value,
-                                        nonce,
-                                    )
-                                },
-                        )
+                    val hello: HandshakeMessage.ControlHello =
+                        when (credential) {
+                            is Credential.Pin ->
+                                HandshakeMessage.PinClientHello(
+                                    peerId = identity.peerId,
+                                    displayName = identity.displayName,
+                                    appVersion = appVersion,
+                                    protocolVersion = PROTOCOL_VERSION,
+                                    listeningPort = listeningPort,
+                                    roomId = roomId,
+                                    clientNonce = nonce,
+                                    pinPublicValueBase64 =
+                                        checkNotNull(pinSession).publicValueBase64,
+                                )
+
+                            is Credential.RoomSecret ->
+                                HandshakeMessage.ReconnectClientHello(
+                                    peerId = identity.peerId,
+                                    displayName = identity.displayName,
+                                    appVersion = appVersion,
+                                    protocolVersion = PROTOCOL_VERSION,
+                                    listeningPort = listeningPort,
+                                    roomId = roomId,
+                                    clientNonce = nonce,
+                                )
+                        }
                     HandshakeCodec.write(socket.getOutputStream(), hello)
 
                     var pinAnswer: PinPake.ClientProof? = null
+                    var reconnectChallengeNonce: String? = null
                     val firstResponse = HandshakeCodec.read(socket.getInputStream())
                     val finalResponse =
                         when (firstResponse) {
@@ -152,6 +157,26 @@ class ControlClient(
                                 HandshakeCodec.read(socket.getInputStream())
                             }
 
+                            is HandshakeMessage.ReconnectChallenge -> {
+                                val secret =
+                                    (credential as? Credential.RoomSecret)?.value
+                                        ?: throw ProtocolException("Unexpected reconnect challenge")
+                                reconnectChallengeNonce = firstResponse.serverNonce
+                                val proof =
+                                    Crypto.reconnectProof(
+                                        secret,
+                                        roomId,
+                                        identity.peerId.value,
+                                        nonce,
+                                        firstResponse.serverNonce,
+                                    )
+                                HandshakeCodec.write(
+                                    socket.getOutputStream(),
+                                    HandshakeMessage.ReconnectResponse(proof),
+                                )
+                                HandshakeCodec.read(socket.getInputStream())
+                            }
+
                             else -> firstResponse
                         }
 
@@ -164,7 +189,7 @@ class ControlClient(
                                 )
 
                             is HandshakeMessage.CoordinatorHello -> {
-                                if (finalResponse.acceptedVersion != PROTOCOL_VERSION) {
+                                if (finalResponse.protocolVersion != PROTOCOL_VERSION) {
                                     throw ProtocolException("Protocol mismatch")
                                 }
                                 val unwrapKey =
@@ -202,11 +227,20 @@ class ControlClient(
                                         }
 
                                         is Credential.RoomSecret -> {
+                                            val challengeNonce =
+                                                reconnectChallengeNonce
+                                                    ?: throw ProtocolException(
+                                                        "Missing reconnect challenge"
+                                                    )
                                             if (
-                                                firstResponse is HandshakeMessage.PinChallenge ||
-                                                    pinAnswer != null
+                                                firstResponse !is
+                                                    HandshakeMessage.ReconnectChallenge ||
+                                                    pinAnswer != null ||
+                                                    finalResponse.serverNonce != challengeNonce
                                             ) {
-                                                throw ProtocolException("Unexpected PIN exchange")
+                                                throw ProtocolException(
+                                                    "Invalid reconnect transcript"
+                                                )
                                             }
                                             if (
                                                 finalResponse.credentialMode !=
@@ -221,6 +255,7 @@ class ControlClient(
                                                 roomId,
                                                 identity.peerId.value,
                                                 nonce,
+                                                challengeNonce,
                                             )
                                         }
                                     }

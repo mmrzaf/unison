@@ -34,7 +34,7 @@ internal object JoinRetryPolicy {
 
                 HandshakeRejectionCode.ROOM_INACTIVE,
                 HandshakeRejectionCode.COORDINATOR_MOVED,
-                HandshakeRejectionCode.UNKNOWN -> transientDecision(completedAttempts)
+                null -> transientDecision(completedAttempts)
 
                 HandshakeRejectionCode.AUTHENTICATION_FAILED,
                 HandshakeRejectionCode.WRONG_ROOM,

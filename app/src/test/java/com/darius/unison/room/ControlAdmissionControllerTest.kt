@@ -6,7 +6,6 @@ import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.network.PeerServer
-import com.darius.unison.protocol.ChannelType
 import com.darius.unison.protocol.Crypto
 import com.darius.unison.protocol.HandshakeMessage
 import com.darius.unison.protocol.PROTOCOL_VERSION
@@ -67,12 +66,11 @@ class ControlAdmissionControllerTest {
         val nonce = Crypto.randomBase64(18)
         val clientSession = PinPake.ClientSession.start(roomId, guest.value, nonce, pin)
         val hello =
-            HandshakeMessage.ClientHello(
-                channel = ChannelType.CONTROL,
+            HandshakeMessage.PinClientHello(
                 peerId = guest,
                 displayName = "Guest",
                 appVersion = "1.0.0",
-                protocolVersions = listOf(PROTOCOL_VERSION),
+                protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = roomId,
                 clientNonce = nonce,
@@ -108,12 +106,11 @@ class ControlAdmissionControllerTest {
         val nonce = Crypto.randomBase64(18)
         val clientSession = PinPake.ClientSession.start(roomId, guest.value, nonce, "9999")
         val hello =
-            HandshakeMessage.ClientHello(
-                channel = ChannelType.CONTROL,
+            HandshakeMessage.PinClientHello(
                 peerId = guest,
                 displayName = "Guest",
                 appVersion = "1.0.0",
-                protocolVersions = listOf(PROTOCOL_VERSION),
+                protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = roomId,
                 clientNonce = nonce,
@@ -138,12 +135,11 @@ class ControlAdmissionControllerTest {
     @Test
     fun malformedHelloIsRejectedBeforeAuthentication() = runBlocking {
         val hello =
-            HandshakeMessage.ClientHello(
-                channel = ChannelType.CONTROL,
+            HandshakeMessage.PinClientHello(
                 peerId = PeerId("short"),
                 displayName = "Guest",
                 appVersion = "1.0.0",
-                protocolVersions = listOf(PROTOCOL_VERSION),
+                protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = roomId,
                 clientNonce = Crypto.randomBase64(18),
@@ -152,5 +148,65 @@ class ControlAdmissionControllerTest {
         val result =
             controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.Rejected
         assertEquals("Invalid peer identity", result.reason)
+    }
+
+    @Test
+    fun reconnectRequiresFreshServerChallenge() = runBlocking {
+        val nonce = Crypto.randomBase64(18)
+        val hello =
+            HandshakeMessage.ReconnectClientHello(
+                peerId = guest,
+                displayName = "Guest",
+                appVersion = "1.0.0",
+                protocolVersion = PROTOCOL_VERSION,
+                listeningPort = 4321,
+                roomId = roomId,
+                clientNonce = nonce,
+            )
+        val first =
+            controller().admit(hello, "192.168.1.2")
+                as PeerServer.ControlAdmission.ReconnectChallenge
+        val capturedProof =
+            Crypto.reconnectProof(
+                secret,
+                roomId,
+                guest.value,
+                nonce,
+                first.response.serverNonce,
+            )
+        val accepted =
+            first.complete(HandshakeMessage.ReconnectResponse(capturedProof))
+                as PeerServer.ControlAdmission.Accepted
+        assertEquals(first.response.serverNonce, accepted.response.serverNonce)
+
+        // Even after replay bookkeeping is gone, a captured response cannot answer a new challenge.
+        val replay =
+            controller().admit(hello, "192.168.1.2")
+                as PeerServer.ControlAdmission.ReconnectChallenge
+        val rejected = replay.complete(HandshakeMessage.ReconnectResponse(capturedProof))
+        assertTrue(rejected is PeerServer.ControlAdmission.Rejected)
+        accepted.serverWriteKey.fill(0)
+        accepted.serverReadKey.fill(0)
+    }
+
+    @Test
+    fun mismatchedProtocolIsRejectedBeforeAuthentication() = runBlocking {
+        val hello =
+            HandshakeMessage.ReconnectClientHello(
+                peerId = guest,
+                displayName = "Guest",
+                appVersion = "1.0.0",
+                protocolVersion = PROTOCOL_VERSION + 1,
+                listeningPort = 4321,
+                roomId = roomId,
+                clientNonce = Crypto.randomBase64(18),
+            )
+
+        val result =
+            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.Rejected
+        assertEquals(
+            com.darius.unison.protocol.HandshakeRejectionCode.PROTOCOL_MISMATCH,
+            result.code,
+        )
     }
 }
