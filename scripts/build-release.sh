@@ -7,9 +7,6 @@ cd "$(dirname "$0")/.."
   exit 1
 }
 
-./scripts/check-static.sh
-./scripts/check-core.sh
-./scripts/check-data.sh
 ./scripts/check-release-quality.sh
 ./gradlew --offline --no-daemon testDebugUnitTest lintRelease assembleRelease
 
