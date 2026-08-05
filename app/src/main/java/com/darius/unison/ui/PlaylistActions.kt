@@ -7,6 +7,7 @@ import com.darius.unison.library.M3uCodec
 import com.darius.unison.library.M3uEntry
 import com.darius.unison.library.PlaylistDetail
 import com.darius.unison.model.TrackId
+import com.darius.unison.room.RoomReducer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -129,6 +130,51 @@ internal class PlaylistActions(
                     }
                 }
                 .onFailure { message.value = "Could not open playlist" }
+        }
+    }
+
+    fun addSelectionToRoom(
+        includeAllMusic: Boolean,
+        playlistIds: List<String>,
+        trackIds: List<TrackId>,
+    ) {
+        if (!includeAllMusic && playlistIds.isEmpty() && trackIds.isEmpty()) {
+            message.value = "Choose music to add"
+            return
+        }
+        val queueSize = container.roomStore.structure.value.snapshot?.queue?.size
+        if (queueSize == null) {
+            message.value = "Join or create a room first"
+            return
+        }
+        val availableSlots = (RoomReducer.MAX_QUEUE_ITEMS - queueSize).coerceAtLeast(0)
+        if (availableSlots == 0) {
+            message.value = "The room queue is full"
+            return
+        }
+        scope.launch {
+            withBusyOperation {
+                    userResult {
+                        val allMusicTracks =
+                            if (includeAllMusic) {
+                                container.trackRepository.libraryTrackIds("", availableSlots)
+                            } else {
+                                emptySet()
+                            }
+                        val details =
+                            playlistIds.distinct().mapNotNull { playlistId ->
+                                container.playlistRepository.get(playlistId)
+                            }
+                        QueueAddSelectionPolicy
+                            .merge(allMusicTracks, details, trackIds)
+                            .take(availableSlots)
+                    }
+                }
+                .onSuccess { selectedTracks ->
+                    if (selectedTracks.isEmpty()) message.value = "The selected music is empty"
+                    else addTracksToRoom(selectedTracks)
+                }
+                .onFailure { message.value = "Could not add this music" }
         }
     }
 

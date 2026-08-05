@@ -33,6 +33,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,6 +41,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import com.darius.unison.library.PlaylistDetail
@@ -77,10 +80,17 @@ internal fun PlaylistDetailScreen(
     var name by remember(detail.name) { mutableStateOf(detail.name) }
     var addSongs by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<TrackId>()) }
+    var stablePickerTracks by remember { mutableStateOf(pickerTracks.itemSnapshotList.items) }
+    val pickerSnapshot = pickerTracks.itemSnapshotList.items
+    val pickerRefreshState = pickerTracks.loadState.refresh
     var selectingPlaylist by rememberSaveable(detail.playlistId) { mutableStateOf(false) }
     var selectedIndices by remember(detail.playlistId) { mutableStateOf(setOf<Int>()) }
     var confirmDelete by remember { mutableStateOf(false) }
 
+
+    LaunchedEffect(pickerSnapshot, pickerRefreshState) {
+        if (pickerRefreshState !is LoadState.Loading) stablePickerTracks = pickerSnapshot
+    }
     Column(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -176,7 +186,7 @@ internal fun PlaylistDetailScreen(
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
                                 Spacer(Modifier.width(6.dp))
-                                Text("Add to room")
+                                Text("Add to queue")
                             }
                         }
                         OutlinedButton(
@@ -216,7 +226,7 @@ internal fun PlaylistDetailScreen(
                         ) {
                             Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null)
                             Spacer(Modifier.width(6.dp))
-                            Text("Add to room")
+                            Text("Add to queue")
                         }
                     }
                 }
@@ -343,30 +353,32 @@ internal fun PlaylistDetailScreen(
                             Text("Select all")
                         }
                     }
+                    if (pickerRefreshState is LoadState.Loading && stablePickerTracks.isNotEmpty()) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
                     LazyColumn(Modifier.heightIn(max = 300.dp)) {
-                        items(
-                            count = pickerTracks.itemCount,
-                            key = pickerTracks.itemKey { it.trackId.value },
-                        ) { index ->
-                            pickerTracks[index]?.let { track ->
-                                Row(
-                                    Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Checkbox(
-                                        checked = track.trackId in selected,
-                                        onCheckedChange = { checked ->
-                                            selected =
-                                                if (checked) selected + track.trackId
-                                                else selected - track.trackId
-                                        },
-                                    )
-                                    Text(
-                                        track.displayTitle,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
+                        items(stablePickerTracks, key = { it.trackId.value }) { track ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable {
+                                    selected =
+                                        if (track.trackId in selected) selected - track.trackId
+                                        else selected + track.trackId
+                                },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = track.trackId in selected,
+                                    onCheckedChange = { checked ->
+                                        selected =
+                                            if (checked) selected + track.trackId
+                                            else selected - track.trackId
+                                    },
+                                )
+                                Text(
+                                    track.displayTitle,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
                             }
                         }
                     }
