@@ -130,9 +130,12 @@ object Crypto {
         roomId: String,
         peerId: String,
         clientNonce: String,
+        serverNonce: String,
     ): String {
-        val key = deriveReconnectKey(roomSecret, roomId, peerId, clientNonce)
-        val transcript = "unison-reconnect-proof:$roomId:$peerId:$clientNonce".encodeToByteArray()
+        val key = deriveReconnectKey(roomSecret, roomId, peerId, clientNonce, serverNonce)
+        val transcript =
+            "unison-reconnect-proof-v1:$roomId:$peerId:$clientNonce:$serverNonce:$PROTOCOL_VERSION"
+                .encodeToByteArray()
         return try {
             val proof = hmacSha256(key, transcript)
             try {
@@ -151,8 +154,10 @@ object Crypto {
         roomId: String,
         peerId: String,
         clientNonce: String,
+        serverNonce: String,
     ): ByteArray {
-        val saltInput = "unison-reconnect-salt:$roomId:$peerId:$clientNonce".encodeToByteArray()
+        val saltInput =
+            "unison-reconnect-salt-v1:$roomId:$peerId:$clientNonce:$serverNonce".encodeToByteArray()
         val salt =
             try {
                 sha256(saltInput)
@@ -334,13 +339,36 @@ object Crypto {
         plaintext: ByteArray,
         iv: ByteArray,
         associatedData: ByteArray,
+    ): ByteArray =
+        encryptAesGcm(
+            key = key,
+            plaintext = plaintext,
+            plaintextOffset = 0,
+            plaintextLength = plaintext.size,
+            iv = iv,
+            associatedData = associatedData,
+        )
+
+    fun encryptAesGcm(
+        key: ByteArray,
+        plaintext: ByteArray,
+        plaintextOffset: Int,
+        plaintextLength: Int,
+        iv: ByteArray,
+        associatedData: ByteArray,
     ): ByteArray {
         requireAesKey(key)
         require(iv.size == 12) { "Invalid AES-GCM IV" }
+        require(
+            plaintextOffset in 0..plaintext.size &&
+                plaintextLength in 0..(plaintext.size - plaintextOffset)
+        ) {
+            "Invalid AES-GCM plaintext range"
+        }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(128, iv))
         cipher.updateAAD(associatedData)
-        return cipher.doFinal(plaintext)
+        return cipher.doFinal(plaintext, plaintextOffset, plaintextLength)
     }
 
     fun decryptAesGcm(

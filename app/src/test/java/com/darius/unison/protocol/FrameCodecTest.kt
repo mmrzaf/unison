@@ -15,6 +15,7 @@ class FrameCodecTest {
         val codec = FrameCodec(key, "room")
         val envelope =
             Envelope(
+                protocolVersion = PROTOCOL_VERSION,
                 roomId = "room",
                 term = 1,
                 senderPeerId = PeerId("peer"),
@@ -33,6 +34,7 @@ class FrameCodecTest {
         val codec = FrameCodec(key, "room")
         val envelope =
             Envelope(
+                protocolVersion = PROTOCOL_VERSION,
                 roomId = "room",
                 term = 1,
                 senderPeerId = PeerId("peer"),
@@ -50,6 +52,7 @@ class FrameCodecTest {
         val codec = FrameCodec(Crypto.randomBytes(32), "accepted-room")
         val envelope =
             Envelope(
+                protocolVersion = PROTOCOL_VERSION,
                 roomId = "",
                 term = 0,
                 senderPeerId = PeerId("peer"),

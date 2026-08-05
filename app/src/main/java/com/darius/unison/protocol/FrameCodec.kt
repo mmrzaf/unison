@@ -39,7 +39,6 @@ class FrameCodec(
     fun write(
         output: OutputStream,
         envelope: Envelope,
-        channelType: ChannelType = ChannelType.CONTROL,
     ) {
         require(envelope.protocolVersion == PROTOCOL_VERSION)
         if (expectedRoomId != null) require(envelope.roomId == expectedRoomId)
@@ -54,7 +53,6 @@ class FrameCodec(
                     .apply {
                         put(MAGIC)
                         putShort(PROTOCOL_VERSION.toShort())
-                        put(channelType.ordinal.toByte())
                         put(FLAG_ENCRYPTED)
                         putInt(encryptedLength)
                         putLong(messageUuid.mostSignificantBits)
@@ -89,9 +87,6 @@ class FrameCodec(
         val version = buffer.short.toInt() and 0xffff
         if (version != PROTOCOL_VERSION)
             throw ProtocolException("Unsupported protocol version $version")
-        val channel = buffer.get().toInt() and 0xff
-        if (channel != ChannelType.CONTROL.ordinal)
-            throw ProtocolException("Unexpected channel $channel")
         val flags = buffer.get()
         if (flags != FLAG_ENCRYPTED) throw ProtocolException("Unsupported frame flags")
         val encryptedLength = buffer.int
@@ -140,7 +135,7 @@ class FrameCodec(
     }
 
     companion object {
-        private const val HEADER_BYTES = 28
+        private const val HEADER_BYTES = 27
         private const val GCM_IV_BYTES = 12
         private const val GCM_TAG_BYTES = 16
         private const val MAX_ENCRYPTED_CONTROL_PAYLOAD_BYTES =

@@ -28,16 +28,20 @@ class CryptoTest {
     }
 
     @Test
-    fun reconnectCredentialIsPeerAndNonceBound() {
+    fun reconnectCredentialIsBoundToBothPeersFreshNonces() {
         val secret = ByteArray(32) { (it * 7).toByte() }
-        val first = Crypto.reconnectProof(secret, "room", "peer-a", "nonce-one")
-        val same = Crypto.reconnectProof(secret, "room", "peer-a", "nonce-one")
-        val otherPeer = Crypto.reconnectProof(secret, "room", "peer-b", "nonce-one")
-        val otherNonce = Crypto.reconnectProof(secret, "room", "peer-a", "nonce-two")
+        val first = Crypto.reconnectProof(secret, "room", "peer-a", "client-one", "server-one")
+        val same = Crypto.reconnectProof(secret, "room", "peer-a", "client-one", "server-one")
+        val otherPeer = Crypto.reconnectProof(secret, "room", "peer-b", "client-one", "server-one")
+        val otherClientNonce =
+            Crypto.reconnectProof(secret, "room", "peer-a", "client-two", "server-one")
+        val otherServerNonce =
+            Crypto.reconnectProof(secret, "room", "peer-a", "client-one", "server-two")
 
         assertEquals(first, same)
         assertFalse(first == otherPeer)
-        assertFalse(first == otherNonce)
+        assertFalse(first == otherClientNonce)
+        assertFalse(first == otherServerNonce)
     }
 
     @Test

@@ -17,6 +17,7 @@ class EnvelopeReplayProtectorTest {
         body: ProtocolBody = ProtocolBody.Heartbeat(0),
     ) =
         Envelope(
+            protocolVersion = com.darius.unison.protocol.PROTOCOL_VERSION,
             roomId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             term = term,
             coordinatorPeerId = peer,
