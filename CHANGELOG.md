@@ -2,27 +2,15 @@
 
 ## 1.0.0
 
-Unified production foundation:
+First production baseline.
 
-- consolidated application versioning at `1.0.0` / code 1;
-- reset the development baseline to wire protocol 1 and Room database schema 1; future schema changes migrate from version 1;
-- removed hosted release/store automation, host-specific, and automatic JDK-download configuration;
-- standardized APK-only local signing and offline build commands;
-- hardened content-addressed storage against same-size corruption;
-- bounded playlist files, lines, entries, room commands, metadata, and inbound connections;
-- tightened local invitation validation and transfer authorization consumption;
-- removed pending admission state leaks and bounded cleanup retries;
-- retained only local LAN/hotspot networking with no remote service integration;
-- expanded offline core validation coverage;
-- hardened navigation, room-code failures, overlapping operation state, and cancellation handling;
-- added connection and peer-transfer feedback plus confirmations for destructive actions;
-- preserved file-picker intent across Activity recreation and improved long-track/unknown-duration
-  playback UI;
-- made nearby-room discovery an explicit bounded scan with isolated listener/resolution lifecycles;
-- added duplicate-installation identity recovery, bounded join retries, and terminal reconnect cleanup;
-- removed music-thumbnail extraction, image caching, image workers, and image UI; Android system
-  media controls use one fixed dark Unison brand tile for reliable contrast;
-- consolidated playback recovery around persistent play intent, drift correction, seek cooldown, and
-  emergency recovery;
-- separated short operations from active room sessions and added source sanity checks plus expanded
-  deterministic coverage.
+- Two continuous application surfaces: Home and Room.
+- Shared queue, room-wide transport controls, playlists, local imports, and nearby discovery.
+- Canonical queue and playback revisions with stale-work rejection and automatic peer repair.
+- Fresh reconnect challenge and transcript-bound authentication.
+- Strict wire protocol 1 with no negotiation or fallback message shapes.
+- Fresh Room schema 1 with no migrations or persisted room-session compatibility.
+- SHA-256 content-addressed storage and authenticated resumable peer transfer.
+- Bounded command, queue, metadata, socket, import, and transfer inputs.
+- Media3 system controls routed through synchronized room commands.
+- Local-only networking, no account, cloud service, telemetry, advertising, or billing.

@@ -1,63 +1,66 @@
 # Unison 1.0.0
 
-Unison is a fully local Android application for synchronized music playback with nearby friends.
-Every phone plays a verified local copy. Room commands, clock synchronization, and authorized audio
-transfers stay on the private LAN or Android LocalOnlyHotspot.
+Unison is a local-first Android app for synchronized music playback with nearby people. Each phone
+plays a verified local copy of the same track while one room timeline orders queue and playback
+intent over private Wi-Fi or Android LocalOnlyHotspot.
 
-## Product foundation
+## Product contract
 
 - Application ID: `com.darius.unison`
 - Version: `1.0.0` (`versionCode` 1)
-- Android 11–13 runtime support (`minSdk 30`, `targetSdk 33`)
-- No account, cloud backend, telemetry, advertising, hosted API, or store runtime
-- No Google Play Services, Firebase, Play Billing, Play Asset Delivery, or dynamic delivery
-- APK-only local distribution and local signing
-- Content-addressed SHA-256 audio library with resumable peer transfer
-- Shared queue, transport controls, shuffle, repeat, clock sync, and drift correction
-- Manual nearby-room search: each Find rooms tap performs one bounded eight-second scan
-- Text-only track metadata with no thumbnail extraction, image cache, or image worker; system media
-  controls receive one fixed Unison brand tile
-- File picker, share sheet, playlists, and bounded M3U/M3U8 import/export
+- Wire protocol: 1 only
+- Room database schema: 1 only
+- Runtime support: Android 11–13 (`minSdk 30`, `targetSdk 33`)
+- No account, cloud backend, analytics, advertising, billing, hosted API, or app-store runtime
+- No compatibility handshake, protocol negotiation, database migration, or persisted room session
+- Public addresses and DNS joins are rejected
+- Audio is identified by SHA-256 and committed only after full verification
 
-Android's `INTERNET` permission is intentionally retained because Android requires it for raw TCP
-sockets, including private LAN sockets. Unison rejects public addresses and contains no remote
-endpoint.
+This repository is the first production baseline. Pre-release installations are intentionally not a
+supported upgrade source; install 1.0.0 cleanly.
+
+## Experience
+
+Unison has two primary surfaces:
+
+1. **Home:** create a room, join a nearby room, search and manage the local library, playlists, and
+   imports in one continuous screen.
+2. **Room:** view the four-digit code, shared player, listeners, and queue in one continuous screen.
+
+The visible player always represents canonical room intent. Local recovery state never replaces the
+room's official song or play/pause state.
 
 ## Build locally
 
 Prerequisites:
 
 - JDK 21
-- Android SDK 36 and compatible build tools (compile-time only; runtime target remains Android 11–13)
-- Gradle distribution and Maven artifacts already present in the local Gradle cache
+- Android SDK 36 and compatible build tools
+- The pinned Gradle distribution and Maven dependencies already present locally
 
-Check that the machine is ready for a network-free build:
+Verify the offline toolchain and run the complete repository gate:
 
 ```bash
 ./scripts/verify-offline-ready.sh
+./scripts/check-release-quality.sh
 ```
 
-Build a debug APK:
+Build and install a debug APK:
 
 ```bash
 ./scripts/build-debug.sh
-```
-
-Install it directly:
-
-```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Signed local release
+## Signed release
 
-Create and securely back up one permanent local signing key:
+Create and securely back up one permanent signing key:
 
 ```bash
 ./scripts/create-release-key.sh
 ```
 
-Then build the release APK:
+Build the signed APK:
 
 ```bash
 ./scripts/build-release.sh
@@ -68,35 +71,22 @@ Outputs:
 - `app/build/outputs/apk/release/app-release.apk`
 - `app/build/outputs/release-SHA256SUMS.txt`
 
-Never commit `keystore.properties` or signing keys. Future local upgrades must use the same signing
-identity.
+Never commit `keystore.properties` or signing material.
 
-## Validation
-
-```bash
-./scripts/check-static.sh
-./scripts/check-core.sh
-./scripts/check-data.sh
-```
-
-The development baseline is Room schema 1, wire protocol 1, application version `1.0.0`, and Android
-`versionCode` 1. Future database changes must add explicit migrations from schema 1; protocol changes
-must deliberately increment protocol 1 rather than carrying pre-release fallback branches.
-
-## Structure
+## Source layout
 
 ```text
-app/        application container, settings, command bus
-library/    managed imports, library, playlists, M3U
-model/      domain and command models
-network/    local discovery, hotspot, sockets, address policy
-playback/   Media3 playback, media session, scheduler
-protocol/   framing, handshake, authentication, wire models
-room/       reducer, serialized engine, session runtime
-storage/    Room database, content-addressed files, cleanup
-sync/       monotonic clock and playback correction
-transfer/   authorized resumable peer transfer
-ui/         Compose UI and permission flow
+app/        application state, settings, command bus
+library/    imports, search, playlists, M3U handling
+model/      immutable room, queue, command, and UI models
+network/    NSD, hotspot, private-address policy, sockets
+playback/   Media3 integration and canonical playback application
+protocol/   protocol 1 messages, authentication, framing, crypto
+room/       reducer, serialized session actor, convergence policy
+storage/    Room schema 1 and content-addressed files
+sync/       monotonic clock mapping and bounded correction
+transfer/   authorized, resumable, authenticated peer transfer
+ui/         two-surface Compose interface
 ```
 
 ## Documentation
@@ -106,6 +96,6 @@ ui/         Compose UI and permission flow
 - [Security](docs/SECURITY.md)
 - [Privacy](docs/PRIVACY_POLICY.md)
 - [Testing](docs/TESTING.md)
+- [Release qualification](docs/RELEASE_QUALIFICATION.md)
+- [Physical-device qualification](docs/PHYSICAL_DEVICE_QUALIFICATION.md)
 - [Local release](docs/LOCAL_RELEASE.md)
-- [Validation status](docs/VALIDATION.md)
-- [Technical specification](docs/unison-technical-specification.md)
