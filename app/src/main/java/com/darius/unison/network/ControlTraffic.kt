@@ -22,7 +22,9 @@ object ControlTrafficClassifier {
             is ProtocolBody.Heartbeat,
             is ProtocolBody.AckSequence -> ControlTrafficClass.CLOCK
 
-            is ProtocolBody.PlaybackStateSync -> ControlTrafficClass.PLAYBACK_REFERENCE
+            is ProtocolBody.PlaybackStateSync ->
+                if (envelope.body.recovery) ControlTrafficClass.GUARANTEED
+                else ControlTrafficClass.PLAYBACK_REFERENCE
 
             is ProtocolBody.PlaybackStatusReport,
             is ProtocolBody.MemberPlaybackStatus -> ControlTrafficClass.TELEMETRY

@@ -14,6 +14,7 @@ class RoomMessageRouterTest {
 
     private fun envelope(body: ProtocolBody, sequence: Long?) =
         Envelope(
+            protocolVersion = com.darius.unison.protocol.PROTOCOL_VERSION,
             roomId = "room-1234",
             term = 1,
             coordinatorPeerId = local,

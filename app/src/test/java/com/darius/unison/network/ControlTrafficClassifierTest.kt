@@ -12,6 +12,7 @@ class ControlTrafficClassifierTest {
 
     private fun envelope(body: ProtocolBody, sequence: Long? = null) =
         Envelope(
+            protocolVersion = com.darius.unison.protocol.PROTOCOL_VERSION,
             roomId = "room",
             term = 1,
             coordinatorPeerId = peer,
@@ -40,7 +41,25 @@ class ControlTrafficClassifierTest {
             ControlTrafficClass.PLAYBACK_REFERENCE,
             ControlTrafficClassifier.classify(
                 envelope(
-                    ProtocolBody.PlaybackStateSync(com.darius.unison.model.CanonicalPlaybackState())
+                    ProtocolBody.PlaybackStateSync(
+                        playback = com.darius.unison.model.CanonicalPlaybackState(),
+                        canonicalSequence = 0,
+                        queueRevision = 0,
+                        recovery = false,
+                    )
+                )
+            ),
+        )
+        assertEquals(
+            ControlTrafficClass.GUARANTEED,
+            ControlTrafficClassifier.classify(
+                envelope(
+                    ProtocolBody.PlaybackStateSync(
+                        playback = com.darius.unison.model.CanonicalPlaybackState(),
+                        canonicalSequence = 0,
+                        queueRevision = 0,
+                        recovery = true,
+                    )
                 )
             ),
         )
@@ -51,7 +70,7 @@ class ControlTrafficClassifierTest {
         assertEquals(
             ControlTrafficClass.TELEMETRY,
             ControlTrafficClassifier.classify(
-                envelope(ProtocolBody.PlaybackStatusReport(null, 0, false, 0))
+                envelope(ProtocolBody.PlaybackStatusReport(null, 0, false, 0, 0, 0, 0))
             ),
         )
         assertEquals(
