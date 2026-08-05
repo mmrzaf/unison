@@ -1,60 +1,119 @@
-# Local room protocol
+# Protocol 1
 
-## Transport
+Protocol 1 is Unison 1.0.0's only wire contract. There is no version list, negotiation, fallback
+shape, or compatibility decoder. Unknown fields, missing required fields, invalid enum values, and a
+protocol value other than `1` are rejected.
 
-Unison uses separate TCP connections for control and file transfer. Android NSD advertises rooms on
-the local network. Users join a discovered room with the four-digit code displayed on the coordinator. Discovery does not grant admission. QR codes, invitation URLs,
-and deep-link credentials are not part of the product. Public addresses and DNS hostnames are
-rejected.
+## Network boundary
 
-## Control handshake
+Unison uses Android NSD to advertise rooms on the current private network. Discovered advertisements
+include room identity, display name, coordinator term, port, and protocol value. Discovery grants no
+access. Public addresses and DNS hostnames are rejected.
 
-A new client sends its supported protocol versions, peer identity, listening port, room ID, a fresh
-nonce, and an SRP-6a public value. The coordinator validates the request, reserves the nonce, applies
-rate limits, and returns a fresh SRP salt/public value/server nonce. The client returns its proof; the
-coordinator verifies it and returns a server proof plus the AES-GCM-wrapped random room secret.
+Control and file transfer use separate TCP connections. Every accepted input is length-bounded and
+time-bounded before expensive processing begins.
 
-Neither the four-digit code nor an offline-testable proof crosses the network. Reconnecting clients
-instead send a nonce-bound proof derived from the active room secret. Authentication work is bounded
-and timed out.
+## Handshake messages
 
-## Control frames
+The first message has one explicit purpose:
 
-Protocol 1 frames contain a fixed authenticated header, bounded encrypted length, message UUID, and
-a fresh AES-GCM nonce. The encrypted envelope contains room ID, coordinator term, sequence context,
-sender, monotonic timestamp, and a typed body. Invalid versions, sizes, flags, ciphertexts, senders,
-terms, sequences, expiries, room IDs, or message IDs fail closed.
+- `pin_client_hello`: first admission with peer identity, room identity, endpoint, nonce, and SRP-6a
+  public value;
+- `reconnect_client_hello`: reconnect request using the active room secret;
+- `file_client_hello`: one authorized transfer request.
 
-## Canonical queue and transport
+A coordinator never infers connection purpose from nullable fields.
 
-Peers submit commands; the coordinator serializes and validates them. Queue additions/removals are
-batched, Clear Queue is one atomic mutation, and the canonical queue never exceeds 1,000 items.
-Shuffle persists one deterministic shared upcoming order. Play Next is expressed relative to the
-canonical current item.
+### First admission
 
-Every transport command keeps its command ID through submission, coordinator acceptance, canonical
-scheduling, local execution, settlement, supersession, or rejection. Play/Pause and Seek are
-coalesced before canonical mutation so only the latest intent in each lane is ordered. Execution lead
-is adaptive and bounded from 150 to 1,200 milliseconds using connected-peer readiness, measured RTT,
-clock uncertainty, and reconnect state.
+1. The client sends `pin_client_hello` with a fresh nonce and SRP public value.
+2. The coordinator validates metadata, protocol, room, identity, limits, and nonce reuse.
+3. The coordinator returns a fresh SRP challenge.
+4. The client returns its proof.
+5. The coordinator verifies the proof and returns its proof plus the room secret encrypted under the
+   negotiated SRP session key.
 
-Pause never seeks. Play reuses an already aligned item without flushing the decoder. Next/Previous
-resolve to an absolute queue item; when that item is not ready, the current item keeps playing while
-the target receives priority preparation. A later navigation command replaces the prior target and
-cancels obsolete prefetch work unless a transfer is already near completion.
+The four-digit code itself never crosses the network and is not exposed as an offline-testable hash.
+
+### Reconnect
+
+1. The client sends `reconnect_client_hello` with a fresh client nonce.
+2. The coordinator returns a fresh server nonce.
+3. The client proves possession of the active room secret over the complete transcript.
+4. Only after proof verification does the coordinator accept or replace a control connection.
+
+A captured reconnect request or proof cannot authenticate a later connection.
+
+## Control framing
+
+Each control frame contains a fixed authenticated header, protocol value, flags, ciphertext length,
+message UUID, and fresh AES-GCM nonce. Direction-specific session keys prevent reflection between
+client-to-coordinator and coordinator-to-client traffic.
+
+The encrypted envelope contains:
+
+- protocol value;
+- room ID;
+- coordinator term;
+- sender peer ID;
+- sequence context;
+- monotonic timestamp;
+- typed body.
+
+Replay, duplicate message IDs, invalid sequence relationships, wrong room, wrong sender, invalid
+term, oversized payload, malformed ciphertext, and expired messages fail closed.
+
+## Canonical room state
+
+The coordinator serializes accepted commands through one room actor. Queue membership/order and
+playback intent have independent monotonic revisions.
+
+Peers report:
+
+- queue revision;
+- playback revision;
+- queue item ID;
+- desired play/pause state;
+- local player state and position.
+
+Repair order is deterministic:
+
+1. queue revision;
+2. playback revision;
+3. queue item identity;
+4. play/pause intent;
+5. position drift.
+
+Older revisions, delayed callbacks, and stale preparation results cannot overwrite newer state.
+
+## Song transitions
+
+Track selection is revision-bound. Each listener verifies or obtains the exact content-addressed
+track before applying canonical playback. Pending work carries session, queue, playback, and command
+identity; results that no longer match are discarded.
+
+Transport execution uses a bounded future coordinator timestamp. Play, pause, seek, previous, next,
+and queue selection remain correlated with their command ID through acceptance, scheduling,
+application, settlement, supersession, or failure.
 
 ## File transfer
 
-The coordinator issues a short-lived authorization through the encrypted control channel. The file
-socket sends only a derived authorization ID and completes a fresh client/server nonce challenge.
-Proofs bind room, track, request, source, destination, resume offset, and both nonces.
+The coordinator grants a short-lived single-use authorization through the encrypted control channel.
+The file connection uses a fresh nonce challenge whose proof binds:
 
-After atomic authorization consumption, peers derive a transfer-session key. The response header and
-every bounded 64 KiB chunk are independently AES-GCM protected with sequence and transfer context as
-associated data. The destination validates offset, order, final size, and SHA-256 before commit.
+- room;
+- track;
+- request;
+- source and destination;
+- resume offset;
+- both nonces.
 
-## Version contract
+After authorization is atomically consumed, both peers derive a transfer-session key. The response
+header and every bounded 64 KiB record are independently AES-GCM authenticated. The destination
+validates sequence, offset, size, and final SHA-256 before committing the file.
 
-Application 1.0.0 supports protocol 1 only. Incompatible framing or credential changes require an
-explicit protocol-version increase and end-to-end tests; speculative compatibility branches are not
-kept in the release tree.
+## Limits
+
+Important protocol limits are constants in source and are covered by tests. They include room
+membership, queue length, metadata length, frame length, audio size, inbound admissions,
+authentication concurrency, transfer records, and replay windows.

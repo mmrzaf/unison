@@ -1,60 +1,64 @@
 # Security model
 
-## Protected boundary
+## Boundary
 
-Unison is designed for nearby participants on a private Wi-Fi or Android LocalOnlyHotspot network.
-Protocol 1 provides confidentiality and integrity for control and file-transfer traffic, rejects
-public endpoints, bounds attacker-controlled inputs, and protects against replay and unauthenticated
-peer claims. It does not protect a room from a compromised device that has already joined.
+Unison protects room traffic between nearby devices on a private Wi-Fi network or Android
+LocalOnlyHotspot. It provides authentication, confidentiality, integrity, replay resistance, bounded
+resource use, and verified file identity. It does not protect a room from a device that has already
+joined and is itself compromised.
 
-## Four-digit admission
+## Admission
 
-The room code is exactly four digits and exists only on the active coordinator. It is never placed in
-canonical room state, persisted snapshots, logs, URLs, or control messages.
+The room credential is exactly four digits and remains on the coordinator device. First admission
+uses SRP-6a so the code and a reusable offline-testable password proof are not transmitted.
+Authentication attempts are rate-limited, concurrency-limited, and timed out.
 
-Initial joining uses a mutually authenticated SRP-6a exchange. A passively captured handshake does
-not provide an offline code verifier. The resulting temporary session key encrypts delivery of the
-random room secret, and both sides verify possession before accepting the connection. Because a
-four-digit code still permits active online guesses, admission also enforces:
+Reconnect uses a fresh coordinator challenge. Proof and session-key derivation bind room ID, peer ID,
+client nonce, and server nonce to the active random room secret. Connection replacement happens only
+after successful proof verification.
 
-- one-time client nonces with expiry;
-- per-address failure limits and temporary backoff;
-- a global failed-attempt budget;
-- bounded concurrent authentication work;
-- handshake timeouts and bounded encoded values.
+## Control traffic
 
-Reconnect proves possession of the active random room secret and does not reuse the four-digit code.
-A promoted coordinator generates a new code and room secret.
+- Protocol 1 uses strict decoding and exact version equality.
+- Direction-specific AES-GCM keys protect every control frame.
+- Headers and envelope context are authenticated.
+- Message UUIDs and sequence checks reject replay and reordering outside allowed semantics.
+- Room, term, sender, peer endpoint, size, timestamp, and metadata constraints fail closed.
+- The coordinator serializes canonical mutations; peers cannot directly mutate another peer's player.
 
-## Control and transfer protection
+## File transfer
 
-- AES-GCM protects room-secret delivery and all protocol 1 control frames.
-- Separate client-to-coordinator and coordinator-to-client keys prevent directional key reuse.
-- Protocol, room, sender, UUID, term, sequence, expiry, length, and metadata validation fail closed.
-- File-transfer authorizations are short-lived, destination-bound, offset-bound, and consumed only after
-  file and offset validation immediately before an accepted transfer begins.
-- File sockets use nonce-bound proofs; response headers and every bounded chunk use AES-GCM.
-- Managed and transferred audio is registered only after final size and SHA-256 verification.
-- Transfer cancellation closes owned sockets before cancelling coroutine work.
-- App-private storage is used; broad storage permission and Android backup are disabled.
-- Diagnostics sanitize recognizable codes, tokens, passphrases, secrets, and authorization headers.
+- Transfer requests require a short-lived, destination-bound, single-use authorization.
+- A fresh nonce challenge proves possession of the authorization secret.
+- The transfer header and every chunk are AES-GCM authenticated.
+- Resume offset, expected size, record sequence, and final SHA-256 are verified.
+- Files remain staged and invisible until complete verification and atomic commit.
+- Active playback, queue, import, cleanup, and transfer work use leases or operation locks.
 
-## Local application boundary
+## Storage
 
-The installed runtime contains no hosted service SDK, account system, analytics, advertising,
-remote endpoint, or store API. Cleartext HTTP is disabled; Android's `INTERNET` permission remains
-necessary for private raw TCP sockets. Media-session trust checks restrict external commands.
+Managed audio is stored in application-private content-addressed paths. Track identity is the
+lowercase SHA-256 digest of exact bytes. Imports and downloads write to staging files, verify size and
+digest, then atomically commit. Android backup is disabled.
 
-## Secret lifetime
+The Room database is schema 1. It contains library and playlist data only. Active room secrets,
+control keys, transfer keys, peer sockets, reconnect state, and canonical room sessions are memory
+only and are cleared when the session ends.
 
-Room secrets, SRP session keys, reconnect keys, transfer authorizations, directional frame keys, and
-transfer-session keys are scoped to their owner and zeroed where the JVM representation allows it. Encoded
-handshakes, decrypted control frames, transfer headers/chunks, HKDF inputs, proofs, nonces, and PAKE padding
-buffers are also cleared after their final use; immutable JVM strings remain outside deterministic wiping.
-Room state is not restored after process death. Transfer authorizations expire and are consumed once.
+## Network and platform controls
 
-## Remaining trust assumptions
+- No remote hostname or HTTP endpoint exists in production source.
+- Public IP addresses and DNS joins are rejected.
+- Cleartext Android network traffic is disabled.
+- Media-session controllers must be trusted by Android before receiving transport capability.
+- Exported components are limited to the launcher/share activity and MediaSessionService contract.
+- Diagnostics are bounded and sanitized; secrets, proofs, file contents, and raw credentials are not
+  logged.
 
-A joined device can disrupt collaborative playback or redistribute audio it legitimately receives.
-Bluetooth latency and device codec behavior are hardware-dependent and cannot be cryptographically
-corrected by the room protocol.
+## Out of scope
+
+- malicious code running on an admitted phone;
+- a user intentionally sharing the four-digit code;
+- operating-system compromise;
+- traffic analysis such as observing that local devices are communicating;
+- availability against a local attacker able to jam or disconnect the network.
