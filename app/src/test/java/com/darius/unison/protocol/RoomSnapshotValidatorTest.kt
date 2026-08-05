@@ -162,6 +162,19 @@ class RoomSnapshotValidatorTest {
     }
 
     @Test
+    fun rejectsQueueAndPlaybackRevisionsAheadOfSequence() {
+        val invalid =
+            validSnapshot()
+                .copy(
+                    queueRevision = 2,
+                    playback = validSnapshot().playback.copy(revision = 3),
+                )
+        val result = validator.validate(invalid) as SnapshotValidationResult.Invalid
+        assertTrue(result.issues.any { it.code == "queue_revision" })
+        assertTrue(result.issues.any { it.code == "playback_revision" })
+    }
+
+    @Test
     fun rejectsControlCharactersAndExcessMembers() {
         val base = validSnapshot()
         val extraMembers =

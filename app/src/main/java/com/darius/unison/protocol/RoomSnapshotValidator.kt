@@ -36,6 +36,9 @@ class RoomSnapshotValidator(
         if (!snapshot.term.coordinatorPeerId.isValidPeerId())
             reject("coordinator", "Invalid coordinator identity")
         if (snapshot.sequence < 0) reject("sequence", "Sequence must not be negative")
+        if (snapshot.queueRevision !in 0..snapshot.sequence) {
+            reject("queue_revision", "Queue revision is outside the canonical sequence")
+        }
         context.expectedRoomId?.let {
             if (snapshot.roomId != it) reject("wrong_room", "Snapshot belongs to another room")
         }
@@ -114,6 +117,9 @@ class RoomSnapshotValidator(
         val playbackItem = snapshot.playback.queueItemId
         if (playbackItem != null && playbackItem !in queueIdSet) {
             reject("playback_item", "Playback item is not present in the queue")
+        }
+        if (snapshot.playback.revision !in 0..snapshot.sequence) {
+            reject("playback_revision", "Playback revision is outside the canonical sequence")
         }
         if (snapshot.playback.positionAtTimestampMs < 0)
             reject("playback_position", "Playback position is negative")
