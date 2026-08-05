@@ -52,22 +52,21 @@ class MediaNotificationUpdatePolicyTest {
         val minimumIntervalMs = 300L
         var lastUpdateMs: Long? = null
         var renderedState = 0
-        var pendingState: Int? = null
         var enqueued = 0
         for (nowMs in 0L..3_000L step 10L) {
             val requestedState = (nowMs / 10L).toInt() % 3
-            pendingState = requestedState
             val decision =
                 MediaNotificationUpdatePolicy.decide(
                     nowElapsedMs = nowMs,
                     lastUpdateElapsedMs = lastUpdateMs,
                     minimumIntervalMs = minimumIntervalMs,
                     urgentForegroundStart = false,
-                    renderedContentChanged = pendingState != renderedState || lastUpdateMs == null,
+                    renderedContentChanged =
+                        requestedState != renderedState || lastUpdateMs == null,
                 )
             if (decision.updateNow) {
                 lastUpdateMs = nowMs
-                renderedState = pendingState
+                renderedState = requestedState
                 enqueued++
             }
         }

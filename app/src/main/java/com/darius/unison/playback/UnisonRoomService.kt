@@ -127,18 +127,37 @@ class UnisonRoomService : MediaSessionService() {
                     scheduleStopWhenIdle()
                 }
         }
-        // Fixed workers preserve transport coalescing without creating one unbounded coroutine per
-        // accepted command. General work is deliberately more constrained because imports and file
-        // operations may remain suspended for much longer than transport intent.
+        // Transport intent needs concurrent debounce entrants so newer Play/Pause/Seek commands can
+        // supersede older ones before canonical mutation. General commands use one ordered ingress;
+        // terminal completion is observed without blocking that ingress, so Clear queue and Leave
+        // room remain responsive without allowing command reordering or spawning waiter coroutines.
         repeat(TRANSPORT_COMMAND_WORKERS) {
             runtimeScope.launch {
                 unisonContainer.roomCommandBus.transportFlow.collect(::processRoomCommand)
             }
         }
-        repeat(GENERAL_COMMAND_WORKERS) {
-            runtimeScope.launch {
-                unisonContainer.roomCommandBus.generalFlow.collect(::processRoomCommand)
+        runtimeScope.launch {
+            unisonContainer.roomCommandBus.generalFlow.collect(::submitGeneralRoomCommand)
+        }
+    }
+
+    private suspend fun submitGeneralRoomCommand(command: AppCommand) {
+        try {
+            runtime.submit(command).invokeOnCompletion { cause ->
+                if (cause != null && cause !is CancellationException) {
+                    reportRoomCommandFailure(command, cause)
+                }
+                unisonContainer.roomCommandBus.complete()
+                scheduleStopWhenIdle()
             }
+        } catch (cancelled: CancellationException) {
+            unisonContainer.roomCommandBus.complete()
+            scheduleStopWhenIdle()
+            throw cancelled
+        } catch (error: Exception) {
+            reportRoomCommandFailure(command, error)
+            unisonContainer.roomCommandBus.complete()
+            scheduleStopWhenIdle()
         }
     }
 
@@ -148,17 +167,21 @@ class UnisonRoomService : MediaSessionService() {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            unisonContainer.diagnostics.e(
-                TAG,
-                "Room command failed: ${command::class.simpleName}",
-                error,
-            )
-            unisonContainer.roomStore.update { state ->
-                state.copy(errorMessage = "Unison could not complete that action")
-            }
+            reportRoomCommandFailure(command, error)
         } finally {
             unisonContainer.roomCommandBus.complete()
             scheduleStopWhenIdle()
+        }
+    }
+
+    private fun reportRoomCommandFailure(command: AppCommand, error: Throwable) {
+        unisonContainer.diagnostics.e(
+            TAG,
+            "Room command failed: ${command::class.simpleName}",
+            error,
+        )
+        unisonContainer.roomStore.update { state ->
+            state.copy(errorMessage = "Unison could not complete that action")
         }
     }
 
@@ -327,7 +350,6 @@ class UnisonRoomService : MediaSessionService() {
         private const val CHANNEL_ID = "unison_room"
         private const val NOTIFICATION_ID = 4102
         private const val TRANSPORT_COMMAND_WORKERS = 32
-        private const val GENERAL_COMMAND_WORKERS = 4
         private const val IDLE_STOP_DELAY_MS = 1_000L
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 300L
         private const val FOREGROUND_START_RETRY_INTERVAL_MS = 1_000L
