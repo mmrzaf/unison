@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "a3a5f5fd21c912ebafcb9f9c5945f561",
+    "identityHash": "cd822060a3a452c7b94dd08e27559273",
     "entities": [
       {
         "tableName": "tracks",
@@ -372,36 +372,6 @@
             ]
           }
         ]
-      },
-      {
-        "tableName": "room_snapshots",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`roomId` TEXT NOT NULL, `serializedSnapshot` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`roomId`))",
-        "fields": [
-          {
-            "fieldPath": "roomId",
-            "columnName": "roomId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "serializedSnapshot",
-            "columnName": "serializedSnapshot",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "roomId"
-          ]
-        }
       }
     ],
     "setupQueries": [

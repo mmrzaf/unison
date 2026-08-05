@@ -117,13 +117,6 @@ data class PlaylistEntryEntity(
     val position: Int,
 )
 
-@Entity(tableName = "room_snapshots")
-data class RoomSnapshotEntity(
-    @PrimaryKey val roomId: String,
-    val serializedSnapshot: String,
-    val updatedAt: Long,
-)
-
 @Dao
 interface TrackDao {
     @Query(
@@ -383,11 +376,6 @@ interface PlaylistDao {
     }
 }
 
-@Dao
-interface RoomSnapshotDao {
-    @Query("DELETE FROM room_snapshots") suspend fun deleteAll()
-}
-
 @Database(
     entities =
         [
@@ -395,7 +383,6 @@ interface RoomSnapshotDao {
             TrackSourceEntity::class,
             PlaylistEntity::class,
             PlaylistEntryEntity::class,
-            RoomSnapshotEntity::class,
         ],
     version = 1,
     exportSchema = true,
@@ -407,14 +394,12 @@ abstract class UnisonDatabase : RoomDatabase() {
 
     abstract fun playlistDao(): PlaylistDao
 
-    abstract fun roomSnapshotDao(): RoomSnapshotDao
-
     companion object {
         fun create(context: Context): UnisonDatabase =
             Room.databaseBuilder(
                     context.applicationContext,
                     UnisonDatabase::class.java,
-                    "unison.db",
+                    "unison-1.db",
                 )
                 .build()
     }
