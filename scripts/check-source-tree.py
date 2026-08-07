@@ -148,7 +148,7 @@ def main() -> int:
             and not {".git", ".idea", "build", ".gradle", ".kotlin"}.intersection(path.parts)
             and path.suffix.lower() in {".kt", ".kts", ".md", ".toml", ".xml", ".sh", ".py", ".yml", ".yaml", ".properties"}
         )
-        require(re.search(r"\bProtocol 2\b|wire protocol 2|protocol 2", all_text, re.IGNORECASE) is None, "Obsolete protocol documentation remains")
+        require(re.search(r"\bProtocol 5\b|wire protocol 5|protocol 5", all_text, re.IGNORECASE) is None, "Obsolete protocol documentation remains")
         require(re.search(r"\bPhase [123]\b|PHASE[123]|phase[123]", all_text) is None, "Phase-specific release scaffolding remains")
         require(re.search(r"\bTODO\b|\bFIXME\b|\bHACK\b", production) is None, "Production TODO/FIXME/HACK remains")
         require(re.search(r"https?://", production) is None, "Hard-coded remote endpoint found")

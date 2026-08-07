@@ -10,6 +10,7 @@ python3 ./scripts/benchmark-library-search.py --sizes 100000 --iterations 8 --ma
 # These checks compile focused Kotlin components with the repository-pinned toolchain. They require
 # the Gradle distribution and dependency cache verified by verify-offline-ready.sh.
 ./scripts/check-core.sh
+./scripts/check-diagnostics.sh
 ./scripts/check-risky-kotlin.sh
 ./scripts/check-player-kotlin.sh
 ./scripts/check-session-player-kotlin.sh
