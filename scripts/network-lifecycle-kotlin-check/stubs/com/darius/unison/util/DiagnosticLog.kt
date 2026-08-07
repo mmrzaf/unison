@@ -1,5 +1,66 @@
 package com.darius.unison.util
-class DiagnosticLog {
-    fun i(tag: String, message: String) = Unit
-    fun w(tag: String, message: String, error: Throwable? = null) = Unit
+
+import java.io.File
+
+enum class DiagnosticCategory {
+    APP,
+    ROOM,
+    NETWORK,
+    DISCOVERY,
+    PLAYBACK,
+    SYNC,
+    TRANSFER,
+    STORAGE,
+    SECURITY,
+}
+
+class DiagnosticLog(private val file: File? = null) : AutoCloseable {
+    fun debug(
+        component: String,
+        category: DiagnosticCategory,
+        eventName: String,
+        body: String? = null,
+        attributes: Map<String, Any?> = emptyMap(),
+        throwable: Throwable? = null,
+    ) = Unit
+
+    fun info(
+        component: String,
+        category: DiagnosticCategory,
+        eventName: String,
+        body: String? = null,
+        attributes: Map<String, Any?> = emptyMap(),
+        throwable: Throwable? = null,
+    ) = Unit
+
+    fun warn(
+        component: String,
+        category: DiagnosticCategory,
+        eventName: String,
+        body: String? = null,
+        attributes: Map<String, Any?> = emptyMap(),
+        throwable: Throwable? = null,
+    ) = Unit
+
+    fun error(
+        component: String,
+        category: DiagnosticCategory,
+        eventName: String,
+        body: String? = null,
+        attributes: Map<String, Any?> = emptyMap(),
+        throwable: Throwable? = null,
+    ) = Unit
+
+    fun scoped(component: String, category: DiagnosticCategory): DiagnosticLogger = DiagnosticLogger()
+
+    val pendingEventCount: Int get() = 0
+    val droppedEventCount: Long get() = 0L
+    override fun close() = Unit
+}
+
+class DiagnosticLogger {
+    fun debug(eventName: String, body: String? = null, attributes: Map<String, Any?> = emptyMap(), throwable: Throwable? = null) = Unit
+    fun info(eventName: String, body: String? = null, attributes: Map<String, Any?> = emptyMap(), throwable: Throwable? = null) = Unit
+    fun warn(eventName: String, body: String? = null, attributes: Map<String, Any?> = emptyMap(), throwable: Throwable? = null) = Unit
+    fun error(eventName: String, body: String? = null, attributes: Map<String, Any?> = emptyMap(), throwable: Throwable? = null) = Unit
 }
