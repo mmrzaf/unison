@@ -16,7 +16,7 @@ object PermissionController {
     fun localNetworkPermissions(
         apiLevel: Int = Build.VERSION.SDK_INT,
     ): Array<String> =
-        if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
+        if (apiLevel >= 33) {
             arrayOf(NEARBY_WIFI_DEVICES)
         } else {
             emptyArray()
@@ -25,10 +25,9 @@ object PermissionController {
     fun offlineNetworkPermissions(
         apiLevel: Int = Build.VERSION.SDK_INT,
     ): Array<String> =
-        if (apiLevel >= Build.VERSION_CODES.TIRAMISU) {
+        if (apiLevel >= 33) {
             localNetworkPermissions(apiLevel)
         } else {
-            // Android 12 and earlier LocalOnlyHotspot requires precise location.
             arrayOf(
                 Manifest.permission.ACCESS_COARSE_LOCATION,
                 Manifest.permission.ACCESS_FINE_LOCATION,
