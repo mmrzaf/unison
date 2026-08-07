@@ -151,9 +151,9 @@ internal fun SharedCompactPlayer(
 @Composable
 internal fun RoomQueueToolbar(
     query: String,
-    shuffleEnabled: Boolean,
     repeatMode: RepeatMode,
     queueEnabled: Boolean,
+    shuffleAvailable: Boolean,
     onQueryChange: (String) -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
@@ -206,13 +206,11 @@ internal fun RoomQueueToolbar(
                 }
             }
         }
-        IconButton(onClick = onShuffle, enabled = queueEnabled) {
+        IconButton(onClick = onShuffle, enabled = shuffleAvailable) {
             Icon(
                 Icons.Default.Shuffle,
-                if (shuffleEnabled) "Turn shuffle off" else "Shuffle queue",
-                tint =
-                    if (shuffleEnabled) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                "Shuffle upcoming songs",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         IconButton(onClick = onRepeat, enabled = queueEnabled) {

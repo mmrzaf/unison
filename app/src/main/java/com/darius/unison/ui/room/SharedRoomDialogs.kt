@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.RoomOptions
+import com.darius.unison.sync.PlaybackSyncProfile
 
 @Composable
 internal fun RoomCodeDialog(
@@ -138,17 +139,19 @@ internal fun SaveQueueDialog(
 internal fun RoomOptionsDialog(
     initialOptions: RoomOptions,
     initialRetention: RetentionPolicy,
-    onSave: (RoomOptions, RetentionPolicy) -> Unit,
+    initialSyncProfile: PlaybackSyncProfile,
+    onSave: (RoomOptions, RetentionPolicy, PlaybackSyncProfile) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var options by remember(initialOptions) { mutableStateOf(initialOptions) }
     var retention by remember(initialRetention) { mutableStateOf(initialRetention) }
+    var syncProfile by remember(initialSyncProfile) { mutableStateOf(initialSyncProfile) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Room settings") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SwitchRow("Wait for everyone before each song", options.waitAtTrackBoundary) {
+                SwitchRow("Wait for ready listeners before each song", options.waitAtTrackBoundary) {
                     options = options.copy(waitAtTrackBoundary = it)
                 }
                 HorizontalDivider()
@@ -165,14 +168,89 @@ internal fun RoomOptionsDialog(
                         label = { Text("Keep") },
                     )
                 }
+                HorizontalDivider()
+                Text("Playback synchronization", style = MaterialTheme.typography.labelLarge)
+                PlaybackSyncProfileChips(syncProfile) { syncProfile = it }
+                Text(
+                    syncProfile.description(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(options, retention) }) { Text("Save") }
+            Button(onClick = { onSave(options, retention, syncProfile) }) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
+
+@Composable
+internal fun PlaybackSynchronizationDialog(
+    initialProfile: PlaybackSyncProfile,
+    onSave: (PlaybackSyncProfile) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var profile by remember(initialProfile) { mutableStateOf(initialProfile) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Playback synchronization") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Choose how closely this phone follows the shared room timeline. Room command timing stays automatic.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                PlaybackSyncProfileChips(profile) { profile = it }
+                Text(
+                    profile.description(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { Button(onClick = { onSave(profile) }) { Text("Save") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun PlaybackSyncProfileChips(
+    selected: PlaybackSyncProfile,
+    onSelected: (PlaybackSyncProfile) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        PlaybackSyncProfile.entries.forEach { profile ->
+            FilterChip(
+                modifier = Modifier.weight(1f),
+                selected = selected == profile,
+                onClick = { onSelected(profile) },
+                label = {
+                    Text(
+                        when (profile) {
+                            PlaybackSyncProfile.TIGHT -> "Tight"
+                            PlaybackSyncProfile.BALANCED -> "Balanced"
+                            PlaybackSyncProfile.SMOOTH -> "Smooth"
+                        }
+                    )
+                },
+            )
+        }
+    }
+}
+
+private fun PlaybackSyncProfile.description(): String =
+    when (this) {
+        PlaybackSyncProfile.TIGHT ->
+            "Keeps this phone closest to the room timeline and allows more frequent tiny corrections."
+        PlaybackSyncProfile.BALANCED ->
+            "Recommended. Tight synchronization with conservative, infrequent speed correction."
+        PlaybackSyncProfile.SMOOTH ->
+            "Allows a little more drift so the audio pipeline is touched less often."
+    }
 
 @Composable
 internal fun RoomConfirmationDialog(
