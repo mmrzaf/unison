@@ -1,14 +1,16 @@
 package com.darius.unison.room
 
-import com.darius.unison.model.MemberPlaybackTelemetry
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.playback.PlaybackIntentReconciliationPolicy
 import com.darius.unison.playback.PlayerMutationCoordinator
 import com.darius.unison.playback.PlayerPort
+import com.darius.unison.playback.PlaybackPauseCause
 import com.darius.unison.playback.ScheduledPlaybackController
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.sync.ClockSyncEngine
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import com.darius.unison.util.MonotonicClock
 
@@ -30,8 +32,6 @@ internal class CanonicalPlaybackCoordinator(
     private val scheduleQueueRefresh: (Long) -> Unit,
     private val requestSnapshot: suspend (Long) -> Unit,
     private val send: suspend (PeerId, ProtocolBody) -> Unit,
-    private val broadcast: suspend (ProtocolBody, PeerId?) -> Unit,
-    private val updateMemberTelemetry: (PeerId, MemberPlaybackTelemetry) -> Unit,
     private val log: DiagnosticLog,
     private val futureCommandToleranceNs: Long,
 ) {
@@ -46,10 +46,12 @@ internal class CanonicalPlaybackCoordinator(
                     return
                 }
                 is PlaybackSessionCoordinator.IncomingSyncDecision.IgnoreStale -> {
-                    log.i(
-                        TAG,
-                        "Ignored stale playback sync revision=${decision.incomingRevision} " +
-                            "known=${decision.newestKnownRevision}",
+                    log.info(
+                        TAG, DiagnosticCategory.SYNC, "sync.remote_state.stale",
+                        attributes = mapOf(
+                            "sync.incoming_revision" to decision.incomingRevision,
+                            "sync.known_revision" to decision.newestKnownRevision,
+                        ),
                     )
                     return
                 }
@@ -58,7 +60,7 @@ internal class CanonicalPlaybackCoordinator(
         val queueItem = canonical.queueItemId
         if (queueItem == null) {
             scheduler.cancel("Canonical queue is empty")
-            playerMutations.synchronize { pause() }
+            playerMutations.synchronize { pause(PlaybackPauseCause.CANONICAL_QUEUE_EMPTY) }
             return
         }
         if (snapshot.queue.none { it.queueItemId == queueItem }) {
@@ -96,12 +98,12 @@ internal class CanonicalPlaybackCoordinator(
             PlaybackIntentReconciliationPolicy.decide(
                 canonicalPlaying = canonical.isPlaying,
                 localPlayWhenReady = local.playWhenReady,
-                locallySuppressed = local.locallySuppressed,
+                participation = local.participation,
             )
         ) {
             PlaybackIntentReconciliationPolicy.Action.PLAY -> playerMutations.synchronize { play() }
             PlaybackIntentReconciliationPolicy.Action.PAUSE ->
-                playerMutations.synchronize { pause() }
+                playerMutations.synchronize { pause(PlaybackPauseCause.CANONICAL_RECONCILIATION) }
             PlaybackIntentReconciliationPolicy.Action.NONE -> Unit
         }
     }
@@ -116,11 +118,13 @@ internal class CanonicalPlaybackCoordinator(
         when (val action = playbackSession.convergenceAction(peerId, snapshot, report, now)) {
             PlaybackConvergencePolicy.Action.None -> Unit
             is PlaybackConvergencePolicy.Action.SendPlaybackState -> {
-                log.i(
-                    TAG,
-                    "Repair playback peer=${peerId.value.take(8)} " +
-                        "reason=${action.reason} localRev=${report.playbackRevision} " +
-                        "canonicalRev=${snapshot.playback.revision}",
+                log.info(
+                    TAG, DiagnosticCategory.SYNC, "sync.peer.playback_repair",
+                    attributes = mapOf(
+                        "peer.id" to peerId.value.take(12), "sync.reason" to action.reason,
+                        "sync.peer_revision" to report.playbackRevision,
+                        "sync.canonical_revision" to snapshot.playback.revision,
+                    ),
                 )
                 if (peerId == localPeerId()) {
                     repairLocal(snapshot, now, action.reason)
@@ -132,10 +136,13 @@ internal class CanonicalPlaybackCoordinator(
                 }
             }
             is PlaybackConvergencePolicy.Action.SendSnapshot -> {
-                log.i(
-                    TAG,
-                    "Repair queue peer=${peerId.value.take(8)} reason=${action.reason} " +
-                        "localRev=${report.queueRevision} canonicalRev=${snapshot.queueRevision}",
+                log.info(
+                    TAG, DiagnosticCategory.SYNC, "sync.peer.queue_repair",
+                    attributes = mapOf(
+                        "peer.id" to peerId.value.take(12), "sync.reason" to action.reason,
+                        "sync.peer_revision" to report.queueRevision,
+                        "sync.canonical_revision" to snapshot.queueRevision,
+                    ),
                 )
                 if (peerId == localPeerId()) {
                     refreshPlayerQueue(snapshot)
@@ -149,24 +156,6 @@ internal class CanonicalPlaybackCoordinator(
                 }
             }
         }
-        val status =
-            ProtocolBody.MemberPlaybackStatus(
-                peerId = peerId,
-                queueItemId = report.queueItemId,
-                positionMs = report.positionMs,
-                isPlaying = report.isPlaying,
-                driftMs = report.driftMs,
-                playbackRevision = report.playbackRevision,
-            )
-        applyMemberStatus(status)
-        broadcast(status, peerId)
-    }
-
-    fun applyMemberStatus(status: ProtocolBody.MemberPlaybackStatus) {
-        updateMemberTelemetry(
-            status.peerId,
-            MemberPlaybackTelemetry(positionMs = status.positionMs, driftMs = status.driftMs),
-        )
     }
 
     private suspend fun repairLocal(
@@ -178,11 +167,12 @@ internal class CanonicalPlaybackCoordinator(
         val queueItemId = canonical.queueItemId
         if (queueItemId == null) {
             scheduler.cancel("Canonical queue is empty")
-            playerMutations.maintenance { pause() }
+            playerMutations.maintenance { pause(PlaybackPauseCause.CANONICAL_QUEUE_EMPTY) }
             return
         }
 
         val local = player.state.value
+        if (local.participation != LocalPlaybackParticipation.ACTIVE) return
         if (local.queueItemId != queueItemId) {
             refreshPlayerQueue(snapshot)
             scheduler.scheduleSeek(
@@ -209,7 +199,10 @@ internal class CanonicalPlaybackCoordinator(
                 executeAtCoordinatorNs = coordinatorNowNs,
             )
         }
-        log.i(TAG, "Applied local canonical playback repair reason=$reason")
+        log.info(
+            TAG, DiagnosticCategory.SYNC, "sync.local.playback_repaired",
+            attributes = mapOf("sync.reason" to reason),
+        )
     }
 
     companion object {
