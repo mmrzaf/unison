@@ -199,8 +199,8 @@ class CanonicalPlaybackDispatcher(
             is ProtocolBody.QueuePreparedSetChanged ->
                 Classification.Reconcile(Trigger.PREPARATION_CHANGED)
             is ProtocolBody.RoomOptionsChanged -> Classification.Reconcile(Trigger.OPTIONS_CHANGED)
-            is ProtocolBody.PlaybackModeChanged ->
-                Classification.Reconcile(Trigger.PLAYBACK_MODE_CHANGED)
+            is ProtocolBody.QueueShuffled -> Classification.Reconcile(Trigger.QUEUE_CHANGED)
+            is ProtocolBody.RepeatModeChanged -> Classification.Reconcile(Trigger.PLAYBACK_MODE_CHANGED)
 
             is ProtocolBody.QueueItemsRemoved,
             ProtocolBody.QueueCleared,

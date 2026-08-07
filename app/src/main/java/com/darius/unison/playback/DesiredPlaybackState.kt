@@ -67,7 +67,6 @@ data class DesiredPlaybackState(
             mix(snapshot.repeatMode.ordinal.toLong())
             mix(snapshot.options.preloadCount.toLong())
             mix(if (snapshot.options.waitAtTrackBoundary) 1L else 0L)
-            mix(if (snapshot.shuffleEnabled) 1L else 0L)
             return hash
         }
 
