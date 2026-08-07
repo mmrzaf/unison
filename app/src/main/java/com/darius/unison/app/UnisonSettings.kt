@@ -10,6 +10,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RetentionPolicy
+import com.darius.unison.sync.PlaybackSyncProfile
 import java.io.IOException
 import java.security.SecureRandom
 import java.util.Locale
@@ -33,6 +34,7 @@ class UnisonSettings(private val context: Context) {
         val peerId = stringPreferencesKey("peer_id")
         val displayName = stringPreferencesKey("display_name")
         val retention = stringPreferencesKey("retention_policy")
+        val playbackSyncProfile = stringPreferencesKey("playback_sync_profile")
         val onboardingComplete = booleanPreferencesKey("onboarding_complete")
     }
 
@@ -49,13 +51,19 @@ class UnisonSettings(private val context: Context) {
     }
 
     val onboardingComplete: Flow<Boolean> = data.map { it[Keys.onboardingComplete] ?: false }
-    val retentionPolicy: Flow<RetentionPolicy> = data.map {
+    val retentionPolicy: Flow<RetentionPolicy> = data.map { prefs ->
         runCatching {
-                RetentionPolicy.valueOf(
-                    it[Keys.retention] ?: RetentionPolicy.TEMPORARY_24_HOURS.name
-                )
-            }
-            .getOrDefault(RetentionPolicy.TEMPORARY_24_HOURS)
+            RetentionPolicy.valueOf(
+                prefs[Keys.retention] ?: RetentionPolicy.TEMPORARY_24_HOURS.name
+            )
+        }.getOrDefault(RetentionPolicy.TEMPORARY_24_HOURS)
+    }
+    val playbackSyncProfile: Flow<PlaybackSyncProfile> = data.map { prefs ->
+        runCatching {
+            PlaybackSyncProfile.valueOf(
+                prefs[Keys.playbackSyncProfile] ?: PlaybackSyncProfile.BALANCED.name
+            )
+        }.getOrDefault(PlaybackSyncProfile.BALANCED)
     }
 
     suspend fun ensureIdentity(): LocalIdentity = identityMutex.withLock {
@@ -100,5 +108,9 @@ class UnisonSettings(private val context: Context) {
 
     suspend fun setRetentionPolicy(policy: RetentionPolicy) {
         context.dataStore.edit { it[Keys.retention] = policy.name }
+    }
+
+    suspend fun setPlaybackSyncProfile(profile: PlaybackSyncProfile) {
+        context.dataStore.edit { it[Keys.playbackSyncProfile] = profile.name }
     }
 }
