@@ -20,7 +20,6 @@ import com.darius.unison.playback.PlaybackPauseCause
 import com.darius.unison.playback.PlayerState
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.sync.ClockSyncEngine
-import com.darius.unison.sync.PlaybackSyncState
 import com.darius.unison.sync.SynchronizationDiagnostics
 import com.darius.unison.util.DiagnosticLog
 import com.darius.unison.util.MonotonicClock
@@ -38,7 +37,7 @@ import org.junit.Test
 
 class LocalPlaybackParticipationCoordinatorTest {
     @Test
-    fun interruptedOldSongRejoinsLatestCanonicalSongAndBecomesActiveOnlyAfterTracking() = runBlocking {
+    fun interruptedOldSongRejoinsLatestCanonicalSongAndBecomesActiveImmediately() = runBlocking {
         val clock = MutableClock(2_000_000_000L)
         val player =
             FakePlayer(
@@ -90,15 +89,62 @@ class LocalPlaybackParticipationCoordinatorTest {
             assertEquals(liveItem, player.state.value.queueItemId)
             assertEquals(81_000L, player.state.value.positionMs)
             assertTrue(player.state.value.playWhenReady)
-            assertEquals(LocalPlaybackParticipation.REJOINING, player.state.value.participation)
+            assertEquals(LocalPlaybackParticipation.ACTIVE, player.state.value.participation)
+            assertEquals(null, player.state.value.inhibitionReason)
             assertEquals(1, clearedDrift)
-            assertEquals(LocalPlaybackParticipation.REJOINING, published.single().participation)
+            assertEquals(LocalPlaybackParticipation.ACTIVE, published.single().participation)
+        } finally {
+            syncDiagnostics.close()
+            log.close()
+            scope.cancel()
+        }
+    }
 
-            coordinator.completeRejoinIfSynchronized(PlaybackSyncState.TRACKING, snapshot)
+    @Test
+    fun sessionBoundaryClearsStaleInhibitionWithoutStartingPlayback() = runBlocking {
+        val clock = MutableClock(2_000_000_000L)
+        val player =
+            FakePlayer(
+                PlayerState(
+                    queueItemId = QueueItemId("song-a-item"),
+                    positionMs = 20_000L,
+                    prepared = true,
+                    playWhenReady = false,
+                    isPlaying = false,
+                    participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                    inhibitionReason = LocalPlaybackInhibitionReason.BECOMING_NOISY,
+                )
+            )
+        val mutations = PlayerMutationCoordinator(player)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val log = DiagnosticLog(File.createTempFile("unison-session-reset-test", ".ndjson"))
+        val syncDiagnostics = SynchronizationDiagnostics(scope, log)
+        try {
+            val coordinator =
+                LocalPlaybackParticipationCoordinator(
+                    player = player,
+                    playerMutations = mutations,
+                    clock = clock,
+                    clockSync = ClockSyncEngine(clock),
+                    playbackSession = PlaybackSessionCoordinator(1L, 1L, 1L),
+                    isCoordinator = { true },
+                    refreshPlayerQueue = { _, _, _ -> },
+                    executeImmediatePlay = { _, _ -> error("reset must not start playback") },
+                    playbackSynchronization = PlaybackSynchronizationRuntime(),
+                    syncDiagnostics = syncDiagnostics,
+                    clearLocalDrift = {},
+                    publishStatus = {},
+                    onCoordinatorCohortChanged = {},
+                    setError = { error(it) },
+                    diagnostics = RoomDiagnostics(log),
+                )
+
+            coordinator.resetForSessionBoundary()
 
             assertEquals(LocalPlaybackParticipation.ACTIVE, player.state.value.participation)
             assertEquals(null, player.state.value.inhibitionReason)
-            assertEquals(LocalPlaybackParticipation.ACTIVE, published.last().participation)
+            assertEquals(false, player.state.value.playWhenReady)
+            assertEquals(false, player.state.value.isPlaying)
         } finally {
             syncDiagnostics.close()
             log.close()
@@ -173,12 +219,27 @@ class LocalPlaybackParticipationCoordinatorTest {
             return true
         }
 
-        override suspend fun beginLocalRejoin() {
+        override suspend fun rejoinLivePlayback(
+            queueItemId: QueueItemId,
+            positionMs: Long,
+        ): Boolean {
+            if (mutableState.value.participation != LocalPlaybackParticipation.OUTPUT_INHIBITED) {
+                return false
+            }
             mutableState.value =
-                mutableState.value.copy(participation = LocalPlaybackParticipation.REJOINING)
+                mutableState.value.copy(
+                    queueItemId = queueItemId,
+                    positionMs = positionMs,
+                    prepared = true,
+                    playWhenReady = true,
+                    isPlaying = true,
+                    participation = LocalPlaybackParticipation.ACTIVE,
+                    inhibitionReason = null,
+                )
+            return true
         }
 
-        override suspend fun completeLocalRejoin() {
+        override suspend fun resetLocalPlaybackParticipation() {
             mutableState.value =
                 mutableState.value.copy(
                     participation = LocalPlaybackParticipation.ACTIVE,

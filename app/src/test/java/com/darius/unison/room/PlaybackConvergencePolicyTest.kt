@@ -116,24 +116,6 @@ class PlaybackConvergencePolicyTest {
     }
 
     @Test
-    fun rejoiningPeerIsNeverRepairedUntilFreshSynchronizationCompletes() {
-        val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
-        val action =
-            policy.decide(
-                guest,
-                snapshot(),
-                report(
-                    itemId = null,
-                    playing = false,
-                    participation = LocalPlaybackParticipation.REJOINING,
-                ),
-                coordinatorNowNs = 2_000_000_000L,
-            )
-
-        assertEquals(PlaybackConvergencePolicy.Action.None, action)
-    }
-
-    @Test
     fun staleQueueRequiresSnapshotInsteadOfTransportGuessing() {
         val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
         val action =

@@ -66,7 +66,8 @@ internal object JoinRetryPolicy {
     private fun Throwable.isTransientNetworkFailure(): Boolean {
         var current: Throwable? = this
         repeat(8) {
-            when (current) {
+            val candidate = current ?: return false
+            when (candidate) {
                 is ConnectException,
                 is SocketTimeoutException,
                 is NoRouteToHostException,
@@ -74,7 +75,7 @@ internal object JoinRetryPolicy {
                 is EOFException -> return true
 
                 is SocketException -> {
-                    val text = current.message.orEmpty().lowercase(Locale.ROOT)
+                    val text = candidate.message.orEmpty().lowercase(Locale.ROOT)
                     if (
                         "closed" in text ||
                             "reset" in text ||
@@ -86,7 +87,7 @@ internal object JoinRetryPolicy {
                         return true
                 }
             }
-            current = current?.cause ?: return false
+            current = candidate.cause ?: return false
         }
         return false
     }

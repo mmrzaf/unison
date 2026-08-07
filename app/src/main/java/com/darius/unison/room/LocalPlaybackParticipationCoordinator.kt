@@ -8,7 +8,6 @@ import com.darius.unison.playback.PlayerPort
 import com.darius.unison.playback.PlayerState
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.sync.ClockSyncEngine
-import com.darius.unison.sync.PlaybackSyncState
 import com.darius.unison.sync.SynchronizationDiagnostics
 import com.darius.unison.util.MonotonicClock
 
@@ -16,9 +15,10 @@ import com.darius.unison.util.MonotonicClock
  * Owns device-local participation in room playback.
  *
  * Audio-focus and noisy-route interruptions never mutate canonical room transport. An inhibited
- * device remains a silent follower until an explicit Play asks to rejoin the live canonical item
- * and projected position. REJOINING devices stay outside the READY timing cohort until fresh sync
- * samples converge.
+ * device remains a silent follower until an explicit Play atomically positions it on the live
+ * canonical item and projected position. Local output participation and synchronization health are
+ * intentionally separate concepts: successful local playback returns to ACTIVE immediately while
+ * the sync engine independently reacquires/converges.
  */
 internal class LocalPlaybackParticipationCoordinator(
     private val player: PlayerPort,
@@ -88,27 +88,41 @@ internal class LocalPlaybackParticipationCoordinator(
         )
         refreshPlayerQueue(snapshot, queueItemId, targetPositionMs)
         executeImmediatePlay(commandId) {
-            beginLocalRejoin()
             setPlaybackSpeed(1f)
-            val positioned = seekToItem(queueItemId, canonical.projectedPositionMs(coordinatorNowNs()))
-            if (!positioned) return@executeImmediatePlay false
-            play()
+            rejoinLivePlayback(queueItemId, canonical.projectedPositionMs(coordinatorNowNs()))
         }
-        if (player.state.value.participation == LocalPlaybackParticipation.REJOINING) {
+        val local = player.state.value
+        if (
+            local.participation == LocalPlaybackParticipation.ACTIVE &&
+                local.playWhenReady &&
+                local.queueItemId == queueItemId
+        ) {
             resetPlaybackSynchronization()
-            publishStatus(statusReport(player.state.value, snapshot))
+            publishStatus(statusReport(local, snapshot))
         }
     }
 
-    suspend fun completeRejoinIfSynchronized(syncState: PlaybackSyncState, snapshot: RoomSnapshot) {
+    /**
+     * Local interruption state belongs to one room session only. A fresh room must never inherit a
+     * stale headphone/call inhibition from the previous room. This reset never starts playback.
+     */
+    suspend fun resetForSessionBoundary() {
+        val before = player.state.value
+        playerMutations.maintenance { resetLocalPlaybackParticipation() }
+        val after = player.state.value
+        lastParticipation = after.participation
         if (
-            syncState != PlaybackSyncState.TRACKING ||
-                player.state.value.participation != LocalPlaybackParticipation.REJOINING
+            before.participation != after.participation ||
+                before.inhibitionReason != after.inhibitionReason
         ) {
-            return
+            diagnostics.debug(
+                "playback.participation.session_reset",
+                "playback.participation_from" to before.participation.name,
+                "playback.participation_to" to after.participation.name,
+                "playback.inhibition_reason_from" to before.inhibitionReason?.name,
+                "playback.inhibition_reason_to" to after.inhibitionReason?.name,
+            )
         }
-        playerMutations.synchronize { completeLocalRejoin() }
-        publishStatus(statusReport(player.state.value, snapshot))
     }
 
     private suspend fun resetPlaybackSynchronization() {
