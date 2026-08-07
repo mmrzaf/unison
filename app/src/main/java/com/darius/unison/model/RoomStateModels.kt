@@ -40,19 +40,15 @@ data class RoomStructureState(
             }
 }
 
-data class MemberPlaybackTelemetry(
-    val positionMs: Long? = null,
-    val driftMs: Long? = null,
-)
-
 data class RoomPlaybackTelemetry(
     /** Null means the player has not produced a sample yet; zero is a real playback position. */
     val localPositionMs: Long? = null,
     val localQueueItemId: QueueItemId? = null,
     val localIsPlaying: Boolean = false,
+    val localPlaybackParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
+    val localPlaybackInhibitionReason: LocalPlaybackInhibitionReason? = null,
     val localSeekRevision: Long = 0,
     val localDriftMs: Long? = null,
-    val memberPlayback: Map<PeerId, MemberPlaybackTelemetry> = emptyMap(),
 )
 
 data class RoomTransferTelemetry(val transfers: Map<TrackId, TransferProgress> = emptyMap())
@@ -61,13 +57,7 @@ fun RoomUiState.toStructureState(): RoomStructureState =
     RoomStructureState(
         lifecycle = lifecycle,
         localIdentity = localIdentity,
-        snapshot =
-            snapshot?.copy(
-                members =
-                    snapshot.members.map { member ->
-                        member.copy(playbackPositionMs = null, driftMs = null)
-                    }
-            ),
+        snapshot = snapshot,
         isCoordinator = isCoordinator,
         discoveredRooms = discoveredRooms,
         discoveryCompleted = discoveryCompleted,
@@ -87,12 +77,10 @@ fun RoomUiState.toPlaybackTelemetry(): RoomPlaybackTelemetry =
         localPositionMs = localPlaybackPositionMs,
         localQueueItemId = localPlaybackQueueItemId,
         localIsPlaying = localIsPlaying,
+        localPlaybackParticipation = localPlaybackParticipation,
+        localPlaybackInhibitionReason = localPlaybackInhibitionReason,
         localSeekRevision = localSeekRevision,
         localDriftMs = localDriftMs,
-        memberPlayback =
-            snapshot?.members.orEmpty().associate { member ->
-                member.peerId to MemberPlaybackTelemetry(member.playbackPositionMs, member.driftMs)
-            },
     )
 
 fun RoomUiState.toTransferTelemetry(): RoomTransferTelemetry = RoomTransferTelemetry(transfers)
@@ -101,21 +89,10 @@ fun RoomStructureState.toUiState(
     playback: RoomPlaybackTelemetry = RoomPlaybackTelemetry(),
     transfer: RoomTransferTelemetry = RoomTransferTelemetry(),
 ): RoomUiState {
-    val enrichedSnapshot =
-        snapshot?.copy(
-            members =
-                snapshot.members.map { member ->
-                    val telemetry = playback.memberPlayback[member.peerId]
-                    member.copy(
-                        playbackPositionMs = telemetry?.positionMs,
-                        driftMs = telemetry?.driftMs,
-                    )
-                }
-        )
     return RoomUiState(
         lifecycle = lifecycle,
         localIdentity = localIdentity,
-        snapshot = enrichedSnapshot,
+        snapshot = snapshot,
         isCoordinator = isCoordinator,
         discoveredRooms = discoveredRooms,
         discoveryCompleted = discoveryCompleted,
@@ -128,6 +105,8 @@ fun RoomStructureState.toUiState(
         localPlaybackPositionMs = playback.localPositionMs ?: 0L,
         localPlaybackQueueItemId = playback.localQueueItemId,
         localIsPlaying = playback.localIsPlaying,
+        localPlaybackParticipation = playback.localPlaybackParticipation,
+        localPlaybackInhibitionReason = playback.localPlaybackInhibitionReason,
         localSeekRevision = playback.localSeekRevision,
         localDriftMs = playback.localDriftMs,
         roomAddress = roomAddress,

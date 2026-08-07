@@ -74,6 +74,22 @@ data class QueueItem(
 }
 
 @Serializable
+enum class LocalPlaybackParticipation {
+    ACTIVE,
+    OUTPUT_INHIBITED,
+    REJOINING,
+}
+
+@Serializable
+enum class LocalPlaybackInhibitionReason {
+    AUDIO_FOCUS,
+    BECOMING_NOISY,
+    UNSUITABLE_OUTPUT,
+    /** Vendor/OS playback policy changed local intent without a Unison-owned mutation. */
+    SYSTEM_POLICY,
+}
+
+@Serializable
 enum class RetentionPolicy {
     EXTERNAL_REFERENCE,
     TEMPORARY_24_HOURS,
@@ -106,8 +122,6 @@ data class MemberSnapshot(
     val endpoint: PeerEndpoint? = null,
     val connected: Boolean = true,
     val currentTrackState: MemberTrackState = MemberTrackState.UNKNOWN,
-    val playbackPositionMs: Long? = null,
-    val driftMs: Long? = null,
 )
 
 @Serializable
@@ -212,9 +226,7 @@ data class RoomSnapshot(
     val queue: List<QueueItem> = emptyList(),
     val preparedQueueItemIds: Set<QueueItemId> = emptySet(),
     val playback: CanonicalPlaybackState = CanonicalPlaybackState(),
-    val shuffleEnabled: Boolean = false,
     val repeatMode: RepeatMode = RepeatMode.OFF,
-    val unshuffledQueueItemIds: List<QueueItemId> = emptyList(),
     /** Sequence of the most recent mutation that changed queue membership or ordering. */
     val queueRevision: Long = 0,
 )
@@ -286,6 +298,8 @@ data class RoomUiState(
     val localPlaybackPositionMs: Long = 0,
     val localPlaybackQueueItemId: QueueItemId? = null,
     val localIsPlaying: Boolean = false,
+    val localPlaybackParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
+    val localPlaybackInhibitionReason: LocalPlaybackInhibitionReason? = null,
     val localSeekRevision: Long = 0,
     val localDriftMs: Long? = null,
     val transportStatus: TransportCommandStatus? = null,

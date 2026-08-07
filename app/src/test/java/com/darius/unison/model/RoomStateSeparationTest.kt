@@ -28,23 +28,20 @@ class RoomStateSeparationTest {
     }
 
     @Test
-    fun memberPlaybackIsRemovedFromStructuralSnapshot() {
+    fun roomMembersStayPureStructuralState() {
         val snapshot =
             RoomSnapshot(
                 roomId = "room-1234",
                 roomName = "Room",
                 term = CoordinatorTerm(1, peer),
                 sequence = 1,
-                members =
-                    listOf(MemberSnapshot(peer, "Phone", playbackPositionMs = 99L, driftMs = 7L)),
+                members = listOf(MemberSnapshot(peer, "Phone")),
             )
         val store = RoomStore()
         store.set(RoomUiState(snapshot = snapshot))
 
-        val structuralMember = store.structure.value.snapshot!!.members.single()
-        assertNull(structuralMember.playbackPositionMs)
-        assertNull(structuralMember.driftMs)
-        assertEquals(99L, store.playback.value.memberPlayback[peer]?.positionMs)
+        assertEquals(snapshot.members, store.structure.value.snapshot!!.members)
+        assertEquals(snapshot.members, store.currentState().snapshot!!.members)
     }
 
     @Test
