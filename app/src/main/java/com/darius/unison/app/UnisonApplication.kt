@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.darius.unison.util.DiagnosticCategory
 
 class UnisonApplication : Application(), Configuration.Provider {
     // Android creates the application, requests WorkManager configuration, and calls onCreate on
@@ -58,10 +59,11 @@ class UnisonApplication : Application(), Configuration.Provider {
                         )
                 }
                 .onFailure { error ->
-                    appContainer.diagnostics.w(
+                    appContainer.diagnostics.warn(
                         "UnisonApplication",
-                        "Could not schedule local cleanup",
-                        error,
+                        DiagnosticCategory.APP,
+                        "app.cleanup_schedule.failed",
+                        throwable = error,
                     )
                 }
         }

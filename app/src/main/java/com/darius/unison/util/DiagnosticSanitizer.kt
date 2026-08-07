@@ -1,23 +1,23 @@
 package com.darius.unison.util
 
-/** Redacts credentials before data reaches either Logcat or persistent diagnostics. */
+/** Redacts credentials and sensitive local identifiers before diagnostics leave call sites. */
 internal object DiagnosticSanitizer {
-    const val MAX_MESSAGE_CHARS = 8_192
-    private val secretAssignment = Regex("(?i)(secret|token|passphrase|pin)=\\S+")
-    private val passwordAssignment = Regex("(?i)(password)(:|=)\\s*\\S+")
-    private val bearerCredential = Regex("(?i)(authorization\\s*:\\s*bearer)\\s+\\S+")
+    const val MAX_MESSAGE_CHARS = 4_096
+    private const val MAX_ATTRIBUTE_CHARS = 768
+
+    private val secretAssignment =
+        Regex("(?i)(secret|token|passphrase|pin|password|credential|authorization)(\\s*[:=]\\s*)([^\\s,;]+)")
+    private val bearerCredential = Regex("(?i)(bearer)(\\s+)([^\\s,;]+)")
+    private val contentUri = Regex("content://[^\\s,;]+")
+    private val privatePath = Regex("/(?:data|storage|sdcard)/[^\\s,;]+")
 
     fun sanitize(value: String): String =
         secretAssignment
-            .replace(value, "$1=<redacted>")
-            .let { passwordAssignment.replace(it, "$1$2 <redacted>") }
+            .replace(value) { match -> "${match.groupValues[1]}${match.groupValues[2]}<redacted>" }
             .let { bearerCredential.replace(it, "$1 <redacted>") }
+            .let { contentUri.replace(it, "content://<redacted>") }
+            .let { privatePath.replace(it, "/<redacted-path>") }
             .take(MAX_MESSAGE_CHARS)
 
-    fun throwableSummary(throwable: Throwable): String = buildString {
-        append(throwable::class.simpleName ?: "Throwable")
-        sanitize(throwable.message.orEmpty()).takeIf(String::isNotBlank)?.let {
-            append(": ").append(it)
-        }
-    }
+    fun sanitizeAttribute(value: String): String = sanitize(value).take(MAX_ATTRIBUTE_CHARS)
 }
