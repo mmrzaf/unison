@@ -37,6 +37,10 @@ object Assert {
         if (expected != actual) throw AssertionError("Expected <$expected>, got <$actual>")
     }
 
+    fun <T> assertNotEquals(unexpected: T, actual: T) {
+        if (unexpected == actual) throw AssertionError("Did not expect <$actual>")
+    }
+
     fun assertEquals(expected: Long, actual: Long, delta: Long) {
         if (kotlin.math.abs(expected - actual) > delta) {
             throw AssertionError("Expected <$expected> ± $delta, got <$actual>")

@@ -4,7 +4,7 @@ import java.io.File
 import java.nio.file.Files
 
 class TemporaryFolder {
-    private val root: File by lazy { Files.createTempDirectory("unison-test-").toFile() }
+    val root: File by lazy { Files.createTempDirectory("unison-test-").toFile() }
 
     fun newFile(name: String): File = File(root, name).also { file ->
         file.parentFile?.mkdirs()
