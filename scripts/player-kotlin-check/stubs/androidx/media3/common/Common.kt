@@ -96,6 +96,7 @@ interface Player {
     interface Listener {
         fun onEvents(player: Player, events: Events) = Unit
         fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = Unit
+        fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) = Unit
         fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = Unit
         fun onPlayerError(error: PlaybackException) = Unit
     }
@@ -108,8 +109,16 @@ interface Player {
         const val STATE_ENDED = 4
         const val REPEAT_MODE_OFF = 0
         const val REPEAT_MODE_ONE = 1
+        const val PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST = 1
         const val PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS = 2
         const val PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY = 3
+        const val PLAY_WHEN_READY_CHANGE_REASON_REMOTE = 4
+        const val PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM = 5
+        const val PLAY_WHEN_READY_CHANGE_REASON_SUPPRESSED_TOO_LONG = 6
+        const val PLAYBACK_SUPPRESSION_REASON_NONE = 0
+        const val PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS = 1
+        const val PLAYBACK_SUPPRESSION_REASON_UNSUITABLE_AUDIO_OUTPUT = 3
+        const val PLAYBACK_SUPPRESSION_REASON_SCRUBBING = 4
         const val MEDIA_ITEM_TRANSITION_REASON_REPEAT = 0
         const val MEDIA_ITEM_TRANSITION_REASON_AUTO = 1
         const val MEDIA_ITEM_TRANSITION_REASON_SEEK = 2
