@@ -1,5 +1,6 @@
 package com.darius.unison.room
 
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.CanonicalPlaybackState
 import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.MemberSnapshot
@@ -50,11 +51,13 @@ class PlaybackConvergencePolicyTest {
         playing: Boolean = true,
         playbackRevision: Long = 12,
         queueRevision: Long = 7,
+        participation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
     ) =
         ProtocolBody.PlaybackStatusReport(
             queueItemId = itemId,
             positionMs = 1_000,
             isPlaying = playing,
+            participation = participation,
             driftMs = null,
             playbackRevision = playbackRevision,
             queueRevision = queueRevision,
@@ -91,6 +94,43 @@ class PlaybackConvergencePolicyTest {
             PlaybackConvergencePolicy.Action.SendPlaybackState("WRONG_PLAY_STATE"),
             action,
         )
+    }
+
+
+    @Test
+    fun inhibitedPeerIsNeverRepairedForIntentionalLocalSilenceOrStaleItem() {
+        val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
+        val action =
+            policy.decide(
+                guest,
+                snapshot(),
+                report(
+                    itemId = null,
+                    playing = false,
+                    participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                ),
+                coordinatorNowNs = 2_000_000_000L,
+            )
+
+        assertEquals(PlaybackConvergencePolicy.Action.None, action)
+    }
+
+    @Test
+    fun rejoiningPeerIsNeverRepairedUntilFreshSynchronizationCompletes() {
+        val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
+        val action =
+            policy.decide(
+                guest,
+                snapshot(),
+                report(
+                    itemId = null,
+                    playing = false,
+                    participation = LocalPlaybackParticipation.REJOINING,
+                ),
+                coordinatorNowNs = 2_000_000_000L,
+            )
+
+        assertEquals(PlaybackConvergencePolicy.Action.None, action)
     }
 
     @Test

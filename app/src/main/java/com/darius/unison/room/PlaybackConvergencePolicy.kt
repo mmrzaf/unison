@@ -1,5 +1,6 @@
 package com.darius.unison.room
 
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.protocol.ProtocolBody
@@ -114,6 +115,9 @@ internal class PlaybackConvergencePolicy(
         }
 
         val canonical = snapshot.playback
+        if (report.participation != LocalPlaybackParticipation.ACTIVE) {
+            return Action.None
+        }
         if (
             canonical.coordinatorTimestampNs > 0L &&
                 coordinatorNowNs < canonical.coordinatorTimestampNs + executionGraceNs

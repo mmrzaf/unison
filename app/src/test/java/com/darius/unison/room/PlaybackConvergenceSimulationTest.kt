@@ -1,5 +1,6 @@
 package com.darius.unison.room
 
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.CanonicalPlaybackState
 import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.MemberSnapshot
@@ -98,6 +99,7 @@ class PlaybackConvergenceSimulationTest {
                 queueItemId = state.queueItemId,
                 positionMs = 0,
                 isPlaying = state.playing,
+                participation = LocalPlaybackParticipation.ACTIVE,
                 driftMs = null,
                 playbackRevision = state.playbackRevision,
                 queueRevision = state.queueRevision,
