@@ -30,13 +30,13 @@ class SynchronizationDiagnosticsTest {
     fun clearAllowsImmediateRoutineSampleForTheNextRoom() = runBlocking {
         val diagnostics = SynchronizationDiagnostics(this, log)
         diagnostics.record(routineEvent(1_000_000_000L))
-        awaitSize(diagnostics, 1)
+        awaitLogSize(1)
         diagnostics.clear()
 
         diagnostics.record(routineEvent(1_000_000_001L))
-        awaitSize(diagnostics, 1)
+        awaitLogSize(2)
 
-        assertEquals(1, diagnostics.snapshot().size)
+        assertEquals(2, log.snapshot().size)
         assertTrue(diagnostics.closeAndJoin())
     }
 
@@ -46,7 +46,8 @@ class SynchronizationDiagnosticsTest {
         diagnostics.record(routineEvent(1L).copy(action = "SEEK"))
 
         assertTrue(diagnostics.closeAndJoin())
-        assertEquals(1, diagnostics.snapshot().size)
+        log.readRaw()
+        assertEquals(1, log.snapshot().size)
     }
 
     @Test
@@ -62,10 +63,10 @@ class SynchronizationDiagnosticsTest {
         diagnostics.record(paused)
         diagnostics.record(paused.copy(timestampLocalNs = 500_000_001L))
         diagnostics.record(paused.copy(timestampLocalNs = 19_000_000_001L))
-        awaitSize(diagnostics, 1)
+        awaitLogSize(1)
 
         diagnostics.record(paused.copy(timestampLocalNs = 21_000_000_001L))
-        awaitSize(diagnostics, 2)
+        awaitLogSize(2)
 
         assertTrue(diagnostics.closeAndJoin())
     }
@@ -83,7 +84,7 @@ class SynchronizationDiagnosticsTest {
                 )
         diagnostics.record(correcting)
         diagnostics.record(correcting.copy(timestampLocalNs = 500_000_001L))
-        awaitSize(diagnostics, 1)
+        awaitLogSize(1)
 
         diagnostics.record(correcting.copy(timestampLocalNs = 2_100_000_001L))
         diagnostics.record(
@@ -94,14 +95,14 @@ class SynchronizationDiagnosticsTest {
                 actionReason = "seek_settlement",
             )
         )
-        awaitSize(diagnostics, 3)
+        awaitLogSize(3)
 
         assertTrue(diagnostics.closeAndJoin())
     }
 
     @Test
     fun sixHourPausedRoomRemainsBounded() = runBlocking {
-        val diagnostics = SynchronizationDiagnostics(this, log, maxEntries = 64)
+        val diagnostics = SynchronizationDiagnostics(this, log)
         val paused =
             routineEvent(0L)
                 .copy(
@@ -116,16 +117,17 @@ class SynchronizationDiagnosticsTest {
         }
 
         assertTrue(diagnostics.closeAndJoin())
-        assertTrue(diagnostics.snapshot().isNotEmpty())
-        assertTrue(diagnostics.snapshot().size <= 64)
+        log.readRaw()
+        assertTrue(log.snapshot().isNotEmpty())
+        assertTrue(log.snapshot().size <= 1_100)
     }
 
-    private suspend fun awaitSize(diagnostics: SynchronizationDiagnostics, expected: Int) {
+    private suspend fun awaitLogSize(expected: Int) {
         repeat(100) {
-            if (diagnostics.snapshot().size == expected) return
+            if (log.snapshot().size == expected) return
             delay(1)
         }
-        assertEquals(expected, diagnostics.snapshot().size)
+        assertEquals(expected, log.snapshot().size)
     }
 
     private fun routineEvent(timestampNs: Long) =

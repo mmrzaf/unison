@@ -1,7 +1,8 @@
 package com.darius.unison.sync
 
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
-import java.util.ArrayDeque
+import com.darius.unison.util.DiagnosticLogger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,7 +11,6 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** One safe, structured synchronization event. Secrets and file paths are deliberately absent. */
@@ -44,16 +44,14 @@ data class SynchronizationEvent(
 )
 
 /**
- * Bounded telemetry collector. Producers never write files; a dedicated IO coroutine serializes
- * events to the normal diagnostic log and keeps a bounded export buffer.
+ * Rate-limited synchronization diagnostics. Producers never perform disk I/O: a bounded channel
+ * feeds the application's single structured diagnostic sink.
  */
 class SynchronizationDiagnostics(
     scope: CoroutineScope,
-    private val log: DiagnosticLog,
-    private val maxEntries: Int = 2_000,
+    log: DiagnosticLog,
 ) : AutoCloseable {
-    private val events = ArrayDeque<SynchronizationEvent>()
-    private val lock = Any()
+    private val logger: DiagnosticLogger = log.scoped(TAG, DiagnosticCategory.SYNC)
     private val channel =
         Channel<SynchronizationEvent>(
             capacity = 256,
@@ -67,11 +65,16 @@ class SynchronizationDiagnostics(
     private val writer: Job =
         scope.launch(Dispatchers.IO) {
             for (event in channel) {
-                synchronized(lock) {
-                    events.addLast(event)
-                    while (events.size > maxEntries) events.removeFirst()
+                val attributes = event.toDiagnosticAttributes()
+                when {
+                    event.action == "SEEK" ->
+                        logger.warn("sync.hard_seek", attributes = attributes)
+                    event.buffering ->
+                        logger.debug("sync.buffering", attributes = attributes)
+                    event.action == "SET_SPEED" ->
+                        logger.debug("sync.speed_adjustment", attributes = attributes)
+                    else -> logger.debug("sync.sample", attributes = attributes)
                 }
-                log.i(TAG, event.toCompactLine())
             }
         }
 
@@ -108,7 +111,6 @@ class SynchronizationDiagnostics(
     }
 
     fun clear() {
-        synchronized(lock) { events.clear() }
         lastRoutineRecordNs.set(Long.MIN_VALUE)
         lastCorrectionRecordNs.set(Long.MIN_VALUE)
         synchronized(decisionLock) {
@@ -156,23 +158,6 @@ class SynchronizationDiagnostics(
         val newHardSeek: Boolean,
     )
 
-    suspend fun exportJson(): String =
-        withContext(Dispatchers.Default) {
-            snapshot().joinToString(prefix = "[\n", postfix = "\n]", separator = ",\n") {
-                it.toJson()
-            }
-        }
-
-    suspend fun exportCsv(): String =
-        withContext(Dispatchers.Default) {
-            buildString {
-                append(CSV_HEADER).append('\n')
-                snapshot().forEach { append(it.toCsv()).append('\n') }
-            }
-        }
-
-    fun snapshot(): List<SynchronizationEvent> = synchronized(lock) { events.toList() }
-
     suspend fun closeAndJoin(timeoutMs: Long = CLOSE_TIMEOUT_MS): Boolean {
         channel.close()
         val drained =
@@ -189,106 +174,34 @@ class SynchronizationDiagnostics(
         writer.cancel()
     }
 
-    private fun SynchronizationEvent.toCompactLine(): String = buildString {
-        append("sync_tick")
-        append(" item=").append(queueItemId?.take(8) ?: "none")
-        append(" rawDriftMs=").append(rawDriftMs ?: "unknown")
-        append(" filteredDriftMs=").append(filteredDriftMs ?: "unknown")
-        append(" speed=").append(selectedSpeed)
-        append(" baseline=").append(learnedBaselineSpeed)
-        append(" clockRate=").append(clockRate)
-        append(" clockRttMs=").append(clockRttMs ?: "unknown")
-        append(" clockUncertaintyMs=").append(clockUncertaintyMs ?: "unknown")
-        append(" clockState=").append(clockState)
-        append(" syncState=").append(playbackSyncState)
-        append(" action=").append(action)
-        append(" reason=").append(actionReason)
-        append(" route=").append(outputRoute)
-    }
-
-    private fun SynchronizationEvent.toJson(): String = buildString {
-        append("  {")
-        val fields =
-            listOf(
-                "timestampLocalNs" to timestampLocalNs,
-                "timestampCoordinatorNs" to timestampCoordinatorNs,
-                "deviceId" to deviceId,
-                "deviceModel" to deviceModel,
-                "androidVersion" to androidVersion,
-                "outputRoute" to outputRoute,
-                "roomIdHash" to roomIdHash,
-                "coordinatorTerm" to coordinatorTerm,
-                "queueItemId" to queueItemId,
-                "canonicalPositionMs" to canonicalPositionMs,
-                "sampledPlayerPositionMs" to sampledPlayerPositionMs,
-                "sampleAgeMs" to sampleAgeMs,
-                "rawDriftMs" to rawDriftMs,
-                "filteredDriftMs" to filteredDriftMs,
-                "selectedSpeed" to selectedSpeed,
-                "learnedBaselineSpeed" to learnedBaselineSpeed,
-                "clockOffsetNs" to clockOffsetNs,
-                "clockRate" to clockRate,
-                "clockRttMs" to clockRttMs,
-                "clockUncertaintyMs" to clockUncertaintyMs,
-                "clockState" to clockState,
-                "playbackSyncState" to playbackSyncState,
-                "action" to action,
-                "actionReason" to actionReason,
-                "hardSeekCount" to hardSeekCount,
-                "buffering" to buffering,
-            )
-        fields.forEachIndexed { index, (name, value) ->
-            if (index > 0) append(',')
-            append('\n').append("    \"").append(name).append("\": ")
-            when (value) {
-                null -> append("null")
-                is Number,
-                is Boolean -> append(value)
-                else -> append('"').append(jsonEscape(value.toString())).append('"')
-            }
-        }
-        append("\n  }")
-    }
-
-    private fun SynchronizationEvent.toCsv(): String =
-        listOf(
-                timestampLocalNs,
-                timestampCoordinatorNs,
-                deviceId,
-                deviceModel,
-                androidVersion,
-                outputRoute,
-                roomIdHash,
-                coordinatorTerm,
-                queueItemId,
-                canonicalPositionMs,
-                sampledPlayerPositionMs,
-                sampleAgeMs,
-                rawDriftMs,
-                filteredDriftMs,
-                selectedSpeed,
-                learnedBaselineSpeed,
-                clockOffsetNs,
-                clockRate,
-                clockRttMs,
-                clockUncertaintyMs,
-                clockState,
-                playbackSyncState,
-                action,
-                actionReason,
-                hardSeekCount,
-                buffering,
-            )
-            .joinToString(",") { csvEscape(it?.toString().orEmpty()) }
-
-    private fun jsonEscape(value: String): String =
-        value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
-
-    private fun csvEscape(value: String): String {
-        if (value.none { it == ',' || it == '"' || it == '\n' }) return value
-        val doubledQuotes = value.replace("\"", "\"\"")
-        return "\"" + doubledQuotes + "\""
-    }
+    private fun SynchronizationEvent.toDiagnosticAttributes(): Map<String, Any?> =
+        linkedMapOf(
+            "sync.timestamp_local_ns" to timestampLocalNs,
+            "sync.timestamp_coordinator_ns" to timestampCoordinatorNs,
+            "device.id" to deviceId,
+            "device.model" to deviceModel,
+            "android.api_level" to androidVersion,
+            "audio.output_route" to outputRoute,
+            "sync.coordinator_term" to coordinatorTerm,
+            "queue.item_id" to queueItemId?.take(12),
+            "playback.canonical_position_ms" to canonicalPositionMs,
+            "playback.sampled_position_ms" to sampledPlayerPositionMs,
+            "playback.sample_age_ms" to sampleAgeMs,
+            "sync.raw_drift_ms" to rawDriftMs,
+            "sync.filtered_drift_ms" to filteredDriftMs,
+            "playback.speed" to selectedSpeed,
+            "playback.baseline_speed" to learnedBaselineSpeed,
+            "clock.offset_ns" to clockOffsetNs,
+            "clock.rate" to clockRate,
+            "clock.rtt_ms" to clockRttMs,
+            "clock.uncertainty_ms" to clockUncertaintyMs,
+            "clock.state" to clockState,
+            "sync.state" to playbackSyncState,
+            "sync.action" to action,
+            "sync.reason" to actionReason,
+            "sync.hard_seek_count" to hardSeekCount,
+            "playback.buffering" to buffering,
+        )
 
     private companion object {
         const val TAG = "UnisonSync"
@@ -296,11 +209,5 @@ class SynchronizationDiagnostics(
         const val CORRECTION_SAMPLE_INTERVAL_NS = 2_000_000_000L
         const val SIGNIFICANT_DRIFT_MS = 100L
         const val CLOSE_TIMEOUT_MS = 2_000L
-        const val CSV_HEADER =
-            "timestampLocalNs,timestampCoordinatorNs,deviceId,deviceModel," +
-                "androidVersion,outputRoute,roomIdHash,coordinatorTerm,queueItemId,canonicalPositionMs," +
-                "sampledPlayerPositionMs,sampleAgeMs,rawDriftMs,filteredDriftMs,selectedSpeed," +
-                "learnedBaselineSpeed,clockOffsetNs,clockRate,clockRttMs,clockUncertaintyMs," +
-                "clockState,playbackSyncState,action,actionReason,hardSeekCount,buffering"
     }
 }
