@@ -21,12 +21,16 @@ without leaving and rejoining the room.
 8. Disconnect the coordinator and verify election/reconnect behavior.
 9. Kill and restart a participant process, then rejoin the active room.
 10. Repeat song changes with Bluetooth connected and while switching audio routes.
+11. On one non-controlling listener, trigger a real incoming call/audio-focus interruption, let the
+    room advance by at least two songs, end the interruption, and verify that no automatic audio
+    resumes. Tap Play/Rejoin once and verify that phone joins the current song/current room position.
 
 ## Evidence to retain
 
 - APK version and git/source archive checksum;
 - device model, API level and build fingerprint;
 - room diagnostics from every phone;
+- `Room actions → Room logs` remains responsive, searchable, and free of raw credentials/paths;
 - exact scenario and result;
 - any interval where queue item or play/pause state diverged;
 - whether automatic repair succeeded and how long it took.

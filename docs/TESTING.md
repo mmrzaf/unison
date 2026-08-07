@@ -25,8 +25,12 @@ After the pinned Gradle distribution and dependency cache are available:
 
 Keep these green:
 
-- all connected ready peers converge on the latest queue revision, playback revision, queue item, and
+- all READY peers converge on the latest queue revision, playback revision, queue item, and
   play/pause intent;
+- a warming, stale-clock, or degraded peer cannot inflate transport timing or block healthy READY
+  listeners;
+- every release synchronization profile keeps long-play drift and player speed within its tested
+  bounds;
 - stale callbacks, packets, schedules, imports, and transfer results cannot mutate newer state;
 - wrong item and wrong play/pause are repaired before position drift;
 - coordinator and participant players use the same canonical application path;
@@ -48,7 +52,8 @@ foreground restrictions, process death, or power management. Complete
 Capture Logcat from before room creation until after leaving, then run:
 
 ```bash
-./scripts/analyze-playback-log.py path/to/logcat.txt --strict
+./scripts/capture-playback-log.sh unison-playback.ndjson
+./scripts/analyze-playback-log.py unison-playback.ndjson --strict
 ```
 
 Strict analysis rejects transition storms, unavailable-song failures, circuit-breaker activation,
