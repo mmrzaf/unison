@@ -18,6 +18,7 @@ class AudioAttributes private constructor() {
 
 open class PlaybackException(
     val errorCodeName: String = "ERROR",
+    val errorCode: Int = 0,
     message: String? = null,
 ) : RuntimeException(message)
 

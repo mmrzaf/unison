@@ -15,6 +15,8 @@ object SystemClock {
 }
 
 object Build {
+    const val MANUFACTURER: String = "Stub"
+    const val MODEL: String = "StubModel"
     object VERSION { const val SDK_INT: Int = 35 }
     object VERSION_CODES {
         const val S: Int = 31
