@@ -15,6 +15,7 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.toUiState
 import com.darius.unison.sync.PlaybackSyncProfile
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -424,6 +425,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (error: Exception) {
             Result.failure(error)
         }
+
+    fun reportPermissionResult(scope: String, granted: Boolean) {
+        val attributes =
+            mapOf(
+                "permission.scope" to scope.take(48),
+                "permission.granted" to granted,
+            )
+        if (granted) {
+            container.diagnostics.debug(
+                "MainViewModel",
+                DiagnosticCategory.APP,
+                "app.permission.result",
+                attributes = attributes,
+            )
+        } else {
+            container.diagnostics.info(
+                "MainViewModel",
+                DiagnosticCategory.APP,
+                "app.permission.result",
+                attributes = attributes,
+            )
+        }
+    }
 
     fun showMessage(value: String) {
         message.value = value

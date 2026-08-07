@@ -41,6 +41,7 @@ internal class SharedRoomActions(
     val onSaveQueue: (String, List<TrackId>) -> Unit,
     val onClearPlayed: () -> Unit,
     val onClearQueue: () -> Unit,
+    val onShowAbout: () -> Unit,
     val onLeave: () -> Unit,
     val onRetryIssue: () -> Unit,
     val onDismissIssue: (String) -> Unit,

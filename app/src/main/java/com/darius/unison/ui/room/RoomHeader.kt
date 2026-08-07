@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
@@ -42,6 +43,7 @@ internal fun RoomHeader(
     onSaveQueue: () -> Unit,
     onClearPlayed: () -> Unit,
     onShowSettings: () -> Unit,
+    onShowAbout: () -> Unit,
     onLeave: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
@@ -99,6 +101,11 @@ internal fun RoomHeader(
                     text = { Text("Room settings") },
                     leadingIcon = { Icon(Icons.Default.Settings, null) },
                     onClick = { runAndClose(onShowSettings) },
+                )
+                DropdownMenuItem(
+                    text = { Text("About Unison") },
+                    leadingIcon = { Icon(Icons.Default.Code, null) },
+                    onClick = { runAndClose(onShowAbout) },
                 )
                 HorizontalDivider()
                 DropdownMenuItem(

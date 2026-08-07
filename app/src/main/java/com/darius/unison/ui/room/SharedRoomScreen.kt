@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.paging.PagingData
 import com.darius.unison.model.MemberTrackState
+import com.darius.unison.model.LocalPlaybackInhibitionReason
 import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RepeatMode
@@ -101,15 +102,12 @@ internal fun SharedRoomScreen(
     val transportStatus = room.transportStatus
     val localOutputInhibited =
         room.localPlaybackParticipation == LocalPlaybackParticipation.OUTPUT_INHIBITED
-    val localRejoining =
-        room.localPlaybackParticipation == LocalPlaybackParticipation.REJOINING
     val transportControls =
         remember(
             nowPlaying?.queueItemId,
             hasSeekableDuration,
             snapshot.playback.isPlaying,
             localOutputInhibited,
-            localRejoining,
             transportStatus,
         ) {
             RoomPlaybackUiPolicy.controls(
@@ -345,6 +343,7 @@ internal fun SharedRoomScreen(
                     onSaveQueue = { saveQueueOpen = true },
                     onClearPlayed = actions.onClearPlayed,
                     onShowSettings = { showOptions = true },
+                    onShowAbout = actions.onShowAbout,
                     onLeave = { confirmLeave = true },
                 )
             }
@@ -403,14 +402,17 @@ internal fun SharedRoomScreen(
                         )
                         if (localOutputInhibited && snapshot.playback.isPlaying) {
                             Text(
-                                "Room is still playing · Tap Play to rejoin",
-                                color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.labelLarge,
-                                textAlign = TextAlign.Center,
-                            )
-                        } else if (localRejoining) {
-                            Text(
-                                "Rejoining live playback…",
+                                when (room.localPlaybackInhibitionReason) {
+                                    LocalPlaybackInhibitionReason.BECOMING_NOISY ->
+                                        "Audio output disconnected · Room playback continued"
+                                    LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
+                                        "Audio interrupted · Room playback continued"
+                                    LocalPlaybackInhibitionReason.UNSUITABLE_OUTPUT ->
+                                        "Audio output unavailable · Room playback continued"
+                                    LocalPlaybackInhibitionReason.SYSTEM_POLICY ->
+                                        "Playback interrupted by the system · Room playback continued"
+                                    null -> "Local audio paused · Room playback continued"
+                                },
                                 color = MaterialTheme.colorScheme.primary,
                                 style = MaterialTheme.typography.labelLarge,
                                 textAlign = TextAlign.Center,

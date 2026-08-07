@@ -54,7 +54,28 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.darius.unison.model.AppCommand
+import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.RoomJoinCredential
+
+private sealed interface PendingNetworkPermissionAction {
+    val scope: String
+    val deniedMessage: String
+
+    data class CreateRoom(val name: String?) : PendingNetworkPermissionAction {
+        override val scope = "create_room"
+        override val deniedMessage = "Nearby Wi-Fi access is needed to create a room"
+    }
+
+    data class JoinRoom(val room: DiscoveredRoom, val pin: String) : PendingNetworkPermissionAction {
+        override val scope = "join_room"
+        override val deniedMessage = "Nearby Wi-Fi access is needed to join a room"
+    }
+
+    data object CreateOfflineNetwork : PendingNetworkPermissionAction {
+        override val scope = "create_offline_network"
+        override val deniedMessage = "Nearby Wi-Fi access is needed to create an offline network"
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +84,7 @@ fun UnisonApp(viewModel: MainViewModel) {
     var showNameEdit by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    var showAbout by rememberSaveable { mutableStateOf(false) }
 
     var importToRoom by rememberSaveable { mutableStateOf(false) }
     val filesLauncher =
@@ -91,28 +113,71 @@ fun UnisonApp(viewModel: MainViewModel) {
         exportLauncher.launch("${name.safeFileName()}.m3u8")
     }
 
-    var startHotspotAfterPermission by rememberSaveable { mutableStateOf(false) }
-    val hotspotPermissionLauncher =
+    var pendingNetworkPermissionAction by
+        remember { mutableStateOf<PendingNetworkPermissionAction?>(null) }
+
+    fun executeNetworkAction(action: PendingNetworkPermissionAction) {
+        when (action) {
+            is PendingNetworkPermissionAction.CreateRoom ->
+                viewModel.command(AppCommand.CreateRoom(action.name))
+            is PendingNetworkPermissionAction.JoinRoom ->
+                viewModel.command(
+                    AppCommand.JoinRoom(action.room, RoomJoinCredential.Pin(action.pin)),
+                    feedback = null,
+                )
+            PendingNetworkPermissionAction.CreateOfflineNetwork ->
+                viewModel.command(AppCommand.CreateOfflineNetwork)
+        }
+    }
+
+    fun requiredPermissions(action: PendingNetworkPermissionAction): Array<String> =
+        when (action) {
+            is PendingNetworkPermissionAction.CreateRoom,
+            is PendingNetworkPermissionAction.JoinRoom -> PermissionController.localNetworkPermissions()
+            PendingNetworkPermissionAction.CreateOfflineNetwork ->
+                PermissionController.offlineNetworkPermissions()
+        }
+
+    val networkPermissionLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             grants ->
-            if (grants.values.all { it } && startHotspotAfterPermission) {
-                viewModel.command(AppCommand.CreateOfflineNetwork)
-            } else if (startHotspotAfterPermission) {
-                viewModel.showMessage("Nearby Wi-Fi access is needed to create an offline network")
+            val pending = pendingNetworkPermissionAction ?: return@rememberLauncherForActivityResult
+            pendingNetworkPermissionAction = null
+            val granted =
+                requiredPermissions(pending).all { permission ->
+                    grants[permission] == true ||
+                        ContextCompat.checkSelfPermission(context, permission) ==
+                            PackageManager.PERMISSION_GRANTED
+                }
+            viewModel.reportPermissionResult(pending.scope, granted)
+            if (granted) {
+                executeNetworkAction(pending)
+            } else {
+                viewModel.showMessage(pending.deniedMessage)
             }
-            startHotspotAfterPermission = false
         }
-    val createOfflineNetwork = {
+
+    fun runWithNetworkPermissions(
+        action: PendingNetworkPermissionAction,
+        requiredPermissions: Array<String>,
+    ) {
         val missing =
-            PermissionController.offlineNetworkPermissions().filter {
+            requiredPermissions.filter {
                 ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
             }
         if (missing.isEmpty()) {
-            viewModel.command(AppCommand.CreateOfflineNetwork)
-        } else {
-            startHotspotAfterPermission = true
-            hotspotPermissionLauncher.launch(missing.toTypedArray())
+            executeNetworkAction(action)
+            return
         }
+        pendingNetworkPermissionAction = action
+        networkPermissionLauncher.launch(missing.toTypedArray())
+    }
+
+    val createOfflineNetwork = {
+        runWithNetworkPermissions(
+            PendingNetworkPermissionAction.CreateOfflineNetwork,
+            PermissionController.offlineNetworkPermissions(),
+        )
     }
 
     LaunchedEffect(ui.message) {
@@ -276,14 +341,19 @@ fun UnisonApp(viewModel: MainViewModel) {
                 HomeScreen(
                     state = ui,
                     tracks = libraryTracks,
-                    onCreateRoom = { viewModel.command(AppCommand.CreateRoom(it)) },
+                    onCreateRoom = { name ->
+                        runWithNetworkPermissions(
+                            PendingNetworkPermissionAction.CreateRoom(name),
+                            PermissionController.localNetworkPermissions(),
+                        )
+                    },
                     onStartDiscovery = {
                         viewModel.command(AppCommand.StartDiscovery, feedback = null)
                     },
                     onJoinRoom = { room, pin ->
-                        viewModel.command(
-                            AppCommand.JoinRoom(room, RoomJoinCredential.Pin(pin)),
-                            feedback = null,
+                        runWithNetworkPermissions(
+                            PendingNetworkPermissionAction.JoinRoom(room, pin),
+                            PermissionController.localNetworkPermissions(),
                         )
                     },
                     onCancelConnection = {
@@ -298,6 +368,7 @@ fun UnisonApp(viewModel: MainViewModel) {
                         m3uLauncher.launch(M3U_TYPES)
                     },
                     onEditName = { showNameEdit = true },
+                    onShowAbout = { showAbout = true },
                     onSetPlaybackSyncProfile = viewModel::setPlaybackSyncProfile,
                     onCreateOfflineNetwork = createOfflineNetwork,
                     onStopOfflineNetwork = { viewModel.command(AppCommand.StopOfflineNetwork) },
@@ -362,6 +433,7 @@ fun UnisonApp(viewModel: MainViewModel) {
                                 },
                                 onClearPlayed = { viewModel.command(AppCommand.ClearPlayed) },
                                 onClearQueue = { viewModel.command(AppCommand.ClearQueue) },
+                                onShowAbout = { showAbout = true },
                                 onLeave = { viewModel.command(AppCommand.LeaveRoom) },
                                 onRetryIssue = viewModel::retryRoomIssue,
                                 onDismissIssue = viewModel::clearRoomError,
@@ -378,6 +450,10 @@ fun UnisonApp(viewModel: MainViewModel) {
                 )
             }
         }
+    }
+
+    if (showAbout) {
+        AboutUnisonDialog(onDismiss = { showAbout = false })
     }
 
     ui.selectedPlaylist?.let { playlist ->

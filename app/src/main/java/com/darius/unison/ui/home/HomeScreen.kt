@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
@@ -80,6 +81,7 @@ internal fun HomeScreen(
     onChooseFiles: () -> Unit,
     onImportM3u: () -> Unit,
     onEditName: () -> Unit,
+    onShowAbout: () -> Unit,
     onSetPlaybackSyncProfile: (PlaybackSyncProfile) -> Unit,
     onCreateOfflineNetwork: () -> Unit,
     onStopOfflineNetwork: () -> Unit,
@@ -177,6 +179,14 @@ internal fun HomeScreen(
                                 onClick = {
                                     settingsOpen = false
                                     storageOpen = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("About Unison") },
+                                leadingIcon = { Icon(Icons.Default.Code, null) },
+                                onClick = {
+                                    settingsOpen = false
+                                    onShowAbout()
                                 },
                             )
                         }
@@ -512,7 +522,7 @@ internal fun HomeScreen(
             title = { Text("Connect nearby phones") },
             text = {
                 Text(
-                    "Unison normally uses the Wi-Fi network you are already connected to. If there is no router, this phone can create a private local connection for the room."
+                    "Unison normally uses the Wi-Fi network you are already connected to. On Android 13+ allow Nearby devices when prompted. If there is no router, this phone can create a private local connection for the room."
                 )
             },
             confirmButton = {
