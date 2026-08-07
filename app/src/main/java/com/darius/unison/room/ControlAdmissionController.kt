@@ -14,6 +14,7 @@ import com.darius.unison.protocol.HandshakeMessage
 import com.darius.unison.protocol.HandshakeRejectionCode
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.protocol.PinPake
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import java.util.Base64
 import kotlinx.coroutines.sync.Semaphore
@@ -101,9 +102,11 @@ internal class ControlAdmissionController(
         }
         val identity = localIdentity()
         if (hello.peerId == identity.peerId) {
-            log.w(
+            log.warn(
                 TAG,
-                "Rejected duplicated coordinator identity peer=${hello.peerId.value.take(8)} remote=$remoteAddress",
+                DiagnosticCategory.SECURITY,
+                "security.control_admission.self_identity_rejected",
+                attributes = mapOf("peer.id" to hello.peerId.value.take(12)),
             )
             return ValidationResult.Invalid(
                 rejected(HandshakeRejectionCode.IDENTITY_COLLISION, IDENTITY_COLLISION_REASON)
