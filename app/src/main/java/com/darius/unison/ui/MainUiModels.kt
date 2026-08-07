@@ -9,6 +9,7 @@ import com.darius.unison.library.PlaylistDetail
 import com.darius.unison.library.StorageSummary
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.RoomUiState
+import com.darius.unison.sync.PlaybackSyncProfile
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.storage.PlaylistSummary
@@ -91,6 +92,7 @@ data class MainUiState(
     val settingsLoaded: Boolean = false,
     val onboardingComplete: Boolean = false,
     val retentionPolicy: RetentionPolicy = RetentionPolicy.TEMPORARY_24_HOURS,
+    val playbackSyncProfile: PlaybackSyncProfile = PlaybackSyncProfile.BALANCED,
     val busy: Boolean = false,
     val importProgress: ImportProgress? = null,
     val message: String? = null,

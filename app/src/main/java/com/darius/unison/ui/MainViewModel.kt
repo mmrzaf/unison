@@ -14,6 +14,8 @@ import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.toUiState
+import com.darius.unison.sync.PlaybackSyncProfile
+import com.darius.unison.util.DiagnosticEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -78,7 +80,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     playback.copy(
                         localPositionMs = null,
                         localDriftMs = null,
-                        memberPlayback = emptyMap(),
                     )
                 }
                 .distinctUntilChanged(),
@@ -92,6 +93,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .map { it.localPositionMs ?: 0L }
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+    val diagnosticRevision: StateFlow<Long> = container.diagnostics.revision
+
+    fun roomLogEvents(): List<DiagnosticEvent> {
+        val sessionId = container.diagnostics.currentRoomSessionId() ?: return emptyList()
+        return container.diagnostics.snapshot(sessionId)
+    }
 
     private val operation = combine(busy, importProgress, ::OperationState)
     private val transient =
@@ -114,8 +122,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         combine(
             container.settings.onboardingComplete,
             container.settings.retentionPolicy,
-        ) { onboarded, retention ->
-            onboarded to retention
+            container.settings.playbackSyncProfile,
+        ) { onboarded, retention, syncProfile ->
+            Triple(onboarded, retention, syncProfile)
         }
     private val debouncedLibraryQuery = libraryQuery.debounce(180).distinctUntilChanged()
     private val libraryControls = combine(libraryQuery, librarySort, ::LibraryControls)
@@ -168,6 +177,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     settingsLoaded = true,
                     onboardingComplete = preferencesState.first,
                     retentionPolicy = preferencesState.second,
+                    playbackSyncProfile = preferencesState.third,
                     busy = transientState.operation.busy,
                     importProgress = transientState.operation.importProgress,
                     message = transientState.message,
@@ -228,6 +238,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         importCoordinator.skipPendingM3uAmbiguity(entryIndex)
 
     fun finishPendingM3uWithoutFolder() = importCoordinator.finishPendingM3uWithoutFolder()
+
+    fun setPlaybackSyncProfile(profile: PlaybackSyncProfile) {
+        viewModelScope.launch {
+            userResult { container.settings.setPlaybackSyncProfile(profile) }
+                .onFailure { message.value = "Could not update synchronization" }
+        }
+    }
 
     fun setRetentionPolicy(policy: RetentionPolicy) {
         viewModelScope.launch {
