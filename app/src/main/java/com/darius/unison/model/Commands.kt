@@ -165,12 +165,10 @@ sealed interface UserCommand {
     ) : UserCommand
 
     @Serializable
-    data class PlaybackModeChange(
+    data class RepeatModeChange(
         override val commandId: String = UUID.randomUUID().toString(),
         override val requestedBy: PeerId,
-        val shuffleEnabled: Boolean,
         val repeatMode: RepeatMode,
-        val shuffleSeed: Long,
     ) : UserCommand
 
     @Serializable

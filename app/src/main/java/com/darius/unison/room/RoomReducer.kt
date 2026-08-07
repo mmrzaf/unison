@@ -83,7 +83,7 @@ object RoomReducer {
             is UserCommand.QueueClearPlayed -> clearPlayed(snapshot)
             is UserCommand.QueueClear -> clearQueue(snapshot)
             is UserCommand.QueueShuffle -> shuffleQueue(snapshot, command.shuffleSeed)
-            is UserCommand.PlaybackModeChange -> changePlaybackMode(snapshot, command)
+            is UserCommand.RepeatModeChange -> changeRepeatMode(snapshot, command.repeatMode)
             is UserCommand.OptionsChange -> changeOptions(snapshot, command.options)
         }
     }
@@ -98,16 +98,9 @@ object RoomReducer {
                         body.index?.coerceIn(0, snapshot.queue.size) ?: snapshot.queue.size
                     val updatedQueue =
                         snapshot.queue.toMutableList().apply { addAll(insertionIndex, body.items) }
-                    val addedIds = body.items.map { it.queueItemId }
                     snapshot.copy(
                         queue = updatedQueue,
                         queueRevision = sequence,
-                        unshuffledQueueItemIds =
-                            if (snapshot.shuffleEnabled) {
-                                (snapshot.unshuffledQueueItemIds.ifEmpty {
-                                    snapshot.queue.map { it.queueItemId }
-                                }) + addedIds
-                            } else emptyList(),
                         playback =
                             if (snapshot.playback.queueItemId == null) {
                                 snapshot.playback.copy(
@@ -126,8 +119,6 @@ object RoomReducer {
                         queue = snapshot.queue.filterNot { it.queueItemId in removed },
                         queueRevision = sequence,
                         preparedQueueItemIds = snapshot.preparedQueueItemIds - removed,
-                        unshuffledQueueItemIds =
-                            snapshot.unshuffledQueueItemIds.filterNot { it in removed },
                         // When the audible item is removed, the following CurrentItemChanged
                         // mutation owns
                         // the scheduled transition. Keeping the old canonical playback reference
@@ -152,8 +143,6 @@ object RoomReducer {
                     snapshot.copy(
                         queue = emptyList(),
                         preparedQueueItemIds = emptySet(),
-                        unshuffledQueueItemIds = emptyList(),
-                        shuffleEnabled = false,
                         repeatMode = RepeatMode.OFF,
                         playback = CanonicalPlaybackState(revision = sequence),
                         queueRevision = sequence,
@@ -169,21 +158,16 @@ object RoomReducer {
 
                 is ProtocolBody.RoomOptionsChanged ->
                     snapshot.copy(options = body.options.normalized())
-                is ProtocolBody.PlaybackModeChanged -> {
+                is ProtocolBody.QueueShuffled -> {
                     val byId = snapshot.queue.associateBy { it.queueItemId }
+                    val requested = body.orderedQueueItemIds.toHashSet()
                     val ordered =
                         body.orderedQueueItemIds.mapNotNull(byId::get) +
-                            snapshot.queue.filter {
-                                it.queueItemId !in body.orderedQueueItemIds.toSet()
-                            }
-                    snapshot.copy(
-                        queue = ordered,
-                        shuffleEnabled = body.shuffleEnabled,
-                        repeatMode = body.repeatMode,
-                        unshuffledQueueItemIds = body.unshuffledQueueItemIds,
-                        queueRevision = sequence,
-                    )
+                            snapshot.queue.filter { it.queueItemId !in requested }
+                    snapshot.copy(queue = ordered, queueRevision = sequence)
                 }
+
+                is ProtocolBody.RepeatModeChanged -> snapshot.copy(repeatMode = body.repeatMode)
 
                 is ProtocolBody.PlayScheduled ->
                     snapshot.copy(
@@ -448,8 +432,6 @@ object RoomReducer {
         id: QueueItemId,
         requestedIndex: Int,
     ): Decision {
-        if (snapshot.shuffleEnabled)
-            return Decision.Rejected("Turn off shuffle to reorder the queue")
         if (snapshot.queue.none { it.queueItemId == id })
             return Decision.Rejected("That song is no longer in the queue")
         return mutation(
@@ -493,86 +475,16 @@ object RoomReducer {
         return mutation(snapshot, ProtocolBody.QueueCleared)
     }
 
-    private fun changePlaybackMode(
-        snapshot: RoomSnapshot,
-        command: UserCommand.PlaybackModeChange,
-    ): Decision {
-        val repeatMode = command.repeatMode
-        if (
-            snapshot.shuffleEnabled == command.shuffleEnabled && snapshot.repeatMode == repeatMode
-        ) {
-            return Decision.Rejected("Playback mode is already set")
-        }
-        val existingIds = snapshot.queue.map { it.queueItemId }
-        val originalIds =
-            if (snapshot.shuffleEnabled && snapshot.unshuffledQueueItemIds.isNotEmpty()) {
-                snapshot.unshuffledQueueItemIds.filter { it in existingIds } +
-                    existingIds.filterNot { it in snapshot.unshuffledQueueItemIds }
-            } else existingIds
-        val orderedIds =
-            if (command.shuffleEnabled) {
-                shuffleUpcoming(snapshot.queue, snapshot.playback.queueItemId, command.shuffleSeed)
-            } else originalIds
-        return mutation(
-            snapshot,
-            ProtocolBody.PlaybackModeChanged(
-                shuffleEnabled = command.shuffleEnabled,
-                repeatMode = repeatMode,
-                orderedQueueItemIds = orderedIds,
-                unshuffledQueueItemIds = if (command.shuffleEnabled) originalIds else emptyList(),
-            ),
-        )
+    private fun changeRepeatMode(snapshot: RoomSnapshot, repeatMode: RepeatMode): Decision {
+        if (snapshot.repeatMode == repeatMode) return Decision.Rejected("Repeat mode is already set")
+        return mutation(snapshot, ProtocolBody.RepeatModeChanged(repeatMode))
     }
 
     private fun shuffleQueue(snapshot: RoomSnapshot, seed: Long): Decision {
-        if (snapshot.queue.size < 2) return Decision.Rejected("Add more songs before shuffling")
-        val existingIds = snapshot.queue.map { it.queueItemId }
-        val enable = !snapshot.shuffleEnabled
-        val originalIds =
-            if (snapshot.shuffleEnabled && snapshot.unshuffledQueueItemIds.isNotEmpty()) {
-                snapshot.unshuffledQueueItemIds.filter { it in existingIds } +
-                    existingIds.filterNot { it in snapshot.unshuffledQueueItemIds }
-            } else {
-                existingIds
-            }
         val orderedIds =
-            if (enable) shuffleUpcoming(snapshot.queue, snapshot.playback.queueItemId, seed)
-            else originalIds
-        return mutation(
-            snapshot,
-            ProtocolBody.PlaybackModeChanged(
-                shuffleEnabled = enable,
-                repeatMode = snapshot.repeatMode,
-                orderedQueueItemIds = orderedIds,
-                unshuffledQueueItemIds = if (enable) originalIds else emptyList(),
-            ),
-        )
-    }
-
-    private fun shuffleUpcoming(
-        queue: List<QueueItem>,
-        currentId: QueueItemId?,
-        seed: Long,
-    ): List<QueueItemId> {
-        if (queue.size < 2) return queue.map { it.queueItemId }
-        val currentIndex =
-            queue.indexOfFirst { it.queueItemId == currentId }.let { if (it < 0) 0 else it }
-        val fixed = queue.take(currentIndex + 1).map { it.queueItemId }
-        val future = queue.drop(currentIndex + 1).map { it.queueItemId }.toMutableList()
-        var state = seed.takeIf { it != 0L } ?: 0x6A09E667F3BCC909L
-        fun nextLong(): Long {
-            state = state xor (state shl 13)
-            state = state xor (state ushr 7)
-            state = state xor (state shl 17)
-            return state
-        }
-        for (index in future.lastIndex downTo 1) {
-            val selected = ((nextLong() ushr 1) % (index + 1).toLong()).toInt()
-            val value = future[index]
-            future[index] = future[selected]
-            future[selected] = value
-        }
-        return fixed + future
+            QueueShufflePolicy.shuffledOrder(snapshot.queue, snapshot.playback.queueItemId, seed)
+                ?: return Decision.Rejected("Add at least two upcoming songs before shuffling")
+        return mutation(snapshot, ProtocolBody.QueueShuffled(orderedIds))
     }
 
     private fun changeOptions(snapshot: RoomSnapshot, options: RoomOptions): Decision =
@@ -630,7 +542,7 @@ object RoomReducer {
             is UserCommand.QueueClearPlayed,
             is UserCommand.QueueClear,
             is UserCommand.QueueShuffle,
-            is UserCommand.PlaybackModeChange,
+            is UserCommand.RepeatModeChange,
             is UserCommand.OptionsChange -> false
         }
 
