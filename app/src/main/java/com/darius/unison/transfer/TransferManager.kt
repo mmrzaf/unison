@@ -9,6 +9,7 @@ import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransferProgress
+import com.darius.unison.network.LocalNetworkSocketProvider
 import com.darius.unison.network.NetworkAddressPolicy
 import com.darius.unison.protocol.AuthenticatedFileStreamCodec
 import com.darius.unison.protocol.Crypto
@@ -52,6 +53,7 @@ class TransferManager(
     private val fileStore: ManagedFileStore,
     private val scope: CoroutineScope,
     private val log: DiagnosticLog,
+    private val socketProvider: LocalNetworkSocketProvider,
     private val retentionPolicyProvider: suspend () -> RetentionPolicy,
     private val onProgress: (TransferProgress) -> Unit,
     private val onCompleted: suspend (TrackDescriptor) -> Unit,
@@ -368,12 +370,18 @@ class TransferManager(
                     )
                     throw cancelled
                 } catch (error: Exception) {
+                    val staged = error as? TransferStageException
+                    val userMessage = staged?.cause?.message ?: error.message ?: "Transfer failed"
                     log.warn(
                         TAG,
                         DiagnosticCategory.TRANSFER,
                         "transfer.track.failed",
-                        attributes = mapOf("track.id" to track.trackId.value.take(12)),
-                        throwable = error,
+                        attributes = mapOf(
+                            "track.id" to track.trackId.value.take(12),
+                            "peer.id" to source.peerId.value.take(12),
+                            "transfer.phase" to staged?.stage,
+                        ),
+                        throwable = staged?.cause ?: error,
                     )
                     onProgress(
                         TransferProgress(
@@ -383,10 +391,10 @@ class TransferManager(
                             source.peerId,
                             localIdentity.peerId,
                             MemberTrackState.FAILED,
-                            error.message,
+                            userMessage,
                         )
                     )
-                    onFailed(track.trackId, source.peerId, error.message ?: "Transfer failed")
+                    onFailed(track.trackId, source.peerId, userMessage)
                 }
             }
         cancellationRegistry.registerJob(track.trackId, job)
@@ -402,30 +410,62 @@ class TransferManager(
         source: PeerEndpoint,
         authorizationToken: String,
     ) {
-        require(track.sizeBytes in 1..MAX_TRACK_SIZE_BYTES) { "Unsupported track size" }
-        val address = java.net.InetAddress.getByName(source.hostAddress)
-        NetworkAddressPolicy.requireAllowed(address)
-        val partial = fileStore.partialFile(track.trackId)
-        partial.parentFile?.mkdirs()
-        var offset = partial.takeIf { it.isFile }?.length() ?: 0L
-        if (offset > track.sizeBytes) {
-            partial.delete()
-            offset = 0
-        }
-        val remaining = track.sizeBytes - offset
-        require(partial.parentFile?.usableSpace ?: 0L >= remaining + MIN_FREE_SPACE_BYTES) {
-            "Not enough storage space"
-        }
-        val socket = Socket()
-        // Attach before the blocking connect so cancellation can close the socket immediately.
-        cancellationRegistry.attachSocket(track.trackId, socket)
+        var phase = "VALIDATE"
+        var routeAttributes: Map<String, Any?> = emptyMap()
+        var socket: Socket? = null
         try {
+            require(track.sizeBytes in 1..MAX_TRACK_SIZE_BYTES) { "Unsupported track size" }
+            val address =
+                NetworkAddressPolicy.parseAllowedAddress(source.hostAddress)
+                    ?: throw IllegalArgumentException("Invalid local transfer endpoint")
+            val partial = fileStore.partialFile(track.trackId)
+            partial.parentFile?.mkdirs()
+            var offset = partial.takeIf { it.isFile }?.length() ?: 0L
+            if (offset > track.sizeBytes) {
+                partial.delete()
+                offset = 0
+            }
+            val remaining = track.sizeBytes - offset
+            require(partial.parentFile?.usableSpace ?: 0L >= remaining + MIN_FREE_SPACE_BYTES) {
+                "Not enough storage space"
+            }
+
+            phase = "CONNECT"
+            val route = socketProvider.createSocket(address, purpose = "transfer")
+            routeAttributes = route.diagnosticAttributes()
+            socket = route.socket
+            cancellationRegistry.attachSocket(track.trackId, socket)
             currentCoroutineContext().ensureActive()
             socket.tcpNoDelay = true
             socket.keepAlive = true
+            log.debug(
+                TAG,
+                DiagnosticCategory.TRANSFER,
+                "transfer.download.connecting",
+                attributes = routeAttributes + mapOf(
+                    "track.id" to track.trackId.value.take(12),
+                    "peer.id" to source.peerId.value.take(12),
+                    "transfer.offset" to offset,
+                    "transfer.expected_bytes" to track.sizeBytes,
+                    "network.remote_port" to source.port,
+                ),
+            )
             socket.connect(InetSocketAddress(address, source.port), 10_000)
             socket.soTimeout = 20_000
+            socketProvider.onConnected(route, socket)
+            log.debug(
+                TAG,
+                DiagnosticCategory.TRANSFER,
+                "transfer.download.connected",
+                attributes = routeAttributes + mapOf(
+                    "track.id" to track.trackId.value.take(12),
+                    "peer.id" to source.peerId.value.take(12),
+                    "transfer.offset" to offset,
+                ),
+            )
             currentCoroutineContext().ensureActive()
+
+            phase = "HANDSHAKE"
             val clientNonce = Crypto.randomBase64(18)
             val request =
                 FileRequest(
@@ -525,6 +565,7 @@ class TransferManager(
                 }
                 check(header.acceptedOffset == offset) { "Resume offset rejected" }
 
+                phase = "BODY"
                 onProgress(
                     TransferProgress(
                         track.trackId,
@@ -567,6 +608,8 @@ class TransferManager(
                                 }
                             }
                         }
+
+                phase = "VERIFY"
                 onProgress(
                     TransferProgress(
                         track.trackId,
@@ -587,6 +630,8 @@ class TransferManager(
                     fileStore.discardPartial(track.trackId)
                     error("SHA-256 verification failed")
                 }
+
+                phase = "REGISTER"
                 trackRepository.registerManagedFile(track, retentionPolicyProvider())
                 onProgress(
                     TransferProgress(
@@ -598,15 +643,42 @@ class TransferManager(
                         MemberTrackState.READY,
                     )
                 )
+                log.info(
+                    TAG,
+                    DiagnosticCategory.TRANSFER,
+                    "transfer.download.completed",
+                    attributes = routeAttributes + mapOf(
+                        "track.id" to track.trackId.value.take(12),
+                        "peer.id" to source.peerId.value.take(12),
+                        "transfer.bytes" to track.sizeBytes,
+                    ),
+                )
                 onCompleted(track)
             } finally {
                 sessionKey.fill(0)
                 associatedData.fill(0)
                 baseNonce.fill(0)
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            log.debug(
+                TAG,
+                DiagnosticCategory.TRANSFER,
+                "transfer.download.failure_detail",
+                attributes = routeAttributes + mapOf(
+                    "track.id" to track.trackId.value.take(12),
+                    "peer.id" to source.peerId.value.take(12),
+                    "transfer.phase" to phase,
+                ),
+                throwable = error,
+            )
+            throw TransferStageException(phase, error)
         } finally {
-            cancellationRegistry.detachSocket(track.trackId, socket)
-            runCatching { socket.close() }
+            socket?.let { connected ->
+                cancellationRegistry.detachSocket(track.trackId, connected)
+                runCatching { connected.close() }
+            }
         }
     }
 
@@ -662,6 +734,11 @@ class TransferManager(
             }
         }
     }
+
+    private class TransferStageException(
+        val stage: String,
+        cause: Throwable,
+    ) : Exception(cause.message, cause)
 
     companion object {
         private const val TAG = "TransferManager"
