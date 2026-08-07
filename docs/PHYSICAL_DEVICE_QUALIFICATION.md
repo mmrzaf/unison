@@ -1,7 +1,8 @@
 # Physical-device qualification
 
-Use at least three phones from two manufacturers across Android API 30–33. Test router Wi-Fi and
-LocalOnlyHotspot. Repeat the playback cases with built-in speakers and Bluetooth output.
+Use at least three phones from at least two manufacturers covering Android 11 (API 30), Android 13
+(API 33), and Android 16 (API 36). Test router Wi-Fi and LocalOnlyHotspot. Repeat the playback cases
+with built-in speakers and Bluetooth output.
 
 ## Pass criteria
 
@@ -24,6 +25,15 @@ without leaving and rejoining the room.
 11. On one non-controlling listener, trigger a real incoming call/audio-focus interruption, let the
     room advance by at least two songs, end the interruption, and verify that no automatic audio
     resumes. Tap Play/Rejoin once and verify that phone joins the current song/current room position.
+12. On Android 16, keep cellular data enabled while connected to a private Wi-Fi network with no
+    Internet. Join from Android 11/13 and transfer several full songs in both directions; verify the
+    selected control/transfer route stays `NETWORK_BOUND` whenever Android exposes an owning network.
+13. Android 16 development-only Local Network Protection check: enable the platform compatibility
+    restriction for the debug package, revoke Nearby devices, verify Create/Join requests permission,
+    grant it, then verify discovery, control, full transfer, and playback. Disable the compatibility
+    restriction after the test.
+14. Interrupt and resume a large transfer across an API 30 ↔ API 36 pair and verify the final SHA-256
+    matches before playback becomes eligible.
 
 ## Evidence to retain
 
@@ -37,3 +47,18 @@ without leaving and rejoining the room.
 
 A timing-only drift warning is not a state-divergence failure. Playing a different song or holding a
 different play/pause intent is always a state-divergence failure.
+
+## Android 16 local-network compatibility check
+
+For debug qualification only, Android 16 can opt an app into Local Network Protection before the
+future target-SDK enforcement. Exercise the permission path with:
+
+```bash
+adb shell am compat enable RESTRICT_LOCAL_NETWORK com.darius.unison.debug
+# Reboot the Android 16 device after enabling the compatibility flag.
+adb shell pm revoke com.darius.unison.debug android.permission.NEARBY_WIFI_DEVICES
+# Exercise Create/Join, grant Nearby devices in the system prompt, then run control + transfer + playback.
+adb shell am compat disable RESTRICT_LOCAL_NETWORK com.darius.unison.debug
+```
+
+Do not ship test-only compatibility flags or permissions in the APK.

@@ -76,11 +76,11 @@ Peers report:
 - playback revision;
 - queue item ID;
 - desired play/pause state;
-- local playback participation (`ACTIVE`, `OUTPUT_INHIBITED`, or `REJOINING`);
+- local playback participation (`ACTIVE` or `OUTPUT_INHIBITED`);
 - local player state and position.
 
 Audio-focus loss, becoming-noisy events, and unsuitable local output are device-local conditions,
-not room transport commands. Inhibited/rejoining peers continue receiving canonical state but are
+not room transport commands. Inhibited peers continue receiving canonical state but are
 excluded from play-state repair and the READY timing cohort. Explicit local rejoin positions the
 device on the latest canonical item/current projected position before it can return to `ACTIVE`.
 

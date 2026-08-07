@@ -31,9 +31,12 @@ Event names describe what happened, for example:
 
 - `room.transport.status`;
 - `playback.command.executing`;
+- `playback.play.requested`;
+- `playback.play.started`;
 - `playback.state.changed`;
-- `sync.correction`;
-- `network.reconnect.failed`;
+- `sync.speed_adjustment`;
+- `sync.hard_seek`;
+- `network.socket.route_selected`;
 - `transfer.track.failed`.
 
 Important values such as command ID, queue item ID, phase, latency, drift, peer ID, retry number, and

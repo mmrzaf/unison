@@ -24,6 +24,14 @@ Protocol constants, NSD advertisement, handshakes, frames, and envelopes must al
 
 Retain the trace, device details, source archive checksum, and APK checksum.
 
+## Device/API matrix
+
+The final signed candidate must be exercised on physical Android 11 (API 30), Android 13 (API 33),
+and Android 16 (API 36) devices. For each API level, qualify both discovery/control and a complete
+verified file transfer followed by playback. Include private Wi-Fi; also qualify LocalOnlyHotspot on
+at least one supported device. The selected route should be `NETWORK_BOUND` whenever Android exposes
+an owning `Network`, with `ENDPOINT_FALLBACK` reserved for genuine hotspot/downstream cases.
+
 ## Required scenarios
 
 - one-hour single-device playback with screen and app lifecycle changes;
@@ -37,8 +45,14 @@ Retain the trace, device details, source archive checksum, and APK checksum.
 - Wi-Fi interruption and complete reconnect reconciliation;
 - Bluetooth route changes;
 - phone-call/audio-focus interruption on one listener while the room advances across at least two
-  songs; verify the interrupted phone stays silent, never pauses the room, and explicit Rejoin lands
-  on the current canonical song/position before the listener becomes READY again;
+  songs; verify the interrupted phone stays silent, never pauses the room, and explicit local Play
+  resumes on the current canonical song/position without a persistent intermediate participation state;
+- headphone/noisy-route interruption followed by Leave and Create/Join; verify the new room starts
+  with fresh local participation and never requires a process restart to clear stale interruption state;
+- Android 16 debug compatibility test with `RESTRICT_LOCAL_NETWORK`: revoke Nearby devices, verify
+  Create/Join requests it, grant it, then complete discovery, control, transfer, and playback;
+- Android 16 with cellular active plus private/no-Internet Wi-Fi; verify LAN sockets remain on the
+  selected local `Network` rather than falling back to the default route;
 - transfer interruption/resume, insufficient storage, corruption, and source loss;
 - repeated create/join/leave cycles followed by idle resource inspection;
 - process recreation while connected.

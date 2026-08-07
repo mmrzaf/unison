@@ -29,8 +29,9 @@ Focused components own policies and effects:
   measurement, correction, cadence, and Media3 speed actuation;
 - `PeerPlaybackHealthRegistry`: coordinator-owned READY leases so warming or degraded listeners
   repair locally without controlling healthy-room timing;
-- `LocalPlaybackParticipationCoordinator`: device-local interruption/rejoin lifecycle; audio-focus
-  loss never mutates room transport, and rejoin always targets the latest canonical item/position;
+- `LocalPlaybackParticipationCoordinator`: device-local interruption/resume lifecycle; audio-focus
+  loss never mutates room transport, live resume atomically targets the latest canonical
+  item/position, and session boundaries clear stale local interruption state;
 - `CanonicalPlaybackCoordinator`: exact local/peer convergence;
 - `CanonicalPlaybackDispatcher`: ordered timestamped work and replaceable latest-state reconciliation;
 - `PlayerMutationCoordinator`: the only Media3 mutation boundary;
@@ -84,8 +85,15 @@ operation locks, and reason-scoped leases protect imports, playback, cleanup, an
 ## Network lifecycle
 
 Android NSD and LocalOnlyHotspot callbacks are generation-bound. Stale callbacks cannot clear newer
-state. Discovery, registration, sockets, multicast locks, Wi-Fi locks, transfer jobs, and session jobs
-have explicit owners and teardown paths.
+state. Android 14–16 service-info callbacks preserve every resolved host address and the Android
+`Network` that owns it. Android 13 preserves the owning `Network` from the resolved NSD service,
+while Android 11–12 infer the matching Wi-Fi/Ethernet `Network` from
+`ConnectivityManager`/`LinkProperties`. Control and transfer sockets use the same process-local
+route authority and are individually network-bound when Android exposes a `Network`. A validated
+numeric-endpoint fallback exists only for hotspot/downstream interfaces for which Android exposes no
+`Network`; arbitrary interface-name scanning is not a normal routing authority. Discovery,
+registration, sockets, multicast locks, Wi-Fi locks, transfer jobs, and session jobs have explicit
+owners and teardown paths.
 
 ## Scale boundaries
 
