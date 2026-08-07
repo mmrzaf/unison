@@ -9,6 +9,7 @@ import com.darius.unison.model.TransportCommandStatus
 import com.darius.unison.model.transportAction
 import com.darius.unison.playback.UnisonRoomService
 import com.darius.unison.room.RoomReducer
+import com.darius.unison.util.DiagnosticCategory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,8 +22,20 @@ internal class RoomSessionActions(
     private val scope: CoroutineScope,
     private val message: MutableStateFlow<String?>,
 ) {
+    private val log = container.diagnostics.scoped("RoomSessionActions", DiagnosticCategory.APP)
+
     fun command(command: AppCommand, feedback: String? = command.feedbackMessage()) {
+        val transport = command as? AppCommand.Transport
+        val commandAttributes =
+            mapOf(
+                "command.type" to command::class.simpleName,
+                "command.id" to transport?.commandId?.take(12),
+                "transport.action" to transport?.transportAction()?.name,
+                "queue.item_id" to (command as? AppCommand.PlayQueueItem)?.queueItemId?.value?.take(12),
+            )
+        log.debug("app.command.submitted", attributes = commandAttributes)
         if (!UnisonRoomService.ensureStarted(application)) {
+            log.error("app.command.service_start_failed", attributes = commandAttributes)
             message.value = "Unison could not start playback"
             return
         }
@@ -43,8 +56,10 @@ internal class RoomSessionActions(
             }
         }
         if (container.roomCommandBus.trySend(command).isSuccess) {
+            log.debug("app.command.enqueued", attributes = commandAttributes)
             feedback?.let { message.value = it }
         } else {
+            log.warn("app.command.rejected", attributes = commandAttributes + ("reason" to "mailbox_full"))
             if (command is AppCommand.Transport) {
                 container.roomStore.updateStructure { state ->
                     val status = state.transportStatus
