@@ -16,8 +16,8 @@ intent over private Wi-Fi or Android LocalOnlyHotspot.
 - Public addresses and DNS joins are rejected
 - Audio is identified by SHA-256 and committed only after full verification
 
-This repository is the first production baseline. Pre-release installations are intentionally not a
-supported upgrade source; install 1.0.0 cleanly.
+This is a fresh 1.0.0 release. Install it cleanly; it has no compatibility obligations to
+pre-release installations.
 
 ## Experience
 
@@ -28,7 +28,11 @@ Unison has two primary surfaces:
 2. **Room:** view the four-digit code, shared player, listeners, and queue in one continuous screen.
 
 The visible player always represents canonical room intent. Local recovery state never replaces the
-room's official song or play/pause state.
+room's official song or play/pause state. Shuffle is a one-shot queue action that randomizes upcoming
+songs without creating hidden playback state; repeat remains an explicit mode. Playback
+synchronization can be set to Tight, Balanced, or Smooth per phone; room command timing remains
+automatic. Audio-focus loss or a becoming-noisy route pauses only that phone. The room continues,
+and an explicit Rejoin discards stale local playback state and returns to the live room position.
 
 ## Build locally
 
@@ -94,6 +98,7 @@ ui/         two-surface Compose interface
 - [Architecture](docs/ARCHITECTURE.md)
 - [Protocol](docs/PROTOCOL.md)
 - [Security](docs/SECURITY.md)
+- [Structured diagnostics](docs/LOGGING.md)
 - [Privacy](docs/PRIVACY_POLICY.md)
 - [Testing](docs/TESTING.md)
 - [Release qualification](docs/RELEASE_QUALIFICATION.md)
