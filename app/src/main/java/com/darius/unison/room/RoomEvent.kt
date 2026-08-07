@@ -13,6 +13,7 @@ import com.darius.unison.network.ControlConnection
 import com.darius.unison.playback.PlayerState
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.ProtocolBody
+import com.darius.unison.sync.PlaybackSyncProfile
 import kotlinx.coroutines.CompletableDeferred
 
 /** Inputs accepted by the single serialized room actor. Producers never mutate room state. */
@@ -161,6 +162,8 @@ internal sealed interface RoomEvent {
     data object ClockSyncTick : RoomEvent
 
     data object PlaybackSyncTick : RoomEvent
+
+    data class PlaybackSyncProfileChanged(val profile: PlaybackSyncProfile) : RoomEvent
 
     data class TransferCompleted(val descriptor: TrackDescriptor) : RoomEvent
 
