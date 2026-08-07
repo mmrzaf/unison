@@ -26,8 +26,7 @@ object ControlTrafficClassifier {
                 if (envelope.body.recovery) ControlTrafficClass.GUARANTEED
                 else ControlTrafficClass.PLAYBACK_REFERENCE
 
-            is ProtocolBody.PlaybackStatusReport,
-            is ProtocolBody.MemberPlaybackStatus -> ControlTrafficClass.TELEMETRY
+            is ProtocolBody.PlaybackStatusReport -> ControlTrafficClass.TELEMETRY
 
             is ProtocolBody.TrackDescriptorMessage,
             is ProtocolBody.TrackHave,

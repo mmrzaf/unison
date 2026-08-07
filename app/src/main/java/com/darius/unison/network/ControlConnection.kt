@@ -4,6 +4,7 @@ import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.FrameCodec
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
@@ -200,9 +201,15 @@ class ControlConnection(
         when (cause) {
             null,
             is CancellationException ->
-                log.i(TAG, "Control connection closed peer=${peerId.value.take(8)}")
+                log.info(
+                    TAG, DiagnosticCategory.NETWORK, "network.control_connection.closed",
+                    attributes = mapOf("peer.id" to peerId.value.take(12)),
+                )
 
-            else -> log.e(TAG, "Control connection failed peer=${peerId.value.take(8)}", cause)
+            else -> log.error(
+                TAG, DiagnosticCategory.NETWORK, "network.control_connection.failed",
+                attributes = mapOf("peer.id" to peerId.value.take(12)), throwable = cause,
+            )
         }
         if (notifyClosed) {
             callbackScope.launch(Dispatchers.Default) { onClosed(this@ControlConnection, cause) }

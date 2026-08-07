@@ -8,6 +8,7 @@ import com.darius.unison.protocol.HandshakeMessage
 import com.darius.unison.protocol.HandshakeRejectionCode
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.protocol.ProtocolException
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -84,7 +85,10 @@ class PeerServer(
                         try {
                             server.accept()
                         } catch (error: Exception) {
-                            if (!server.isClosed) log.w(TAG, "Accept failed", error)
+                            if (!server.isClosed) log.warn(
+                                TAG, DiagnosticCategory.NETWORK, "network.peer_server.accept_failed",
+                                throwable = error,
+                            )
                             break
                         }
                     if (!incomingSlots.tryAcquire()) {
@@ -100,7 +104,10 @@ class PeerServer(
                     }
                 }
             }
-        log.i(TAG, "Peer server listening port=${server.localPort}")
+        log.info(
+            TAG, DiagnosticCategory.NETWORK, "network.peer_server.started",
+            attributes = mapOf("network.listen_port" to server.localPort),
+        )
         return server.localPort
     }
 
@@ -154,7 +161,10 @@ class PeerServer(
             runCatching { socket.close() }
             throw cancelled
         } catch (error: Exception) {
-            log.w(TAG, "Incoming connection failed", error)
+            log.warn(
+                TAG, DiagnosticCategory.NETWORK, "network.peer_server.connection_failed",
+                throwable = error,
+            )
             runCatching { socket.close() }
         }
     }

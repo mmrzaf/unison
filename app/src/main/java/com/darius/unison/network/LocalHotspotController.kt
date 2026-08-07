@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.darius.unison.model.HotspotInfo
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,7 +66,7 @@ class LocalHotspotController(
                             runCatching { value.close() }
                             return
                         }
-                        log.i(TAG, "Local-only hotspot started")
+                        log.info(TAG, DiagnosticCategory.NETWORK, "network.hotspot.started")
                     }
 
                     override fun onStopped() {
@@ -80,7 +81,7 @@ class LocalHotspotController(
                                     true
                                 }
                             }
-                        if (current) log.i(TAG, "Local-only hotspot stopped")
+                        if (current) log.info(TAG, DiagnosticCategory.NETWORK, "network.hotspot.stopped")
                     }
 
                     override fun onFailed(reason: Int) {
@@ -96,7 +97,10 @@ class LocalHotspotController(
                                 }
                             }
                         if (!current) return
-                        log.w(TAG, "Local-only hotspot failed reason=$reason")
+                        log.warn(
+                            TAG, DiagnosticCategory.NETWORK, "network.hotspot.failed",
+                            attributes = mapOf("network.failure_reason" to reason),
+                        )
                         onError("Could not create offline network")
                     }
                 },
@@ -115,7 +119,9 @@ class LocalHotspotController(
                     }
                 }
             if (!current) return
-            log.w(TAG, "Local-only hotspot failed before callback", error)
+            log.warn(
+                TAG, DiagnosticCategory.NETWORK, "network.hotspot.start_failed", throwable = error,
+            )
             onError("Could not create offline network")
         }
     }

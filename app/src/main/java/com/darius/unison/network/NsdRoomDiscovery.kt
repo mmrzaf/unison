@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.protocol.PROTOCOL_VERSION
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import java.nio.charset.StandardCharsets
 import java.util.ArrayDeque
@@ -63,13 +64,16 @@ class NsdRoomDiscovery(
             object : NsdManager.RegistrationListener {
                 override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {
                     if (registrationListener.get() !== this) return
-                    log.i(TAG, "NSD registered ${serviceInfo.serviceName}")
+                    log.info(TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.registered")
                     onRegistered(serviceInfo.serviceName)
                 }
 
                 override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                     if (registrationListener.get() !== this) return
-                    log.w(TAG, "NSD registration failed code=$errorCode")
+                    log.warn(
+                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.registration_failed",
+                        attributes = mapOf("nsd.error_code" to errorCode),
+                    )
                     if (!registrationListener.compareAndSet(this, null)) return
                     onError("Could not make this room visible")
                     if (discoveryListener.get() == null) locks.releaseMulticast()
@@ -79,7 +83,10 @@ class NsdRoomDiscovery(
 
                 override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                     if (registrationListener.get() === this) {
-                        log.w(TAG, "NSD unregister failed code=$errorCode")
+                        log.warn(
+                            TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.unregistration_failed",
+                            attributes = mapOf("nsd.error_code" to errorCode),
+                        )
                     }
                 }
             }
@@ -88,7 +95,10 @@ class NsdRoomDiscovery(
             .onFailure { error ->
                 if (registrationListener.compareAndSet(listener, null)) {
                     if (discoveryListener.get() == null) locks.releaseMulticast()
-                    log.w(TAG, "NSD registration could not start", error)
+                    log.warn(
+                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.registration_start_failed",
+                        throwable = error,
+                    )
                     onError("Could not make this room visible")
                 }
             }
@@ -144,16 +154,16 @@ class NsdRoomDiscovery(
                 delay(RESOLUTION_TIMEOUT_MS)
                 // A broken advertisement must not terminate the user's whole bounded search.
                 // Drop only this resolution and continue with the remaining services.
-                log.w(TAG, "NSD resolve timed out for ${next.serviceName}; skipping service")
+                log.warn(TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_timeout")
                 finish()
             }
 
             val resolver =
                 object : NsdManager.ResolveListener {
                     override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                        log.w(
-                            TAG,
-                            "NSD resolve failed code=$errorCode for ${serviceInfo.serviceName}",
+                        log.warn(
+                            TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_failed",
+                            attributes = mapOf("nsd.error_code" to errorCode),
                         )
                         finish()
                     }
@@ -166,7 +176,10 @@ class NsdRoomDiscovery(
                     @Suppress("DEPRECATION") nsd.resolveService(next, resolver)
                 }
                 .onFailure { error ->
-                    log.w(TAG, "NSD resolver could not start for ${next.serviceName}", error)
+                    log.warn(
+                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_start_failed",
+                        throwable = error,
+                    )
                     finish()
                 }
         }
@@ -175,7 +188,7 @@ class NsdRoomDiscovery(
             object : NsdManager.DiscoveryListener {
                 override fun onDiscoveryStarted(serviceType: String) {
                     if (!active.get() || discoveryListener.get() !== this) return
-                    log.i(TAG, "NSD discovery started")
+                    log.info(TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.started")
                 }
 
                 override fun onServiceFound(serviceInfo: NsdServiceInfo) {
@@ -208,7 +221,7 @@ class NsdRoomDiscovery(
 
                 override fun onDiscoveryStopped(serviceType: String) {
                     if (!active.get() || discoveryListener.get() !== this) return
-                    log.i(TAG, "NSD discovery stopped unexpectedly")
+                    log.warn(TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.stopped_unexpectedly")
                     if (!discoveryListener.compareAndSet(this, null)) return
                     if (registrationListener.get() == null) locks.releaseMulticast()
                     close(
@@ -221,7 +234,10 @@ class NsdRoomDiscovery(
 
                 override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                     if (!active.get() || discoveryListener.get() !== this) return
-                    log.w(TAG, "NSD discovery start failed code=$errorCode")
+                    log.warn(
+                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.start_failed",
+                        attributes = mapOf("nsd.error_code" to errorCode),
+                    )
                     if (!discoveryListener.compareAndSet(this, null)) return
                     if (registrationListener.get() == null) locks.releaseMulticast()
                     close(
@@ -234,7 +250,10 @@ class NsdRoomDiscovery(
 
                 override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
                     if (discoveryListener.get() === this) {
-                        log.w(TAG, "NSD discovery stop failed code=$errorCode")
+                        log.warn(
+                            TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.stop_failed",
+                            attributes = mapOf("nsd.error_code" to errorCode),
+                        )
                     }
                 }
             }
@@ -273,13 +292,21 @@ class NsdRoomDiscovery(
 
     private fun stopDiscoveryListener(listener: NsdManager.DiscoveryListener) {
         runCatching { nsd.stopServiceDiscovery(listener) }
-            .onFailure { error -> log.w(TAG, "NSD discovery stop could not start", error) }
+            .onFailure { error ->
+                log.warn(
+                    TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.stop_start_failed", throwable = error,
+                )
+            }
     }
 
     fun stopAdvertising() {
         val listener = registrationListener.getAndSet(null) ?: return
         runCatching { nsd.unregisterService(listener) }
-            .onFailure { error -> log.w(TAG, "NSD unregister could not start", error) }
+            .onFailure { error ->
+                log.warn(
+                    TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.unregister_start_failed", throwable = error,
+                )
+            }
         if (discoveryListener.get() == null) locks.releaseMulticast()
     }
 

@@ -70,7 +70,18 @@ class ControlTrafficClassifierTest {
         assertEquals(
             ControlTrafficClass.TELEMETRY,
             ControlTrafficClassifier.classify(
-                envelope(ProtocolBody.PlaybackStatusReport(null, 0, false, 0, 0, 0, 0))
+                envelope(
+                    ProtocolBody.PlaybackStatusReport(
+                        queueItemId = null,
+                        positionMs = 0,
+                        isPlaying = false,
+                        participation = com.darius.unison.model.LocalPlaybackParticipation.ACTIVE,
+                        driftMs = 0,
+                        playbackRevision = 0,
+                        queueRevision = 0,
+                        canonicalSequence = 0,
+                    )
+                )
             ),
         )
         assertEquals(
