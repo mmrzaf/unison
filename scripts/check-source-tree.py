@@ -36,6 +36,8 @@ def main() -> int:
             "app/src/main/java/com/darius/unison/protocol/ProtocolJson.kt",
             "app/src/main/java/com/darius/unison/storage/Database.kt",
             "app/src/main/java/com/darius/unison/ui/UnisonApp.kt",
+            "app/src/main/java/com/darius/unison/ui/AboutUnisonDialog.kt",
+            "app/src/test/java/com/darius/unison/ui/PermissionControllerTest.kt",
             "gradle/libs.versions.toml",
             "gradle/wrapper/gradle-wrapper.jar",
             "scripts/build-debug.sh",
@@ -68,7 +70,9 @@ def main() -> int:
         versions = text("gradle/libs.versions.toml")
         require(re.search(r'appVersionName\s*=\s*"1\.0\.0"', versions) is not None, "Version name is not 1.0.0")
         require(re.search(r'appVersionCode\s*=\s*"1"', versions) is not None, "Version code is not 1")
+        require(re.search(r'compileSdk\s*=\s*"36"', versions) is not None, "compileSdk changed unexpectedly")
         require(re.search(r'minSdk\s*=\s*"30"', versions) is not None, "minSdk changed unexpectedly")
+        require(re.search(r'targetSdk\s*=\s*"33"', versions) is not None, "targetSdk changed unexpectedly")
 
         protocol = text("app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt")
         protocol_json = text("app/src/main/java/com/darius/unison/protocol/ProtocolJson.kt")
@@ -139,6 +143,51 @@ def main() -> int:
         require(application is not None, "Application manifest node is missing")
         require(application.get(android + "allowBackup") == "false", "Android backup must remain disabled")
         require(application.get(android + "usesCleartextTraffic") == "false", "Cleartext traffic must remain disabled")
+
+        permissions = {node.get(android + "name"): node for node in manifest.findall("uses-permission")}
+        for permission in (
+            "android.permission.FOREGROUND_SERVICE",
+            "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+            "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+            "android.permission.NEARBY_WIFI_DEVICES",
+        ):
+            require(permission in permissions, f"Required Android permission missing: {permission}")
+        require(
+            permissions["android.permission.NEARBY_WIFI_DEVICES"].get(android + "usesPermissionFlags") == "neverForLocation",
+            "Nearby Wi-Fi permission must remain neverForLocation",
+        )
+        for permission in (
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION",
+        ):
+            require(
+                permissions.get(permission) is not None
+                and permissions[permission].get(android + "maxSdkVersion") == "32",
+                f"Legacy hotspot location permission must stop at API 32: {permission}",
+            )
+        require(
+            "android.permission.ACCESS_LOCAL_NETWORK" not in permissions,
+            "Future local-network permission must not be added while targetSdk remains 33",
+        )
+        service = application.find("service[@android:name='.playback.UnisonRoomService']", {"android": "http://schemas.android.com/apk/res/android"})
+        require(service is not None, "UnisonRoomService manifest declaration is missing")
+        service_types = set((service.get(android + "foregroundServiceType") or "").split("|"))
+        require(
+            {"mediaPlayback", "connectedDevice"}.issubset(service_types),
+            "Room service must declare mediaPlayback and connectedDevice foreground-service types",
+        )
+
+        permission_controller = text("app/src/main/java/com/darius/unison/ui/PermissionController.kt")
+        require("localNetworkPermissions" in permission_controller, "Local network permission gate is missing")
+        require("Manifest.permission.NEARBY_WIFI_DEVICES" in permission_controller, "Nearby Wi-Fi runtime permission is not gated")
+        about = text("app/src/main/java/com/darius/unison/ui/AboutUnisonDialog.kt")
+        require("BuildConfig.VERSION_NAME" in about, "About surface does not expose the app version")
+        require("PROTOCOL_VERSION" in about, "About surface does not expose the protocol version")
+        strings = text("app/src/main/res/values/strings.xml")
+        require("https://github.com/mmrzaf/unison" in strings, "Source repository link is missing")
+        qualification = text("docs/PHYSICAL_DEVICE_QUALIFICATION.md")
+        for api in ("API 30", "API 33", "API 36"):
+            require(api in qualification, f"Physical qualification matrix is missing {api}")
 
         all_text = "\n".join(
             path.read_text(errors="ignore")

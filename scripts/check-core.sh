@@ -12,8 +12,10 @@ OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/unison-core-check.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
 
 SOURCES=(
+  scripts/core-check/stubs/android/Manifest.kt
   scripts/core-check/stubs/android/content/Context.kt
   scripts/core-check/stubs/android/net/Uri.kt
+  scripts/core-check/stubs/android/os/Build.kt
   scripts/core-check/stubs/android/os/SystemClock.kt
   scripts/core-check/stubs/com/darius/unison/network/NetworkStubs.kt
   scripts/core-check/stubs/com/darius/unison/util/DiagnosticLog.kt
@@ -28,6 +30,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt
   app/src/main/java/com/darius/unison/model/Commands.kt
   app/src/main/java/com/darius/unison/model/TransportCommandResult.kt
+  app/src/main/java/com/darius/unison/ui/PermissionController.kt
   app/src/main/java/com/darius/unison/ui/RoomPlaybackUiPolicy.kt
   app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
   app/src/main/java/com/darius/unison/protocol/ProtocolException.kt
@@ -93,6 +96,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/sync/SynchronizationDiagnostics.kt
   app/src/main/java/com/darius/unison/util/MonotonicClock.kt
   app/src/main/java/com/darius/unison/util/DiagnosticSanitizer.kt
+  app/src/main/java/com/darius/unison/util/AudioMimePolicy.kt
   app/src/main/java/com/darius/unison/library/LibrarySearch.kt
   app/src/main/java/com/darius/unison/library/M3uCodec.kt
   app/src/main/java/com/darius/unison/library/M3uImportModels.kt
@@ -118,8 +122,10 @@ SOURCES=(
   app/src/test/java/com/darius/unison/model/RoomStateSeparationTest.kt
   app/src/test/java/com/darius/unison/model/RoomIssueTest.kt
   app/src/test/java/com/darius/unison/model/TransportCommandResultTest.kt
+  app/src/test/java/com/darius/unison/ui/PermissionControllerTest.kt
   app/src/test/java/com/darius/unison/ui/RoomPlaybackUiPolicyTest.kt
   app/src/test/java/com/darius/unison/network/NetworkAddressPolicyTest.kt
+  app/src/test/java/com/darius/unison/util/AudioMimePolicyTest.kt
   app/src/test/java/com/darius/unison/network/DiscoveredRoomRegistryTest.kt
   app/src/test/java/com/darius/unison/protocol/CryptoTest.kt
   app/src/test/java/com/darius/unison/protocol/PinPakeTest.kt

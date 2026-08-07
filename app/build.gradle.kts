@@ -94,7 +94,7 @@ android {
         // Dependency and toolchain upgrades are explicit release work, not lint findings. Keep all
         // source, API-use, accessibility, lifecycle, and correctness checks enabled.
         disable += setOf("AndroidGradlePluginVersion", "GradleDependency")
-        // Runtime behavior is qualified only on Android 11–13 for 1.0.0.
+        // Direct-release 1.0 is qualified on Android 11, 13, and 16 with targetSdk 33 intentionally pinned.
         disable += "OldTargetApi"
     }
 }

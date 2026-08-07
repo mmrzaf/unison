@@ -18,6 +18,7 @@ run_standalone_kotlinc \
   scripts/player-kotlin-check/stubs/androidx/media3/common/Common.kt \
   scripts/player-kotlin-check/stubs/androidx/media3/exoplayer/ExoPlayer.kt \
   scripts/player-kotlin-check/stubs/com/darius/unison/util/DiagnosticLog.kt \
+  app/src/main/java/com/darius/unison/util/AudioMimePolicy.kt \
   app/src/main/java/com/darius/unison/model/RoomIssue.kt \
   app/src/main/java/com/darius/unison/model/DomainModels.kt \
   app/src/main/java/com/darius/unison/model/RoomStateModels.kt \

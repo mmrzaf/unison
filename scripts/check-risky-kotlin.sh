@@ -29,11 +29,13 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/protocol/FrameCodec.kt \
   app/src/main/java/com/darius/unison/protocol/HandshakeCodec.kt \
   app/src/main/java/com/darius/unison/network/NetworkAddressPolicy.kt \
+  app/src/main/java/com/darius/unison/network/LocalNetworkSocketProvider.kt \
   app/src/main/java/com/darius/unison/network/ControlTraffic.kt \
   app/src/main/java/com/darius/unison/network/ControlConnection.kt \
   app/src/main/java/com/darius/unison/network/ControlClient.kt \
   app/src/main/java/com/darius/unison/network/PeerServer.kt \
   app/src/main/java/com/darius/unison/playback/PlayerPort.kt \
+  app/src/main/java/com/darius/unison/sync/PlaybackSyncTuning.kt \
   app/src/main/java/com/darius/unison/room/TransportCommandTracker.kt \
   app/src/main/java/com/darius/unison/room/QueuePreparationFence.kt \
   app/src/main/java/com/darius/unison/room/RoomEvent.kt \
