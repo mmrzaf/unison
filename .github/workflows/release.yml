@@ -1,0 +1,167 @@
+name: Publish Unison release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v1.0.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: unison-release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  release:
+    name: Build and publish signed APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build tools
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+          add-job-summary: on-failure
+
+      - name: Validate release tag and signing secrets
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(sed -n 's/^appVersionName = "\([^\"]*\)"/\1/p' gradle/libs.versions.toml | head -1)"
+          test -n "$VERSION_NAME" || { echo "Could not read appVersionName" >&2; exit 1; }
+          test "$RELEASE_TAG" = "v$VERSION_NAME" || {
+            echo "Tag $RELEASE_TAG does not match app version $VERSION_NAME" >&2
+            exit 1
+          }
+          test -n "$KEYSTORE_BASE64" || { echo "Missing ANDROID_KEYSTORE_BASE64" >&2; exit 1; }
+          test -n "$KEYSTORE_PASSWORD" || { echo "Missing ANDROID_KEYSTORE_PASSWORD" >&2; exit 1; }
+          test -n "$KEY_ALIAS" || { echo "Missing ANDROID_KEY_ALIAS" >&2; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "Missing ANDROID_KEY_PASSWORD" >&2; exit 1; }
+
+      - name: Configure release signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYSTORE_PATH="$RUNNER_TEMP/unison-release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
+          {
+            printf 'storeFile=%s\n' "$KEYSTORE_PATH"
+            printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$KEY_PASSWORD"
+          } > keystore.properties
+          chmod 600 keystore.properties
+
+      - name: Run release quality checks
+        run: ./scripts/check-release-quality.sh
+
+      - name: Test, lint, and build APKs
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
+
+      - name: Verify and package APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_NAME="${RELEASE_TAG#v}"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          RELEASE_APK="app/build/outputs/apk/release/app-release.apk"
+          DEBUG_APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -x "$BUILD_TOOLS/apksigner"
+          test -x "$BUILD_TOOLS/zipalign"
+          test -f "$RELEASE_APK"
+          test -f "$DEBUG_APK"
+
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$RELEASE_APK"
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$RELEASE_APK"
+
+          mkdir -p dist
+          cp "$RELEASE_APK" "dist/Unison-${VERSION_NAME}-release.apk"
+          cp "$DEBUG_APK" "dist/Unison-${VERSION_NAME}-debug.apk"
+          (
+            cd dist
+            sha256sum "Unison-${VERSION_NAME}-debug.apk" "Unison-${VERSION_NAME}-release.apk" > SHA256SUMS.txt
+          )
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Unison-${{ env.RELEASE_TAG }}
+          path: |
+            dist/Unison-*-debug.apk
+            dist/Unison-*-release.apk
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Create or update GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION_NAME="${RELEASE_TAG#v}"
+          assets=(
+            "dist/Unison-${VERSION_NAME}-debug.apk"
+            "dist/Unison-${VERSION_NAME}-release.apk"
+            "dist/SHA256SUMS.txt"
+          )
+
+          for asset in "${assets[@]}"; do
+            test -f "$asset" || {
+              echo "Missing release asset: $asset" >&2
+              exit 1
+            }
+          done
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            gh release edit "$RELEASE_TAG" --title "Unison ${VERSION_NAME}" --latest
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "Unison ${VERSION_NAME}" \
+              --generate-notes \
+              --latest
+          fi

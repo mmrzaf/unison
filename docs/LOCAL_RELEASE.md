@@ -2,6 +2,22 @@
 
 Unison produces a locally signed APK. It has no store publishing workflow and no Android App Bundle.
 
+## GitHub release workflow
+
+Pushing a matching version tag (for example, `v1.0.0`) runs the
+[`Publish Unison release` workflow](../.github/workflows/release.yml). It builds and verifies signed
+release and debug APKs, uploads them with `SHA256SUMS.txt`, and creates or updates the GitHub
+release. A manual run is also available from the Actions tab.
+
+Configure these repository secrets before using it:
+
+- `ANDROID_KEYSTORE_BASE64`: base64-encoded release keystore.
+- `ANDROID_KEYSTORE_PASSWORD`: release keystore password.
+- `ANDROID_KEY_ALIAS`: release signing-key alias.
+- `ANDROID_KEY_PASSWORD`: release signing-key password.
+
+The tag must exactly match `appVersionName` in `gradle/libs.versions.toml`.
+
 ## Signing setup
 
 ```bash
