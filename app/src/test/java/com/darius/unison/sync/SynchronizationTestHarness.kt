@@ -140,7 +140,7 @@ class PlaybackScenarioRunner(
         expectedPositionNoiseMs: (tick: Int) -> Long = { 0L },
         onTick: (tick: Int, player: FakeSynchronizedPlayer) -> Unit = { _, _ -> },
     ): SyncScenarioMetrics {
-        val tickMs = controller.config.tickIntervalMs
+        val tickMs = controller.tuning.activeCorrectionIntervalMs
         val ticks = (durationMs / tickMs).toInt()
         val metrics = SyncMetricsCollector()
         repeat(ticks) { tick ->

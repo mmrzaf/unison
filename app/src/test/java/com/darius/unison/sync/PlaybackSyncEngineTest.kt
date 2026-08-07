@@ -185,7 +185,7 @@ class PlaybackSyncEngineTest {
     @Test
     fun baselineLearningUsesTheActuallyAppliedPlayerSpeed() {
         val controller =
-            PlaybackSyncController(PlaybackSyncConfig(baselineLearningWindowMs = 1_000L))
+            PlaybackSyncController(PlaybackSyncProfile.BALANCED.tuning().copy(baselineLearningWindowMs = 1_000L))
         val first =
             input(0, 10_000, 9_990)
                 .copy(sample = input(0, 10_000, 9_990).sample.copy(playbackSpeed = 0.999f))

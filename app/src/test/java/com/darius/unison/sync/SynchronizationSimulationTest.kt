@@ -101,4 +101,43 @@ class SynchronizationSimulationTest {
         assertTrue(result.hardSeekCount <= 1)
         assertTrue(result.maximumSpeed <= 1.0051f)
     }
+
+    @Test
+    fun everyReleaseProfileRemainsBoundedDuringLongPlayback() {
+        PlaybackSyncProfile.entries.forEach { profile ->
+            listOf(0.9995, 1.001).forEach { hardwareRate ->
+                val tuning = profile.tuning()
+                val controller = PlaybackSyncController(tuning)
+                val player = FakeSynchronizedPlayer(item, hardwareRate)
+                val result =
+                    PlaybackScenarioRunner(
+                            controller = controller,
+                            player = player,
+                            queueItemId = item,
+                            speedGate = PlaybackSpeedCommandGate(tuning),
+                        )
+                        .run(60 * 60 * 1_000L)
+
+                assertTrue(result.p95AbsoluteDriftMs < profileP95Limit(profile))
+                assertTrue(result.maximumAbsoluteDriftMs < profileMaximumLimit(profile))
+                assertTrue(result.hardSeekCount == 0)
+                assertTrue(result.maximumSpeed <= tuning.maximumSpeed + 0.0001f)
+                assertTrue(result.minimumSpeed >= tuning.minimumSpeed - 0.0001f)
+            }
+        }
+    }
+
+    private fun profileP95Limit(profile: PlaybackSyncProfile): Long =
+        when (profile) {
+            PlaybackSyncProfile.TIGHT -> 100L
+            PlaybackSyncProfile.BALANCED -> 130L
+            PlaybackSyncProfile.SMOOTH -> 180L
+        }
+
+    private fun profileMaximumLimit(profile: PlaybackSyncProfile): Long =
+        when (profile) {
+            PlaybackSyncProfile.TIGHT -> 220L
+            PlaybackSyncProfile.BALANCED -> 280L
+            PlaybackSyncProfile.SMOOTH -> 380L
+        }
 }

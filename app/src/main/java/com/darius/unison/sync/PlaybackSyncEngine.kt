@@ -8,41 +8,6 @@ import java.util.ArrayDeque
 import java.util.Locale
 import kotlin.math.abs
 
-/** Tunable synchronization policy. Keep every stability-sensitive value in one place. */
-data class PlaybackSyncConfig(
-    val tickIntervalMs: Long = 500,
-    val referenceIntervalMs: Long = 1_000,
-    val ignoreThresholdMs: Long = 80,
-    val correctionReleaseThresholdMs: Long = 20,
-    val hardSeekThresholdMs: Long = 500,
-    val maxSpeedDelta: Float = 0.005f,
-    val requiredConsistentSamples: Int = 3,
-    val filterWindowSize: Int = 5,
-    val hardSeekCooldownMs: Long = 12_000,
-    val settleAfterSeekMs: Long = 3_000,
-    val maxClockUncertaintyMs: Long = 40,
-    val speedSmoothing: Float = 0.35f,
-    val baselineLimit: Float = 0.002f,
-    val baselineLearningWindowMs: Long = 60_000,
-) {
-    init {
-        require(tickIntervalMs > 0)
-        require(referenceIntervalMs >= tickIntervalMs)
-        require(ignoreThresholdMs >= 0)
-        require(correctionReleaseThresholdMs in 0..ignoreThresholdMs)
-        require(hardSeekThresholdMs > ignoreThresholdMs)
-        require(maxSpeedDelta in 0f..0.05f)
-        require(requiredConsistentSamples >= 2)
-        require(filterWindowSize >= requiredConsistentSamples)
-        require(hardSeekCooldownMs >= 0)
-        require(settleAfterSeekMs >= 0)
-        require(maxClockUncertaintyMs >= 0)
-        require(speedSmoothing in 0f..1f)
-        require(baselineLimit in 0f..maxSpeedDelta)
-        require(baselineLearningWindowMs > 0)
-    }
-}
-
 enum class PlaybackSyncState {
     DISABLED,
     WAITING_FOR_MEDIA,
@@ -111,7 +76,9 @@ data class PlaybackSyncDecision(
  * One instance owns all automatic synchronization commands for one local player. User and canonical
  * scheduled commands remain outside this controller.
  */
-class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig()) {
+class PlaybackSyncController(tuning: PlaybackSyncTuning = PlaybackSyncProfile.BALANCED.tuning()) {
+    var tuning: PlaybackSyncTuning = tuning
+        private set
     private data class DriftPoint(val atLocalNs: Long, val driftMs: Long)
 
     private data class LearningAnchor(
@@ -139,6 +106,13 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
 
     val automaticHardSeekCount: Int
         get() = hardSeekCount
+
+    fun updateTuning(value: PlaybackSyncTuning) {
+        if (value == tuning) return
+        tuning = value
+        resetInternal(preserveBaseline = false)
+        state = PlaybackSyncState.ACQUIRING
+    }
 
     fun evaluate(input: PlaybackSyncInput): PlaybackSyncDecision {
         val sample = input.sample
@@ -230,9 +204,9 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
         val correctionWasActive = state == PlaybackSyncState.SOFT_CORRECTING
         val activeThresholdMs =
             if (correctionWasActive) {
-                config.correctionReleaseThresholdMs
+                tuning.driftExitThresholdMs
             } else {
-                config.ignoreThresholdMs
+                tuning.driftEnterThresholdMs
             }
         val consistent = consistentTail(activeThresholdMs)
         val filtered = median(recent.map { it.driftMs })
@@ -250,7 +224,7 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
             }
             state = PlaybackSyncState.ACQUIRING
             val holdReason =
-                if (recent.size >= config.requiredConsistentSamples) {
+                if (recent.size >= tuning.requiredConsistentSamples) {
                     SyncHoldReason.UNSTABLE_DIRECTION
                 } else {
                     SyncHoldReason.ACQUIRING_SAMPLES
@@ -260,16 +234,16 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
 
         val confirmedDriftMs = median(consistent.map { it.driftMs })
         learnBaseline(nowNs, confirmedDriftMs, sample.playbackSpeed)
-        if (abs(confirmedDriftMs) >= config.hardSeekThresholdMs) {
+        if (abs(confirmedDriftMs) >= tuning.hardSeekThresholdMs) {
             val cooldownElapsedMs = lastHardSeekLocalNs?.let { (nowNs - it) / 1_000_000L }
-            if (cooldownElapsedMs == null || cooldownElapsedMs >= config.hardSeekCooldownMs) {
+            if (cooldownElapsedMs == null || cooldownElapsedMs >= tuning.hardSeekCooldownMs) {
                 lastHardSeekLocalNs = nowNs
                 hardSeekCount++
                 state = PlaybackSyncState.HARD_SEEKING
                 recent.clear()
                 learningAnchor = null
                 currentTargetSpeed = learnedBaselineSpeed
-                settleUntilLocalNs = nowNs + config.settleAfterSeekMs * 1_000_000L
+                settleUntilLocalNs = nowNs + tuning.settleAfterSeekMs * 1_000_000L
                 return PlaybackSyncDecision(
                     action = SyncAction.Seek(input.expectedPositionMs.coerceAtLeast(0)),
                     state = state,
@@ -286,9 +260,9 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
         val magnitude = abs(confirmedDriftMs)
         val trackingThresholdMs =
             if (correctionWasActive) {
-                config.correctionReleaseThresholdMs
+                tuning.driftExitThresholdMs
             } else {
-                config.ignoreThresholdMs
+                tuning.driftEnterThresholdMs
             }
         if (magnitude < trackingThresholdMs) {
             state = PlaybackSyncState.TRACKING
@@ -300,15 +274,15 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
             )
         }
 
-        val softRange = (config.hardSeekThresholdMs - config.ignoreThresholdMs).coerceAtLeast(1)
+        val softRange = (tuning.hardSeekThresholdMs - tuning.driftEnterThresholdMs).coerceAtLeast(1)
         val normalized =
-            ((magnitude - config.ignoreThresholdMs).toDouble() / softRange)
+            ((magnitude - tuning.driftEnterThresholdMs).toDouble() / softRange)
                 .coerceIn(0.0, 1.0)
                 .toFloat()
-        val minimumUsefulDelta = minOf(0.0005f, config.maxSpeedDelta)
+        val minimumUsefulDelta = minOf(0.0005f, tuning.maxSpeedDelta)
         val delta =
-            (minimumUsefulDelta + (config.maxSpeedDelta - minimumUsefulDelta) * normalized)
-                .coerceAtMost(config.maxSpeedDelta)
+            (minimumUsefulDelta + (tuning.maxSpeedDelta - minimumUsefulDelta) * normalized)
+                .coerceAtMost(tuning.maxSpeedDelta)
         val target =
             if (confirmedDriftMs > 0) {
                 learnedBaselineSpeed + delta
@@ -329,12 +303,12 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
 
     private fun appendPoint(point: DriftPoint) {
         recent.addLast(point)
-        while (recent.size > config.filterWindowSize) recent.removeFirst()
+        while (recent.size > tuning.filterWindowSize) recent.removeFirst()
     }
 
     private fun consistentTail(thresholdMs: Long): List<DriftPoint>? {
-        if (recent.size < config.requiredConsistentSamples) return null
-        val tail = recent.toList().takeLast(config.requiredConsistentSamples)
+        if (recent.size < tuning.requiredConsistentSamples) return null
+        val tail = recent.toList().takeLast(tuning.requiredConsistentSamples)
         if (tail.any { abs(it.driftMs) < thresholdMs }) return null
         val direction = tail.first().driftMs.sign()
         if (direction == 0 || tail.any { it.driftMs.sign() != direction }) return null
@@ -347,10 +321,8 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
         filteredDriftMs: Long?,
         reason: String,
     ): PlaybackSyncDecision {
-        val minSpeed = learnedBaselineSpeed - config.maxSpeedDelta
-        val maxSpeed = learnedBaselineSpeed + config.maxSpeedDelta
-        val boundedTarget = target.coerceIn(minSpeed, maxSpeed)
-        currentTargetSpeed += (boundedTarget - currentTargetSpeed) * config.speedSmoothing
+        val boundedTarget = target.coerceIn(tuning.minimumSpeed, tuning.maximumSpeed)
+        currentTargetSpeed += (boundedTarget - currentTargetSpeed) * tuning.speedSmoothing
         if (abs(currentTargetSpeed - learnedBaselineSpeed) < 0.00002f) {
             currentTargetSpeed = learnedBaselineSpeed
         }
@@ -370,7 +342,7 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
         this.state = state
         recent.clear()
         learningAnchor = null
-        currentTargetSpeed += (learnedBaselineSpeed - currentTargetSpeed) * config.speedSmoothing
+        currentTargetSpeed += (learnedBaselineSpeed - currentTargetSpeed) * tuning.speedSmoothing
         if (abs(currentTargetSpeed - learnedBaselineSpeed) < 0.00002f) {
             currentTargetSpeed = learnedBaselineSpeed
         }
@@ -391,7 +363,7 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
         rawDriftMs: Long,
         filteredDriftMs: Long,
     ): PlaybackSyncDecision {
-        currentTargetSpeed += (learnedBaselineSpeed - currentTargetSpeed) * config.speedSmoothing
+        currentTargetSpeed += (learnedBaselineSpeed - currentTargetSpeed) * tuning.speedSmoothing
         return PlaybackSyncDecision(
             action = SyncAction.Hold(reason, learnedBaselineSpeed),
             state = state,
@@ -408,7 +380,7 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
         recent.clear()
         learningAnchor = null
         currentTargetSpeed = learnedBaselineSpeed
-        settleUntilLocalNs = nowNs + config.settleAfterSeekMs * 1_000_000L
+        settleUntilLocalNs = nowNs + tuning.settleAfterSeekMs * 1_000_000L
         state = PlaybackSyncState.SETTLING
     }
 
@@ -419,7 +391,7 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
             return
         }
         val elapsedMs = (nowNs - anchor.atLocalNs) / 1_000_000.0
-        if (elapsedMs < config.baselineLearningWindowMs) return
+        if (elapsedMs < tuning.baselineLearningWindowMs) return
         if (elapsedMs <= 0.0) {
             learningAnchor = LearningAnchor(nowNs, driftMs, appliedSpeed)
             return
@@ -427,14 +399,14 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
         val driftSlope = (driftMs - anchor.driftMs) / elapsedMs
         val candidate =
             (anchor.appliedSpeed + driftSlope.toFloat()).coerceIn(
-                1f - config.baselineLimit,
-                1f + config.baselineLimit,
+                1f - tuning.baselineLimit,
+                1f + tuning.baselineLimit,
             )
         learnedBaselineSpeed += (candidate - learnedBaselineSpeed) * 0.1f
         learnedBaselineSpeed =
             learnedBaselineSpeed.coerceIn(
-                1f - config.baselineLimit,
-                1f + config.baselineLimit,
+                1f - tuning.baselineLimit,
+                1f + tuning.baselineLimit,
             )
         learningAnchor = LearningAnchor(nowNs, driftMs, appliedSpeed)
     }
@@ -451,7 +423,7 @@ class PlaybackSyncController(val config: PlaybackSyncConfig = PlaybackSyncConfig
     }
 
     private fun PlaybackSyncInput.configuredMaxClockUncertaintyNs(): Long =
-        config.maxClockUncertaintyMs * 1_000_000L
+        tuning.maxClockUncertaintyMs * 1_000_000L
 
     private fun Long.sign(): Int =
         when {
