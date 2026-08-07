@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -54,6 +53,7 @@ import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -201,12 +201,7 @@ internal fun TransportControlButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val controlScale =
-        when {
-            pressed -> 0.86f
-            active -> 0.94f
-            else -> 1f
-        }
+    val controlScale = if (pressed) 0.9f else 1f
     Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
         IconButton(
             onClick = onClick,
@@ -221,9 +216,9 @@ internal fun TransportControlButton(
             Box(Modifier.semantics { this.contentDescription = contentDescription }) { content() }
         }
         if (active) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(44.dp),
-                strokeWidth = 2.dp,
+            PendingActionIndicator(
+                modifier = Modifier.align(Alignment.TopEnd),
+                size = 10.dp,
             )
         }
     }
@@ -239,12 +234,7 @@ internal fun TransportPlayPauseButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val controlScale =
-        when {
-            pressed -> 0.86f
-            pending -> 0.95f
-            else -> 1f
-        }
+    val controlScale = if (pressed) 0.9f else 1f
     val outerSize = if (compact) 48.dp else 64.dp
     val buttonSize = if (compact) 44.dp else 58.dp
     val iconSize = if (compact) 24.dp else 32.dp
@@ -273,11 +263,32 @@ internal fun TransportPlayPauseButton(
             )
         }
         if (pending) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(outerSize),
-                strokeWidth = if (compact) 2.dp else 2.5.dp,
+            PendingActionIndicator(
+                modifier = Modifier.align(Alignment.TopEnd),
+                size = if (compact) 9.dp else 11.dp,
             )
         }
+    }
+}
+
+@Composable
+private fun PendingActionIndicator(
+    modifier: Modifier = Modifier,
+    size: Dp = 10.dp,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    Box(
+        modifier =
+            modifier
+                .size(size)
+                .background(primary.copy(alpha = 0.18f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size((size.value * 0.42f).dp)
+                .background(primary, CircleShape)
+        )
     }
 }
 
@@ -371,24 +382,33 @@ internal fun QueueRow(
     onKeep: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    val estimatedRowHeightPx = with(LocalDensity.current) { 56.dp.toPx() }
+    val dragged = draggedIndex
+    val target = dragTargetIndex
+    val dragActive = dragged != null && target != null
+    val estimatedRowHeightPx = if (dragActive) with(LocalDensity.current) { 56.dp.toPx() } else 0f
     val displacedOffsetPx =
-        when {
-            draggedIndex == null || dragTargetIndex == null || draggedIndex == index -> 0f
-            draggedIndex < dragTargetIndex && index in (draggedIndex + 1)..dragTargetIndex ->
-                -estimatedRowHeightPx
-            draggedIndex > dragTargetIndex && index in dragTargetIndex until draggedIndex ->
-                estimatedRowHeightPx
-            else -> 0f
+        if (dragged == null || target == null || dragged == index) {
+            0f
+        } else {
+            when {
+                dragged < target && index in (dragged + 1)..target -> -estimatedRowHeightPx
+                dragged > target && index in target until dragged -> estimatedRowHeightPx
+                else -> 0f
+            }
+        }
+    val dragModifier =
+        if (dragActive && (dragged == index || displacedOffsetPx != 0f)) {
+            Modifier.zIndex(if (dragged == index) 1f else 0f).graphicsLayer {
+                translationY = if (dragged == index) dragOffsetPx else displacedOffsetPx
+                shadowElevation = if (dragged == index && dragOffsetPx != 0f) 8.dp.toPx() else 0f
+            }
+        } else {
+            Modifier
         }
     Row(
         Modifier.fillMaxWidth()
             .heightIn(min = 54.dp)
-            .zIndex(if (draggedIndex == index) 1f else 0f)
-            .graphicsLayer {
-                translationY = if (draggedIndex == index) dragOffsetPx else displacedOffsetPx
-                shadowElevation = if (dragOffsetPx == 0f) 0f else 8.dp.toPx()
-            }
+            .then(dragModifier)
             .semantics {
                 customActions = buildList {
                     if (canReorder && index > 0)
@@ -432,7 +452,7 @@ internal fun QueueRow(
     ) {
         Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
             when {
-                pending -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                pending -> PendingActionIndicator(size = 12.dp)
                 playing ->
                     Icon(
                         Icons.Default.Pause,
@@ -464,11 +484,13 @@ internal fun QueueRow(
                 overflow = TextOverflow.Ellipsis,
             )
             val detail =
-                listOfNotNull(
-                        track.artist?.takeIf(String::isNotBlank),
-                        "Temporary".takeIf { temporary },
-                    )
-                    .joinToString(" • ")
+                remember(track.artist, temporary) {
+                    listOfNotNull(
+                            track.artist?.takeIf(String::isNotBlank),
+                            "Temporary".takeIf { temporary },
+                        )
+                        .joinToString(" • ")
+                }
             if (detail.isNotEmpty()) {
                 Text(
                     detail,
@@ -479,8 +501,9 @@ internal fun QueueRow(
                 )
             }
         }
+        val durationLabel = remember(track.durationMs) { formatDuration(track.durationMs) }
         Text(
-            formatDuration(track.durationMs),
+            durationLabel,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
