@@ -1,5 +1,7 @@
 package com.darius.unison.playback
 
+import com.darius.unison.model.LocalPlaybackInhibitionReason
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 
 /**
@@ -13,6 +15,8 @@ object PlayerStateEventPolicy {
         Key(
             queueItemId = state.queueItemId,
             playWhenReady = state.playWhenReady,
+            participation = state.participation,
+            inhibitionReason = state.inhibitionReason,
             ended = state.ended,
             error = state.error,
             seekRevision = state.seekRevision,
@@ -23,6 +27,8 @@ object PlayerStateEventPolicy {
     data class Key(
         val queueItemId: QueueItemId?,
         val playWhenReady: Boolean,
+        val participation: LocalPlaybackParticipation,
+        val inhibitionReason: LocalPlaybackInhibitionReason?,
         val ended: Boolean,
         val error: String?,
         val seekRevision: Long,

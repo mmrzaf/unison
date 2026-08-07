@@ -69,7 +69,7 @@ class PlayerMutationCoordinatorTest {
         }
 
         assertFalse(coordinator.hasPendingTransport)
-        assertTrue(coordinator.synchronize { pause() })
+        assertTrue(coordinator.synchronize { pause(PlaybackPauseCause.CANONICAL_RECONCILIATION) })
     }
 
     private class FakePlayer : PlayerPort {
@@ -105,7 +105,11 @@ class PlayerMutationCoordinatorTest {
             return true
         }
 
-        override suspend fun pause() = Unit
+        override suspend fun beginLocalRejoin() = Unit
+
+        override suspend fun completeLocalRejoin() = Unit
+
+        override suspend fun pause(cause: PlaybackPauseCause) = Unit
 
         override suspend fun seekTo(positionMs: Long) = Unit
 

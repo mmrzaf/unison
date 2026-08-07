@@ -1,5 +1,7 @@
 package com.darius.unison.playback
 
+import com.darius.unison.model.LocalPlaybackInhibitionReason
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -7,14 +9,13 @@ import org.junit.Test
 
 class PlayerStateEventPolicyTest {
     @Test
-    fun `position duration suppression buffering route and speed do not enter room actor`() {
+    fun `position duration buffering route and speed do not enter room actor`() {
         val base = PlayerState(queueItemId = QueueItemId("item"), playWhenReady = true)
         val telemetryOnly =
             base.copy(
                 positionMs = 90_000,
                 durationMs = 300_000,
                 isPlaying = true,
-                locallySuppressed = true,
                 playbackSpeed = 1.004f,
                 prepared = true,
                 buffering = true,
@@ -23,6 +24,18 @@ class PlayerStateEventPolicyTest {
             )
 
         assertEquals(PlayerStateEventPolicy.key(base), PlayerStateEventPolicy.key(telemetryOnly))
+    }
+
+    @Test
+    fun `local output participation changes enter room actor immediately`() {
+        val base = PlayerState(queueItemId = QueueItemId("item"), playWhenReady = true)
+        val inhibited =
+            base.copy(
+                playWhenReady = false,
+                participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                inhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+            )
+        assertFalse(PlayerStateEventPolicy.key(base) == PlayerStateEventPolicy.key(inhibited))
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.darius.unison.playback
 
+import com.darius.unison.model.LocalPlaybackInhibitionReason
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TrackDescriptor
 import java.io.File
@@ -13,6 +15,19 @@ enum class PlaybackActivityState {
     READY_PLAYING,
     ENDED,
     FAILED,
+}
+
+
+enum class PlaybackPauseCause {
+    USER_TRANSPORT,
+    SCHEDULED_TRANSPORT,
+    CANONICAL_RECONCILIATION,
+    CANONICAL_QUEUE_EMPTY,
+    WATCHDOG_RECONCILIATION,
+    OUTPUT_INHIBITION,
+    TRANSITION_CIRCUIT_BREAKER,
+    SESSION_END,
+    FAILURE_TEARDOWN,
 }
 
 enum class PlayerItemTransitionReason {
@@ -56,8 +71,9 @@ data class PlayerState(
     val playWhenReady: Boolean = false,
     /** True only while media is currently advancing and audible. */
     val isPlaying: Boolean = false,
-    /** True after a device-local audio-focus/noisy interruption until an explicit Play. */
-    val locallySuppressed: Boolean = false,
+    /** Local participation in room playback. Inhibited/rejoining devices never influence room timing. */
+    val participation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
+    val inhibitionReason: LocalPlaybackInhibitionReason? = null,
     val playbackSpeed: Float = 1f,
     val prepared: Boolean = false,
     val buffering: Boolean = false,
@@ -90,9 +106,16 @@ interface PlayerPort {
         positionMs: Long,
     )
 
+    /** Canonical/scheduled play. Must never clear local output inhibition. */
     suspend fun play(): Boolean
 
-    suspend fun pause()
+    /** Explicit local intent to rejoin the live room after a device-local interruption. */
+    suspend fun beginLocalRejoin()
+
+    /** Marks a rejoining player ACTIVE only after fresh synchronization has converged. */
+    suspend fun completeLocalRejoin()
+
+    suspend fun pause(cause: PlaybackPauseCause)
 
     suspend fun seekTo(positionMs: Long)
 
