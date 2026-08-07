@@ -54,6 +54,36 @@ object NetworkAddressPolicy {
     fun parseAllowedIpv4(value: String, allowLoopback: Boolean = false): Inet4Address? =
         parseAllowedAddress(value, allowLoopback) as? Inet4Address
 
+
+    fun chooseRemoteAddress(addresses: Collection<InetAddress>): InetAddress? =
+        addresses
+            .asSequence()
+            .filter(::isAllowed)
+            .maxWithOrNull(
+                compareBy<InetAddress> { remoteAddressScore(it) }
+                    .thenByDescending { it.hostAddress.orEmpty() }
+            )
+
+    internal fun remoteAddressScore(address: InetAddress): Int =
+        when (address) {
+            is Inet4Address ->
+                when {
+                    address.isSiteLocalAddress -> 400
+                    address.isLinkLocalAddress -> 200
+                    address.isLoopbackAddress -> 0
+                    else -> 100
+                }
+            is Inet6Address ->
+                when {
+                    address.isUniqueLocalAddress() -> 350
+                    address.isSiteLocalAddress -> 325
+                    address.isLinkLocalAddress -> 150
+                    address.isLoopbackAddress -> 0
+                    else -> 100
+                }
+            else -> 0
+        }
+
     fun bestLocalAddress(preferHotspot: Boolean = false): InetAddress? =
         localAddressCandidates(preferHotspot).firstOrNull()?.address
 

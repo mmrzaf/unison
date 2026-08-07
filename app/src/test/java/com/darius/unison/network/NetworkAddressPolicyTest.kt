@@ -45,4 +45,17 @@ class NetworkAddressPolicyTest {
         assertNull(NetworkAddressPolicy.parseAllowedAddress("example.com"))
         assertNull(NetworkAddressPolicy.parseAllowedAddress("not-an-address"))
     }
+    @Test
+    fun remoteSelectionPrefersPrivateIpv4OverLinkLocalAndIpv6() {
+        val selected =
+            NetworkAddressPolicy.chooseRemoteAddress(
+                listOf(
+                    InetAddress.getByName("fe80::25"),
+                    InetAddress.getByName("fd12:3456:789a::25"),
+                    InetAddress.getByName("192.168.1.25"),
+                )
+            )
+        assertTrue(selected?.hostAddress == "192.168.1.25")
+    }
+
 }
