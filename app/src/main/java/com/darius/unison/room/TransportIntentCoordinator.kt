@@ -97,7 +97,7 @@ class TransportIntentCoordinator(
             is UserCommand.QueueClearPlayed,
             is UserCommand.QueueClear,
             is UserCommand.QueueShuffle,
-            is UserCommand.PlaybackModeChange,
+            is UserCommand.RepeatModeChange,
             is UserCommand.OptionsChange -> null
         }
 

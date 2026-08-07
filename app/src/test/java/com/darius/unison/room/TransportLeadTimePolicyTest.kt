@@ -6,28 +6,58 @@ import org.junit.Test
 
 class TransportLeadTimePolicyTest {
     @Test
-    fun quietRoomUsesResponsiveMinimumLead() {
+    fun localOnlyCohortUsesResponsiveMinimumLead() {
         assertEquals(
             TransportLeadTimePolicy.MIN_LEAD_NS,
-            TransportLeadTimePolicy.leadNs(
-                connectedPeerCount = 1,
-                clockReadyPeerCount = 1,
-            ),
+            TransportLeadTimePolicy.leadNs(readyPeerCount = 1),
         )
     }
 
     @Test
-    fun networkAndClockRiskIncreaseLead() {
-        val stable = TransportLeadTimePolicy.leadNs(connectedPeerCount = 3, clockReadyPeerCount = 3)
+    fun measuredNetworkAndClockRiskIncreaseLead() {
+        val stable =
+            TransportLeadTimePolicy.leadNs(
+                readyPeerCount = 3,
+                peerRoundTripsNs = listOf(20_000_000L, 25_000_000L),
+                peerUncertaintiesNs = listOf(2_000_000L, 3_000_000L),
+            )
         val uncertain =
             TransportLeadTimePolicy.leadNs(
-                connectedPeerCount = 3,
-                clockReadyPeerCount = 1,
-                maxPeerRoundTripNs = 120_000_000L,
-                maxPeerUncertaintyNs = 80_000_000L,
+                readyPeerCount = 3,
+                peerRoundTripsNs = listOf(120_000_000L, 140_000_000L),
+                peerUncertaintiesNs = listOf(80_000_000L, 90_000_000L),
                 reconnecting = true,
             )
         assertTrue(uncertain > stable)
+    }
+
+    @Test
+    fun aSingleOutlierDoesNotBecomeTheRoomClock() {
+        val lead =
+            TransportLeadTimePolicy.leadNs(
+                readyPeerCount = 8,
+                peerRoundTripsNs =
+                    listOf(
+                        20_000_000L,
+                        22_000_000L,
+                        24_000_000L,
+                        25_000_000L,
+                        27_000_000L,
+                        30_000_000L,
+                        700_000_000L,
+                    ),
+                peerUncertaintiesNs =
+                    listOf(
+                        2_000_000L,
+                        2_000_000L,
+                        3_000_000L,
+                        3_000_000L,
+                        4_000_000L,
+                        5_000_000L,
+                        250_000_000L,
+                    ),
+            )
+        assertTrue(lead < 500_000_000L)
     }
 
     @Test
@@ -35,10 +65,9 @@ class TransportLeadTimePolicyTest {
         assertEquals(
             TransportLeadTimePolicy.MAX_LEAD_NS,
             TransportLeadTimePolicy.leadNs(
-                connectedPeerCount = 100,
-                clockReadyPeerCount = 0,
-                maxPeerRoundTripNs = Long.MAX_VALUE / 4,
-                maxPeerUncertaintyNs = Long.MAX_VALUE / 4,
+                readyPeerCount = 100,
+                peerRoundTripsNs = List(99) { Long.MAX_VALUE / 4 },
+                peerUncertaintiesNs = List(99) { Long.MAX_VALUE / 4 },
                 reconnecting = true,
             ),
         )
@@ -48,12 +77,10 @@ class TransportLeadTimePolicyTest {
     fun measuredHealthyRoomStaysResponsive() {
         val lead =
             TransportLeadTimePolicy.leadNs(
-                connectedPeerCount = 2,
-                clockReadyPeerCount = 2,
-                maxPeerRoundTripNs = 35_000_000L,
-                maxPeerUncertaintyNs = 4_000_000L,
+                readyPeerCount = 2,
+                peerRoundTripsNs = listOf(35_000_000L),
+                peerUncertaintiesNs = listOf(4_000_000L),
             )
-
         assertTrue(lead in 150_000_000L..250_000_000L)
     }
 }
