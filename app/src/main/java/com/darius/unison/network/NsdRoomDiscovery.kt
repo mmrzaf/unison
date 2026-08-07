@@ -1,6 +1,6 @@
 package com.darius.unison.network
 
-import android.annotation.TargetApi
+import androidx.annotation.RequiresApi
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
@@ -250,7 +250,7 @@ class NsdRoomDiscovery(
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    @TargetApi(34)
+    @RequiresApi(34)
     private fun registerModernService(
         serviceInfo: NsdServiceInfo,
         active: AtomicBoolean,
@@ -292,7 +292,7 @@ class NsdRoomDiscovery(
         }
     }
 
-    @TargetApi(34)
+    @RequiresApi(34)
     private fun unregisterModernService(serviceInfo: NsdServiceInfo) {
         val callback = modernServiceCallbacks.remove(modernServiceKey(serviceInfo)) ?: return
         runCatching { nsd.unregisterServiceInfoCallback(callback) }
@@ -318,7 +318,7 @@ class NsdRoomDiscovery(
         }
     }
 
-    @TargetApi(34)
+    @RequiresApi(34)
     private fun modernServiceKey(serviceInfo: NsdServiceInfo): String =
         "${serviceInfo.serviceName}|${serviceInfo.network?.networkHandle ?: 0L}"
 

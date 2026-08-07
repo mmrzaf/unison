@@ -6,7 +6,7 @@ prepare_standalone_kotlin NETWORK_LIFECYCLE_CHECK
 OUT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/unison-network-lifecycle.XXXXXX")"
 trap 'rm -rf "$OUT_DIR"' EXIT
 run_standalone_kotlinc \
-  scripts/network-lifecycle-kotlin-check/stubs/android/annotation/TargetApi.kt \
+  scripts/network-lifecycle-kotlin-check/stubs/androidx/annotation/RequiresApi.kt \
   scripts/network-lifecycle-kotlin-check/stubs/android/content/Context.kt \
   scripts/network-lifecycle-kotlin-check/stubs/android/net/Network.kt \
   scripts/network-lifecycle-kotlin-check/stubs/android/net/nsd/Nsd.kt \
