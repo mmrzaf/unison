@@ -28,12 +28,10 @@ class PeerRegistryTest {
         registry.connections[peer] = "connection"
         registry.endpoints[peer] = PeerEndpoint(peer, "Phone", "192.168.1.2", 1234, "1")
         registry.lastSeenElapsedMs[peer] = 10
-        registry.clockReadyPeers += peer
         registry.markAvailable(peer, track)
         registry.removePeer(peer)
         assertFalse(registry.endpoints.containsKey(peer))
         assertFalse(registry.lastSeenElapsedMs.containsKey(peer))
-        assertFalse(peer in registry.clockReadyPeers)
         assertFalse(peer in registry.availability[track].orEmpty())
     }
 
