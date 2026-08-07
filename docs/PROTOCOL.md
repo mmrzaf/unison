@@ -66,7 +66,9 @@ term, oversized payload, malformed ciphertext, and expired messages fail closed.
 ## Canonical room state
 
 The coordinator serializes accepted commands through one room actor. Queue membership/order and
-playback intent have independent monotonic revisions.
+playback intent have independent monotonic revisions. Shuffle is a one-shot canonical reorder of
+upcoming items; it is not a persistent playback mode. Repeat is the only persistent queue playback
+mode.
 
 Peers report:
 
@@ -74,7 +76,13 @@ Peers report:
 - playback revision;
 - queue item ID;
 - desired play/pause state;
+- local playback participation (`ACTIVE`, `OUTPUT_INHIBITED`, or `REJOINING`);
 - local player state and position.
+
+Audio-focus loss, becoming-noisy events, and unsuitable local output are device-local conditions,
+not room transport commands. Inhibited/rejoining peers continue receiving canonical state but are
+excluded from play-state repair and the READY timing cohort. Explicit local rejoin positions the
+device on the latest canonical item/current projected position before it can return to `ACTIVE`.
 
 Repair order is deterministic:
 

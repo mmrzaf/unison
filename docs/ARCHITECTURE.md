@@ -24,7 +24,13 @@ state.
 Focused components own policies and effects:
 
 - `ControlAdmissionController`: first admission and reconnect authentication;
-- `PlaybackSessionCoordinator`: playback revision, cadence, and repair throttling;
+- `PlaybackSessionCoordinator`: playback revision, reference cadence, and repair throttling;
+- `PlaybackSynchronizationRuntime`: one local synchronization profile/tuning source for drift
+  measurement, correction, cadence, and Media3 speed actuation;
+- `PeerPlaybackHealthRegistry`: coordinator-owned READY leases so warming or degraded listeners
+  repair locally without controlling healthy-room timing;
+- `LocalPlaybackParticipationCoordinator`: device-local interruption/rejoin lifecycle; audio-focus
+  loss never mutates room transport, and rejoin always targets the latest canonical item/position;
 - `CanonicalPlaybackCoordinator`: exact local/peer convergence;
 - `CanonicalPlaybackDispatcher`: ordered timestamped work and replaceable latest-state reconciliation;
 - `PlayerMutationCoordinator`: the only Media3 mutation boundary;
@@ -32,7 +38,14 @@ Focused components own policies and effects:
 - `RoomStore`: structural, playback, and transfer flows for UI consumption.
 
 High-frequency position telemetry does not enter the room actor. Only meaningful player transitions
-do.
+do. Participant status reports travel only to the coordinator for convergence repair; they are not
+fanned back out to every listener.
+
+`DiagnosticLog` is the single application observability sink. Producers emit structured events into
+a bounded single-writer queue; disk rotation and JSON serialization never run on the room actor or
+Media3 mutation path. `RoomDiagnostics` owns room-session context/lifecycle attributes, while
+`SynchronizationDiagnostics` only rate-limits sync samples before forwarding them to the same sink.
+The room log console subscribes only while it is visible.
 
 ## Command flow
 
@@ -50,6 +63,15 @@ do.
 A peer is correct only when it has the latest queue revision, playback revision, queue item, and
 play/pause intent. Position correction happens after those invariants match. Reconnect performs a
 complete state application before the listener is considered converged.
+
+The coordinator schedules transport against the fresh READY playback cohort, never against every
+connected socket. A listener enters READY only while it holds a fresh positive clock-quality lease.
+A stale or explicitly unsynchronized listener becomes DEGRADED and reacquires independently; it
+cannot inflate healthy-room transport lead or block prepared tracks.
+
+Synchronization correction is deliberately local. Tight, Balanced, and Smooth profiles alter only
+the listener's bounded drift/correction behavior; the canonical room timeline and transport lead
+remain automatic and shared.
 
 ## Storage
 
