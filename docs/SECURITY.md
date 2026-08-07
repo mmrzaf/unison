@@ -52,8 +52,11 @@ only and are cleared when the session ends.
 - Cleartext Android network traffic is disabled.
 - Media-session controllers must be trusted by Android before receiving transport capability.
 - Exported components are limited to the launcher/share activity and MediaSessionService contract.
-- Diagnostics are bounded and sanitized; secrets, proofs, file contents, and raw credentials are not
-  logged.
+- Diagnostics use one bounded structured NDJSON sink. Secret/token/PIN/password/proof/key-material
+  attributes, content URIs, and private storage paths are redacted before persistence. Raw room IDs,
+  file contents, reusable credentials, cryptographic keys, and stack traces are not logged.
+- Diagnostic files rotate at about 6 MiB total, are app-private, and have no automatic network
+  exporter. Room-log copy is an explicit user action.
 
 ## Out of scope
 
