@@ -1,14 +1,14 @@
 package com.darius.unison.playback
 
-import com.darius.unison.model.QueueItemId
+import com.darius.unison.model.LocalPlaybackParticipation
 
 /**
  * Reconciles canonical room transport intent without overriding a device-local safety pause.
  *
  * Audio-focus loss and "becoming noisy" are local output conditions, not room commands. Periodic
- * state sync must not unexpectedly restart sound on that phone. Conversely, when the user presses
- * Play while the canonical room is already advancing, only that locally suppressed output should
- * resume; issuing a second canonical Play would unnecessarily reschedule every peer.
+ * state sync must not unexpectedly restart sound on that phone. Conversely, when a locally
+ * inhibited user presses Play while the canonical room is already advancing, that means "rejoin
+ * the live room"; issuing a second canonical Play would unnecessarily reschedule every peer.
  */
 object PlaybackIntentReconciliationPolicy {
     enum class Action {
@@ -18,34 +18,31 @@ object PlaybackIntentReconciliationPolicy {
     }
 
     enum class PlayRequestAction {
-        RESUME_LOCAL_OUTPUT,
+        REJOIN_LIVE_ROOM,
         MUTATE_CANONICAL_ROOM,
     }
 
     fun decide(
         canonicalPlaying: Boolean,
         localPlayWhenReady: Boolean,
-        locallySuppressed: Boolean,
+        participation: LocalPlaybackParticipation,
     ): Action =
         when {
-            canonicalPlaying && !localPlayWhenReady && !locallySuppressed -> Action.PLAY
+            participation != LocalPlaybackParticipation.ACTIVE -> Action.NONE
+            canonicalPlaying && !localPlayWhenReady -> Action.PLAY
             !canonicalPlaying && localPlayWhenReady -> Action.PAUSE
             else -> Action.NONE
         }
 
     fun decidePlayRequest(
         canonicalPlaying: Boolean,
-        canonicalQueueItemId: QueueItemId?,
-        localQueueItemId: QueueItemId?,
-        locallySuppressed: Boolean,
+        participation: LocalPlaybackParticipation,
     ): PlayRequestAction =
         if (
             canonicalPlaying &&
-                locallySuppressed &&
-                canonicalQueueItemId != null &&
-                canonicalQueueItemId == localQueueItemId
+                participation == LocalPlaybackParticipation.OUTPUT_INHIBITED
         ) {
-            PlayRequestAction.RESUME_LOCAL_OUTPUT
+            PlayRequestAction.REJOIN_LIVE_ROOM
         } else {
             PlayRequestAction.MUTATE_CANONICAL_ROOM
         }
