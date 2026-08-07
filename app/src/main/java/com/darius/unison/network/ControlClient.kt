@@ -14,7 +14,6 @@ import com.darius.unison.protocol.PinPake
 import com.darius.unison.protocol.ProtocolException
 import com.darius.unison.util.DiagnosticLog
 import java.net.InetSocketAddress
-import java.net.Socket
 import java.util.Base64
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +22,7 @@ import kotlinx.coroutines.runInterruptible
 class ControlClient(
     private val scope: CoroutineScope,
     private val log: DiagnosticLog,
+    private val socketProvider: LocalNetworkSocketProvider,
 ) {
     suspend fun connectWithPin(
         identity: LocalIdentity,
@@ -83,16 +83,31 @@ class ControlClient(
     ): ConnectedControl =
         try {
             runInterruptible(Dispatchers.IO) {
-                val address = java.net.InetAddress.getByName(host)
-                NetworkAddressPolicy.requireAllowed(address)
-                val socket =
-                    Socket().apply {
+                val address =
+                    NetworkAddressPolicy.parseAllowedAddress(host)
+                        ?: throw IllegalArgumentException("Invalid local room endpoint")
+                val route = socketProvider.createSocket(address, purpose = "control")
+                val socket = route.socket
+                try {
+                    log.debug(
+                        TAG,
+                        com.darius.unison.util.DiagnosticCategory.NETWORK,
+                        "network.control.connecting",
+                        attributes = route.diagnosticAttributes() + mapOf("network.remote_port" to port),
+                    )
+                    socket.apply {
                         tcpNoDelay = true
                         keepAlive = true
                         connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
                         soTimeout = HANDSHAKE_TIMEOUT_MS
                     }
-                try {
+                    socketProvider.onConnected(route, socket)
+                    log.debug(
+                        TAG,
+                        com.darius.unison.util.DiagnosticCategory.NETWORK,
+                        "network.control.connected",
+                        attributes = route.diagnosticAttributes() + mapOf("network.remote_port" to port),
+                    )
                     val nonce = Crypto.randomBase64(18)
                     val pinSession =
                         (credential as? Credential.Pin)?.let {
@@ -370,6 +385,7 @@ class ControlClient(
     }
 
     private companion object {
+        const val TAG = "ControlClient"
         const val CONNECT_TIMEOUT_MS = 4_500
         const val HANDSHAKE_TIMEOUT_MS = 10_000
     }

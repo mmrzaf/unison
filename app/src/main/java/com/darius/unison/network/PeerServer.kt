@@ -27,6 +27,7 @@ class PeerServer(
     private val scope: CoroutineScope,
     private val log: DiagnosticLog,
     private val handler: Handler,
+    private val networkRouter: LocalNetworkSocketProvider,
 ) {
     interface Handler {
         suspend fun admitControl(
@@ -112,6 +113,7 @@ class PeerServer(
     }
 
     private suspend fun handle(socket: Socket) {
+        networkRouter.observeInboundSocket(socket)
         socket.tcpNoDelay = true
         socket.keepAlive = true
         socket.soTimeout = 15_000

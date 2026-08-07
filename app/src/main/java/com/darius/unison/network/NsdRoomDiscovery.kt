@@ -1,18 +1,23 @@
 package com.darius.unison.network
 
+import android.annotation.TargetApi
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
+import android.os.Build
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
+import java.net.InetAddress
 import java.nio.charset.StandardCharsets
 import java.util.ArrayDeque
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -35,10 +40,13 @@ class NsdRoomDiscovery(
     context: Context,
     private val locks: WifiLocks,
     private val log: DiagnosticLog,
+    private val networkRouter: AndroidLocalNetworkRouter,
 ) {
-    private val nsd = context.getSystemService(NsdManager::class.java)
+    private val appContext = context.applicationContext
+    private val nsd = appContext.getSystemService(NsdManager::class.java)
     private val registrationListener = AtomicReference<NsdManager.RegistrationListener?>(null)
     private val discoveryListener = AtomicReference<NsdManager.DiscoveryListener?>(null)
+    private val modernServiceCallbacks = ConcurrentHashMap<String, NsdManager.ServiceInfoCallback>()
 
     fun advertise(
         roomId: String,
@@ -105,84 +113,20 @@ class NsdRoomDiscovery(
     }
 
     /**
-     * Runs one NSD browse session. [RoomRuntime] owns the user-triggered scan window and closes
-     * this flow when that bounded search ends.
+     * Runs one bounded NSD browse session.
      *
-     * Android 11–13's resolveService API allows only one active resolution reliably on several
-     * vendor builds. Resolutions are serialized and individually timed out so one missing callback
-     * cannot block every room discovered after it.
+     * Android 11–13 use serialized one-shot resolution because several vendor builds reject
+     * concurrent resolveService calls. Android 14+ uses ServiceInfoCallback, which is the platform's
+     * non-stale service-resolution API and delivers all host addresses plus the owning Network.
+     * Both paths feed the same process-local network router; protocol/domain models remain unchanged.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun discover(): Flow<NsdDiscoveryEvent> = callbackFlow {
         stopDiscovery()
+        networkRouter.clearDiscoveryRoutes()
         locks.acquireMulticast()
         val active = AtomicBoolean(true)
-        val resolveLock = Any()
-        val pending = ArrayDeque<NsdServiceInfo>()
-        val queuedNames = mutableSetOf<String>()
-        var resolvingServiceName: String? = null
-        lateinit var resolveNext: () -> Unit
-
-        resolveNext = resolveNext@{
-            val next =
-                synchronized(resolveLock) {
-                    if (!active.get() || resolvingServiceName != null || pending.isEmpty())
-                        return@resolveNext
-                    pending.removeFirst().also { resolvingServiceName = it.serviceName }
-                }
-            val finished = AtomicBoolean(false)
-            var timeoutJob: Job? = null
-
-            fun finish(resolved: NsdServiceInfo? = null): Boolean {
-                if (!finished.compareAndSet(false, true)) return false
-                timeoutJob?.cancel()
-                try {
-                    resolved?.toDiscoveredRoom()?.let { room ->
-                        trySend(NsdDiscoveryEvent.Found(room))
-                    }
-                } finally {
-                    synchronized(resolveLock) {
-                        queuedNames.remove(next.serviceName)
-                        resolvingServiceName = null
-                    }
-                    resolveNext()
-                }
-                return true
-            }
-
-            timeoutJob = launch {
-                delay(RESOLUTION_TIMEOUT_MS)
-                // A broken advertisement must not terminate the user's whole bounded search.
-                // Drop only this resolution and continue with the remaining services.
-                log.warn(TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_timeout")
-                finish()
-            }
-
-            val resolver =
-                object : NsdManager.ResolveListener {
-                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                        log.warn(
-                            TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_failed",
-                            attributes = mapOf("nsd.error_code" to errorCode),
-                        )
-                        finish()
-                    }
-
-                    override fun onServiceResolved(resolved: NsdServiceInfo) {
-                        finish(resolved)
-                    }
-                }
-            runCatching {
-                    @Suppress("DEPRECATION") nsd.resolveService(next, resolver)
-                }
-                .onFailure { error ->
-                    log.warn(
-                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_start_failed",
-                        throwable = error,
-                    )
-                    finish()
-                }
-        }
+        val legacyResolver = LegacyResolverQueue(this, active)
 
         val listener =
             object : NsdManager.DiscoveryListener {
@@ -196,25 +140,19 @@ class NsdRoomDiscovery(
                         !active.get() ||
                             discoveryListener.get() !== this ||
                             serviceInfo.serviceType != SERVICE_TYPE
-                    )
-                        return
-                    val shouldResolve =
-                        synchronized(resolveLock) {
-                            if (pending.size >= MAX_PENDING_RESOLUTIONS) return@synchronized false
-                            if (!queuedNames.add(serviceInfo.serviceName)) return@synchronized false
-                            pending.addLast(serviceInfo)
-                            resolvingServiceName == null
-                        }
-                    if (shouldResolve) resolveNext()
+                    ) return
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        registerModernService(serviceInfo, active, this@callbackFlow)
+                    } else {
+                        legacyResolver.enqueue(serviceInfo)
+                    }
                 }
 
                 override fun onServiceLost(serviceInfo: NsdServiceInfo) {
                     if (!active.get() || discoveryListener.get() !== this) return
-                    synchronized(resolveLock) {
-                        pending.removeAll { it.serviceName == serviceInfo.serviceName }
-                        if (resolvingServiceName != serviceInfo.serviceName) {
-                            queuedNames.remove(serviceInfo.serviceName)
-                        }
+                    legacyResolver.remove(serviceInfo.serviceName)
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        unregisterModernService(serviceInfo)
                     }
                     trySend(NsdDiscoveryEvent.Lost(serviceInfo.serviceName))
                 }
@@ -223,6 +161,7 @@ class NsdRoomDiscovery(
                     if (!active.get() || discoveryListener.get() !== this) return
                     log.warn(TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.stopped_unexpectedly")
                     if (!discoveryListener.compareAndSet(this, null)) return
+                    unregisterAllModernServices()
                     if (registrationListener.get() == null) locks.releaseMulticast()
                     close(
                         NsdDiscoveryException(
@@ -239,6 +178,7 @@ class NsdRoomDiscovery(
                         attributes = mapOf("nsd.error_code" to errorCode),
                     )
                     if (!discoveryListener.compareAndSet(this, null)) return
+                    unregisterAllModernServices()
                     if (registrationListener.get() == null) locks.releaseMulticast()
                     close(
                         NsdDiscoveryException(
@@ -261,6 +201,7 @@ class NsdRoomDiscovery(
         runCatching { nsd.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, listener) }
             .onFailure { error ->
                 if (!discoveryListener.compareAndSet(listener, null)) return@onFailure
+                unregisterAllModernServices()
                 if (registrationListener.get() == null) locks.releaseMulticast()
                 close(
                     NsdDiscoveryException(
@@ -272,11 +213,8 @@ class NsdRoomDiscovery(
             }
         awaitClose {
             active.set(false)
-            synchronized(resolveLock) {
-                pending.clear()
-                queuedNames.clear()
-                resolvingServiceName = null
-            }
+            legacyResolver.clear()
+            unregisterAllModernServices()
             if (discoveryListener.compareAndSet(listener, null)) {
                 stopDiscoveryListener(listener)
                 if (registrationListener.get() == null) locks.releaseMulticast()
@@ -285,6 +223,7 @@ class NsdRoomDiscovery(
     }
 
     fun stopDiscovery() {
+        unregisterAllModernServices()
         val listener = discoveryListener.getAndSet(null) ?: return
         stopDiscoveryListener(listener)
         if (registrationListener.get() == null) locks.releaseMulticast()
@@ -310,9 +249,83 @@ class NsdRoomDiscovery(
         if (discoveryListener.get() == null) locks.releaseMulticast()
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @TargetApi(34)
+    private fun registerModernService(
+        serviceInfo: NsdServiceInfo,
+        active: AtomicBoolean,
+        producer: ProducerScope<NsdDiscoveryEvent>,
+    ) {
+        val callbackKey = modernServiceKey(serviceInfo)
+        if (modernServiceCallbacks.containsKey(callbackKey)) return
+        val callback =
+            object : NsdManager.ServiceInfoCallback {
+                override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
+                    modernServiceCallbacks.remove(callbackKey, this)
+                    log.warn(
+                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.service_info_failed",
+                        attributes = mapOf("nsd.error_code" to errorCode),
+                    )
+                }
+
+                override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
+                    if (!active.get()) return
+                    serviceInfo.toDiscoveredRoom()?.let { producer.trySend(NsdDiscoveryEvent.Found(it)) }
+                }
+
+                override fun onServiceLost() {
+                    if (!active.get()) return
+                    producer.trySend(NsdDiscoveryEvent.Lost(serviceInfo.serviceName))
+                }
+
+                override fun onServiceInfoCallbackUnregistered() = Unit
+            }
+        if (modernServiceCallbacks.putIfAbsent(callbackKey, callback) != null) return
+        runCatching {
+            nsd.registerServiceInfoCallback(serviceInfo, appContext.mainExecutor, callback)
+        }.onFailure { error ->
+            modernServiceCallbacks.remove(callbackKey, callback)
+            log.warn(
+                TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.service_info_start_failed",
+                throwable = error,
+            )
+        }
+    }
+
+    @TargetApi(34)
+    private fun unregisterModernService(serviceInfo: NsdServiceInfo) {
+        val callback = modernServiceCallbacks.remove(modernServiceKey(serviceInfo)) ?: return
+        runCatching { nsd.unregisterServiceInfoCallback(callback) }
+            .onFailure { error ->
+                log.debug(
+                    TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.service_info_stop_failed",
+                    throwable = error,
+                )
+            }
+    }
+
+    private fun unregisterAllModernServices() {
+        if (Build.VERSION.SDK_INT < 34) return
+        modernServiceCallbacks.entries.toList().forEach { (key, callback) ->
+            if (!modernServiceCallbacks.remove(key, callback)) return@forEach
+            runCatching { nsd.unregisterServiceInfoCallback(callback) }
+                .onFailure { error ->
+                    log.debug(
+                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.service_info_stop_failed",
+                        throwable = error,
+                    )
+                }
+        }
+    }
+
+    @TargetApi(34)
+    private fun modernServiceKey(serviceInfo: NsdServiceInfo): String =
+        "${serviceInfo.serviceName}|${serviceInfo.network?.networkHandle ?: 0L}"
+
     private fun NsdServiceInfo.toDiscoveredRoom(): DiscoveredRoom? {
-        @Suppress("DEPRECATION")
-        val address = host?.takeIf(NetworkAddressPolicy::isAllowed) ?: return null
+        val addresses = resolvedAddresses()
+        val resolvedNetwork = if (Build.VERSION.SDK_INT >= 33) network else null
+        val address = networkRouter.rememberResolvedService(addresses, resolvedNetwork) ?: return null
 
         val resolvedRoomId =
             (attribute("rid") ?: serviceName.substringAfter("Unison-", "")).takeIf {
@@ -330,6 +343,16 @@ class NsdRoomDiscovery(
         val resolvedPort = port.takeIf { it in 1..65535 } ?: return null
         val hostAddress = address.hostAddress ?: return null
 
+        log.debug(
+            TAG,
+            DiagnosticCategory.DISCOVERY,
+            "discovery.nsd.service_resolved",
+            attributes = mapOf(
+                "nsd.address_count" to addresses.size,
+                "network.address_family" to if (address.address.size == 4) "IPV4" else "IPV6",
+                "network.bound_available" to (resolvedNetwork != null),
+            ),
+        )
         return DiscoveredRoom(
             serviceName = serviceName,
             roomId = resolvedRoomId,
@@ -341,8 +364,112 @@ class NsdRoomDiscovery(
         )
     }
 
+    private fun NsdServiceInfo.resolvedAddresses(): List<InetAddress> =
+        if (Build.VERSION.SDK_INT >= 34) {
+            hostAddresses.filter(NetworkAddressPolicy::isAllowed)
+        } else {
+            @Suppress("DEPRECATION")
+            listOfNotNull(host?.takeIf(NetworkAddressPolicy::isAllowed))
+        }
+
     private fun NsdServiceInfo.attribute(key: String): String? =
         attributes[key]?.toString(StandardCharsets.UTF_8)
+
+    /** Serialized resolver used only on Android 11–13. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private inner class LegacyResolverQueue(
+        private val producer: ProducerScope<NsdDiscoveryEvent>,
+        private val active: AtomicBoolean,
+    ) {
+        private val lock = Any()
+        private val pending = ArrayDeque<NsdServiceInfo>()
+        private val queuedNames = mutableSetOf<String>()
+        private var resolvingServiceName: String? = null
+
+        fun enqueue(serviceInfo: NsdServiceInfo) {
+            val shouldResolve =
+                synchronized(lock) {
+                    if (pending.size >= MAX_PENDING_RESOLUTIONS) return@synchronized false
+                    if (!queuedNames.add(serviceInfo.serviceName)) return@synchronized false
+                    pending.addLast(serviceInfo)
+                    resolvingServiceName == null
+                }
+            if (shouldResolve) resolveNext()
+        }
+
+        fun remove(serviceName: String) {
+            synchronized(lock) {
+                pending.removeAll { it.serviceName == serviceName }
+                if (resolvingServiceName != serviceName) queuedNames.remove(serviceName)
+            }
+        }
+
+        fun clear() {
+            synchronized(lock) {
+                pending.clear()
+                queuedNames.clear()
+                resolvingServiceName = null
+            }
+        }
+
+        private fun resolveNext() {
+            if (Build.VERSION.SDK_INT >= 34) return
+            val next =
+                synchronized(lock) {
+                    if (!active.get() || resolvingServiceName != null || pending.isEmpty()) return
+                    pending.removeFirst().also { resolvingServiceName = it.serviceName }
+                }
+            val finished = AtomicBoolean(false)
+            var timeoutJob: Job? = null
+
+            fun finish(resolved: NsdServiceInfo? = null): Boolean {
+                if (!finished.compareAndSet(false, true)) return false
+                timeoutJob?.cancel()
+                try {
+                    resolved?.toDiscoveredRoom()?.let { room ->
+                        producer.trySend(NsdDiscoveryEvent.Found(room))
+                    }
+                } finally {
+                    synchronized(lock) {
+                        queuedNames.remove(next.serviceName)
+                        resolvingServiceName = null
+                    }
+                    resolveNext()
+                }
+                return true
+            }
+
+            timeoutJob = producer.launch {
+                delay(RESOLUTION_TIMEOUT_MS)
+                log.warn(TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_timeout")
+                finish()
+            }
+            val resolver =
+                object : NsdManager.ResolveListener {
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                        log.warn(
+                            TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_failed",
+                            attributes = mapOf("nsd.error_code" to errorCode),
+                        )
+                        finish()
+                    }
+
+                    override fun onServiceResolved(resolved: NsdServiceInfo) {
+                        finish(resolved)
+                    }
+                }
+            runCatching {
+                @Suppress("DEPRECATION")
+                nsd.resolveService(next, resolver)
+            }.onFailure { error ->
+                log.warn(
+                    TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_start_failed",
+                    throwable = error,
+                )
+                finish()
+            }
+        }
+    }
 
     companion object {
         const val SERVICE_TYPE = "_unison._tcp."
