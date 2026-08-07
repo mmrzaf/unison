@@ -1,9 +1,4 @@
-# Unison's room protocol and persisted room model are deliberately small. Keep them intact so
-# Kotlin Serialization remains deterministic across release builds and protocol revisions.
--keep,includedescriptorclasses class com.darius.unison.protocol.** { *; }
--keep,includedescriptorclasses class com.darius.unison.model.** { *; }
-
-# AndroidX libraries provide their own consumer rules. Preserve metadata used by Room, Kotlin,
-# and generated adapters without retaining the rest of the application wholesale.
--keepattributes Signature,InnerClasses,EnclosingMethod
--keepattributes RuntimeVisibleAnnotations,RuntimeInvisibleAnnotations,AnnotationDefault
+# Unison uses generated serializers and generated Room adapters through static references. AndroidX
+# dependencies ship their own consumer rules, so the application deliberately has no package-wide
+# keep rules. If a future release needs a keep rule, add the narrowest rule for the exact reflected
+# entry point rather than retaining an entire package.
