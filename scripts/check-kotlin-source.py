@@ -237,6 +237,46 @@ def main() -> int:
     ):
         problems.append("Unstructured coroutine usage exists in production")
 
+    diagnostic_sink = SOURCE_ROOT / "com/darius/unison/util/DiagnosticLog.kt"
+    diagnostic_event = (SOURCE_ROOT / "com/darius/unison/util/DiagnosticEvent.kt").read_text()
+    room_logs = (SOURCE_ROOT / "com/darius/unison/ui/room/RoomLogsDialog.kt").read_text()
+    generic_log_events = {
+        "room.runtime",
+        "network.peer_server",
+        "network.hotspot",
+        "network.control_connection",
+        "discovery.nsd",
+        "playback.media3",
+        "playback.media_session",
+        "playback.scheduled_command",
+        "playback.service",
+        "sync.canonical_repair",
+        "transfer.lifecycle",
+        "storage.cleanup",
+        "app.lifecycle",
+    }
+    for path in kotlin_files:
+        text = path.read_text(errors="ignore")
+        if path != diagnostic_sink and (
+            "import android.util.Log" in text
+            or re.search(r"\bLog\.(?:v|d|i|w|e|wtf)\s*\(", text)
+        ):
+            problems.append(f"Direct Android Log usage outside DiagnosticLog: {path.relative_to(ROOT)}")
+    for event_name in generic_log_events:
+        if f'"{event_name}"' in production:
+            problems.append(f"Generic diagnostic event name remains: {event_name}")
+    require(diagnostic_event, "const val SCHEMA_VERSION = 1", "Diagnostic schema is not versioned", problems)
+    require(diagnostic_event, 'DEBUG("DEBUG", 5)', "Diagnostic DEBUG severity is not OTel-aligned", problems)
+    require(diagnostic_event, 'INFO("INFO", 9)', "Diagnostic INFO severity is not OTel-aligned", problems)
+    require(diagnostic_event, 'WARN("WARN", 13)', "Diagnostic WARN severity is not OTel-aligned", problems)
+    require(diagnostic_event, 'ERROR("ERROR", 17)', "Diagnostic ERROR severity is not OTel-aligned", problems)
+    diagnostic_sink_text = diagnostic_sink.read_text()
+    require(diagnostic_sink_text, "diagnostics/unison.ndjson", "Structured NDJSON sink is missing", problems)
+    require(diagnostic_sink_text, "event.toLogcatJsonLine()", "Logcat does not use bounded structured records", problems)
+    if '"network.target_host"' in production:
+        problems.append("Diagnostics persist a raw network endpoint")
+    require(room_logs, "Room logs", "Room diagnostics viewer is missing", problems)
+
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1

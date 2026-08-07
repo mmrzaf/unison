@@ -43,6 +43,7 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/transfer/TransferUploadGate.kt \
   app/src/main/java/com/darius/unison/transfer/TransferManager.kt \
   app/src/main/java/com/darius/unison/util/DiagnosticSanitizer.kt \
+  app/src/main/java/com/darius/unison/util/DiagnosticEvent.kt \
   app/src/main/java/com/darius/unison/util/DiagnosticLog.kt \
   app/src/main/java/com/darius/unison/sync/SynchronizationDiagnostics.kt \
   -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
