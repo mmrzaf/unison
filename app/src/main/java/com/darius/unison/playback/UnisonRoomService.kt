@@ -26,6 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import com.darius.unison.util.DiagnosticCategory
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 private fun Player.Commands.Builder.addAllReadOnlyCommands(): Player.Commands.Builder =
@@ -113,9 +114,18 @@ class UnisonRoomService : MediaSessionService() {
         // real Media3 transport notification; Unison never posts a generic service placeholder.
         setShowNotificationForIdlePlayer(SHOW_NOTIFICATION_FOR_IDLE_PLAYER_NEVER)
         addSession(mediaSession)
-        unisonContainer.diagnostics.i(TAG, "Media session registered for system controls")
+        unisonContainer.diagnostics.info(
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.service.started",
+        )
 
         runtime = RoomRuntime(this, unisonContainer, playerAdapter, runtimeScope)
+        runtimeScope.launch {
+            unisonContainer.settings.playbackSyncProfile
+                .distinctUntilChanged()
+                .collect(runtime::updatePlaybackSyncProfile)
+        }
         roomForegroundJob = lifecycleScope.launch {
             unisonContainer.roomStore.structure
                 .map { state -> state.sessionActive || state.hotspot != null }
@@ -175,10 +185,12 @@ class UnisonRoomService : MediaSessionService() {
     }
 
     private fun reportRoomCommandFailure(command: AppCommand, error: Throwable) {
-        unisonContainer.diagnostics.e(
+        unisonContainer.diagnostics.error(
             TAG,
-            "Room command failed: ${command::class.simpleName}",
-            error,
+            DiagnosticCategory.PLAYBACK,
+            "playback.service.command_failed",
+            attributes = mapOf("command.type" to command::class.simpleName),
+            throwable = error,
         )
         unisonContainer.roomStore.update { state ->
             state.copy(errorMessage = "Unison could not complete that action")
@@ -270,10 +282,15 @@ class UnisonRoomService : MediaSessionService() {
         roomForegroundJob?.cancel()
         deferredNotificationUpdateJob?.cancel()
         if (::runtime.isInitialized) {
-            unisonContainer.diagnostics.i(
+            unisonContainer.diagnostics.info(
                 TAG,
-                "Notification updates enqueued=$notificationEnqueueCount deferred=$notificationDeferredCount " +
-                    "deduplicated=$notificationDeduplicatedCount",
+                DiagnosticCategory.PLAYBACK,
+                "playback.service.stopped",
+                attributes = mapOf(
+                    "notification.enqueued_count" to notificationEnqueueCount,
+                    "notification.deferred_count" to notificationDeferredCount,
+                    "notification.deduplicated_count" to notificationDeduplicatedCount,
+                ),
             )
         }
         if (::runtime.isInitialized) runtime.close()

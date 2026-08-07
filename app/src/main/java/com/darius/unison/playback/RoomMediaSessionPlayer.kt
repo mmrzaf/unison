@@ -6,6 +6,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.darius.unison.app.RoomCommandBus
 import com.darius.unison.model.AppCommand
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 
 /**
@@ -43,15 +44,18 @@ class RoomMediaSessionPlayer(
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         dispatch(
-            SystemMediaCommandPolicy.playWhenReady(playWhenReady),
-            "setPlayWhenReady=$playWhenReady",
+            SystemMediaCommandPolicy.playWhenReady(playWhenReady), "set_play_when_ready",
+            mapOf("playback.play_when_ready" to playWhenReady),
         )
     }
 
     override fun stop() = dispatch(AppCommand.Pause(), "stop")
 
     override fun seekTo(positionMs: Long) {
-        dispatch(SystemMediaCommandPolicy.seek(normalizePosition(positionMs)), "seekTo=$positionMs")
+        dispatch(
+            SystemMediaCommandPolicy.seek(normalizePosition(positionMs)), "seek",
+            mapOf("playback.position_ms" to normalizePosition(positionMs)),
+        )
     }
 
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
@@ -59,7 +63,10 @@ class RoomMediaSessionPlayer(
             mediaItemIndex == currentMediaItemIndex -> seekTo(positionMs)
             mediaItemIndex == nextMediaItemIndex -> seekToNextMediaItem()
             mediaItemIndex == previousMediaItemIndex -> seekToPreviousMediaItem()
-            else -> log.i(TAG, "Ignored unsupported system seek to item index=$mediaItemIndex")
+            else -> log.info(
+                TAG, DiagnosticCategory.PLAYBACK, "playback.media_session.seek_ignored",
+                attributes = mapOf("queue.index" to mediaItemIndex),
+            )
         }
     }
 
@@ -96,12 +103,25 @@ class RoomMediaSessionPlayer(
             else -> positionMs
         }
 
-    private fun dispatch(command: AppCommand, source: String) {
+    private fun dispatch(
+        command: AppCommand,
+        source: String,
+        attributes: Map<String, Any?> = emptyMap(),
+    ) {
         val result = commandBus.trySend(command)
         if (result.isSuccess) {
-            log.i(TAG, "System media control: $source")
+            log.info(
+                TAG, DiagnosticCategory.PLAYBACK, "playback.media_session.command_received",
+                attributes =
+                    attributes + mapOf("command.source" to source, "command.type" to command::class.simpleName),
+            )
         } else {
-            log.e(TAG, "Could not accept system media control: $source", result.exceptionOrNull())
+            log.error(
+                TAG, DiagnosticCategory.PLAYBACK, "playback.media_session.command_rejected",
+                attributes =
+                    attributes + mapOf("command.source" to source, "command.type" to command::class.simpleName),
+                throwable = result.exceptionOrNull(),
+            )
         }
     }
 
