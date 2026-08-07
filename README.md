@@ -10,7 +10,8 @@ intent over private Wi-Fi or Android LocalOnlyHotspot.
 - Version: `1.0.0` (`versionCode` 1)
 - Wire protocol: 1 only
 - Room database schema: 1 only
-- Runtime support: Android 11–13 (`minSdk 30`, `targetSdk 33`)
+- Runtime floor: Android 11 (`minSdk 30`, `targetSdk 33`); release qualification includes Android 11, 13, and 16
+- Source: `https://github.com/mmrzaf/unison` (also available from **About Unison** in the app)
 - No account, cloud backend, analytics, advertising, billing, hosted API, or app-store runtime
 - No compatibility handshake, protocol negotiation, database migration, or persisted room session
 - Public addresses and DNS joins are rejected
@@ -32,7 +33,7 @@ room's official song or play/pause state. Shuffle is a one-shot queue action tha
 songs without creating hidden playback state; repeat remains an explicit mode. Playback
 synchronization can be set to Tight, Balanced, or Smooth per phone; room command timing remains
 automatic. Audio-focus loss or a becoming-noisy route pauses only that phone. The room continues,
-and an explicit Rejoin discards stale local playback state and returns to the live room position.
+and explicit local Play discards stale local playback state and resumes at the live room position.
 
 ## Build locally
 
