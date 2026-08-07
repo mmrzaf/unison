@@ -141,14 +141,6 @@ class RoomSnapshotValidatorTest {
     }
 
     @Test
-    fun rejectsInvalidShuffleMembership() {
-        val invalid =
-            validSnapshot().copy(shuffleEnabled = true, unshuffledQueueItemIds = emptyList())
-        val result = validator.validate(invalid) as SnapshotValidationResult.Invalid
-        assertTrue(result.issues.any { it.code == "shuffle_membership" })
-    }
-
-    @Test
     fun rejectsMissingCoordinatorAndOldSequence() {
         val base = validSnapshot()
         val invalid = base.copy(members = base.members.filterNot { it.peerId == coordinator })

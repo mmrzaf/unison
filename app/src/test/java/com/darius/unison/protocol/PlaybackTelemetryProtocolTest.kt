@@ -1,6 +1,6 @@
 package com.darius.unison.protocol
 
-import com.darius.unison.model.PeerId
+import com.darius.unison.model.LocalPlaybackParticipation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -13,6 +13,7 @@ class PlaybackTelemetryProtocolTest {
                 queueItemId = null,
                 positionMs = 250,
                 isPlaying = true,
+                participation = LocalPlaybackParticipation.ACTIVE,
                 driftMs = null,
                 playbackRevision = 0,
                 queueRevision = 0,
@@ -22,26 +23,13 @@ class PlaybackTelemetryProtocolTest {
     }
 
     @Test
-    fun unknownMemberDriftRemainsUnknown() {
-        val status =
-            ProtocolBody.MemberPlaybackStatus(
-                peerId = PeerId("peer-123456789012"),
-                queueItemId = null,
-                positionMs = 250,
-                isPlaying = true,
-                driftMs = null,
-                playbackRevision = 0,
-            )
-        assertNull(status.driftMs)
-    }
-
-    @Test
     fun convergenceRevisionsArePreserved() {
         val report =
             ProtocolBody.PlaybackStatusReport(
                 queueItemId = null,
                 positionMs = 250,
                 isPlaying = false,
+                participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
                 driftMs = null,
                 playbackRevision = 11,
                 queueRevision = 9,
@@ -59,6 +47,7 @@ class PlaybackTelemetryProtocolTest {
                 queueItemId = null,
                 positionMs = 250,
                 isPlaying = true,
+                participation = LocalPlaybackParticipation.ACTIVE,
                 driftMs = -17,
                 playbackRevision = 0,
                 queueRevision = 0,

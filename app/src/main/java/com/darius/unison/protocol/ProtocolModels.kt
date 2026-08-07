@@ -1,6 +1,7 @@
 package com.darius.unison.protocol
 
 import com.darius.unison.model.CanonicalPlaybackState
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
@@ -138,13 +139,12 @@ sealed interface ProtocolBody {
     data class RoomOptionsChanged(val options: RoomOptions) : ProtocolBody
 
     @Serializable
-    @SerialName("playback_mode_changed")
-    data class PlaybackModeChanged(
-        val shuffleEnabled: Boolean,
-        val repeatMode: RepeatMode,
-        val orderedQueueItemIds: List<QueueItemId>,
-        val unshuffledQueueItemIds: List<QueueItemId>,
-    ) : ProtocolBody
+    @SerialName("queue_shuffled")
+    data class QueueShuffled(val orderedQueueItemIds: List<QueueItemId>) : ProtocolBody
+
+    @Serializable
+    @SerialName("repeat_mode_changed")
+    data class RepeatModeChanged(val repeatMode: RepeatMode) : ProtocolBody
 
     @Serializable
     @SerialName("play_scheduled")
@@ -200,7 +200,7 @@ sealed interface ProtocolBody {
     @Serializable
     @SerialName("clock_ready")
     data class ClockReady(
-        val synchronized: Boolean = true,
+        val synchronized: Boolean,
         val roundTripNs: Long? = null,
         val uncertaintyNs: Long? = null,
     ) : ProtocolBody
@@ -221,22 +221,11 @@ sealed interface ProtocolBody {
         val queueItemId: QueueItemId?,
         val positionMs: Long,
         val isPlaying: Boolean,
+        val participation: LocalPlaybackParticipation,
         val driftMs: Long?,
         val playbackRevision: Long,
         val queueRevision: Long,
         val canonicalSequence: Long,
-    ) : ProtocolBody
-
-    /** Ephemeral UI telemetry. It is deliberately not part of canonical room sequencing. */
-    @Serializable
-    @SerialName("member_playback_status")
-    data class MemberPlaybackStatus(
-        val peerId: PeerId,
-        val queueItemId: QueueItemId?,
-        val positionMs: Long,
-        val isPlaying: Boolean,
-        val driftMs: Long?,
-        val playbackRevision: Long,
     ) : ProtocolBody
 
     @Serializable

@@ -133,17 +133,7 @@ class RoomSnapshotValidator(
         }
 
         if (snapshot.options.preloadCount !in 1..3) reject("preload", "Invalid preload count")
-        val unshuffled = snapshot.unshuffledQueueItemIds
-        if (unshuffled.distinct().size != unshuffled.size) {
-            reject("shuffle_duplicates", "Unshuffled queue contains duplicate items")
-        }
-        if (snapshot.shuffleEnabled) {
-            if (unshuffled.toSet() != queueIdSet || unshuffled.size != queueIds.size) {
-                reject("shuffle_membership", "Unshuffled queue does not match the active queue")
-            }
-        } else if (unshuffled.isNotEmpty()) {
-            reject("shuffle_disabled", "Unshuffled order must be empty when shuffle is disabled")
-        }
+
 
         return if (issues.isEmpty()) SnapshotValidationResult.Valid
         else SnapshotValidationResult.Invalid(issues)
@@ -158,14 +148,6 @@ class RoomSnapshotValidator(
             reject("member_id", "Invalid member identity at index $index")
         if (!member.displayName.isBoundedText(1, MAX_DISPLAY_NAME_LENGTH)) {
             reject("member_name", "Invalid member display name at index $index")
-        }
-        member.playbackPositionMs?.let {
-            if (it < 0) reject("member_position", "Invalid member playback position")
-        }
-        member.driftMs?.let {
-            if (it !in -MAX_REPORTED_DRIFT_MS..MAX_REPORTED_DRIFT_MS) {
-                reject("member_drift", "Invalid member drift")
-            }
         }
         member.endpoint?.let { endpoint ->
             validateEndpoint(endpoint, member.peerId, reject)
@@ -209,7 +191,6 @@ class RoomSnapshotValidator(
         private const val MAX_MIME_LENGTH = 128
         private const val MAX_TRACK_BYTES = 1L shl 30
         private const val MAX_TRACK_DURATION_MS = 30L * 24 * 60 * 60 * 1000
-        private const val MAX_REPORTED_DRIFT_MS = 60L * 60 * 1000
 
         private val ROOM_ID_PATTERN = Regex("[A-Za-z0-9._:-]{1,128}")
         private val PEER_ID_PATTERN = Regex("[A-Za-z0-9._:-]{16,128}")
