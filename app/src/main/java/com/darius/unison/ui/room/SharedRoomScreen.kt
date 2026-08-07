@@ -13,22 +13,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.paging.PagingData
 import com.darius.unison.model.MemberTrackState
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RetentionPolicy
@@ -64,6 +58,8 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportAction
 import com.darius.unison.room.QueueDragPolicy
+import com.darius.unison.room.QueueShufflePolicy
+import com.darius.unison.sync.PlaybackSyncProfile
 import com.darius.unison.storage.PlaylistSummary
 import kotlin.math.abs
 import kotlinx.coroutines.delay
@@ -81,34 +77,12 @@ internal fun SharedRoomScreen(
     libraryTotalCount: Int,
     temporaryTrackIds: Set<TrackId>,
     retentionPolicy: RetentionPolicy,
+    playbackSyncProfile: PlaybackSyncProfile,
     playbackPositionFlow: StateFlow<Long>,
     pickerTracksFlow: Flow<PagingData<TrackDescriptor>>,
     pickerQueryState: StateFlow<String>,
-    onPickerQueryChange: (String) -> Unit,
-    onPlay: () -> Unit,
-    onPause: () -> Unit,
-    onSeek: (Long) -> Unit,
-    onNext: () -> Unit,
-    onPrevious: () -> Unit,
-    onPlayQueueItem: (QueueItemId) -> Unit,
-    onShuffle: () -> Unit,
-    onRepeat: (RepeatMode) -> Unit,
-    onChooseFiles: () -> Unit,
-    onImportM3u: () -> Unit,
-    onSelectAllTracks: (String, (Set<TrackId>) -> Unit) -> Unit,
-    onAddLibrarySelectionToRoom: (Boolean, List<String>, List<TrackId>) -> Unit,
-    onRemoveQueueItem: (QueueItemId) -> Unit,
-    onMoveQueueItem: (QueueItemId, Int) -> Unit,
-    onMoveQueueItemNext: (QueueItemId) -> Unit,
-    onKeepTrack: (TrackId) -> Unit,
-    onUpdateOptions: (RoomOptions) -> Unit,
-    onSetRetentionPolicy: (RetentionPolicy) -> Unit,
-    onSaveQueue: (String) -> Unit,
-    onClearPlayed: () -> Unit,
-    onClearQueue: () -> Unit,
-    onLeave: () -> Unit,
-    onRetryIssue: () -> Unit,
-    onDismissIssue: (String) -> Unit,
+    diagnosticRevision: StateFlow<Long>,
+    actions: SharedRoomActions,
 ) {
     val snapshot = room.snapshot
     if (snapshot == null) {
@@ -125,17 +99,24 @@ internal fun SharedRoomScreen(
     val hasSeekableDuration = (nowPlaying?.track?.durationMs ?: 0L) > 0L
     val duration = nowPlaying?.track?.durationMs?.coerceAtLeast(1L) ?: 1L
     val transportStatus = room.transportStatus
+    val localOutputInhibited =
+        room.localPlaybackParticipation == LocalPlaybackParticipation.OUTPUT_INHIBITED
+    val localRejoining =
+        room.localPlaybackParticipation == LocalPlaybackParticipation.REJOINING
     val transportControls =
         remember(
             nowPlaying?.queueItemId,
             hasSeekableDuration,
             snapshot.playback.isPlaying,
+            localOutputInhibited,
+            localRejoining,
             transportStatus,
         ) {
             RoomPlaybackUiPolicy.controls(
                 hasCurrentItem = nowPlaying != null,
                 hasSeekableDuration = hasSeekableDuration,
-                localIsPlaying = snapshot.playback.isPlaying,
+                localIsPlaying =
+                    snapshot.playback.isPlaying && !localOutputInhibited,
                 status = transportStatus,
             )
         }
@@ -180,23 +161,26 @@ internal fun SharedRoomScreen(
     }
 
     val requestPlayPause = {
-        val action = if (displayedPlaying) TransportAction.PAUSE else TransportAction.PLAY
+        val action =
+            if (localOutputInhibited) TransportAction.PLAY
+            else if (displayedPlaying) TransportAction.PAUSE
+            else TransportAction.PLAY
         submitTransport(action, transportControls.canPlayPause) {
-            if (displayedPlaying) onPause() else onPlay()
+            if (displayedPlaying) actions.onPause() else actions.onPlay()
         }
     }
     val requestPrevious = {
         submitTransport(
             action = TransportAction.PREVIOUS,
             enabled = transportControls.canNavigate,
-            command = onPrevious,
+            command = actions.onPrevious,
         )
     }
     val requestNext = {
         submitTransport(
             action = TransportAction.NEXT,
             enabled = transportControls.canNavigate,
-            command = onNext,
+            command = actions.onNext,
         )
     }
     val requestQueueItem: (QueueItemId) -> Unit = { itemId ->
@@ -205,7 +189,7 @@ internal fun SharedRoomScreen(
             enabled = transportControls.canSelectItem,
             queueItemId = itemId,
         ) {
-            onPlayQueueItem(itemId)
+            actions.onPlayQueueItem(itemId)
         }
     }
 
@@ -229,22 +213,22 @@ internal fun SharedRoomScreen(
         }
     }
     val localRoomCode = room.localRoomPin
-    var roomMenu by remember { mutableStateOf(false) }
     var showRoomCode by remember { mutableStateOf(false) }
     var showListeners by remember { mutableStateOf(false) }
+    var showLogs by remember { mutableStateOf(false) }
     var showAddMusic by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     var saveQueueOpen by remember { mutableStateOf(false) }
     var confirmClearQueue by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
     var queueQuery by rememberSaveable(snapshot.roomId) { mutableStateOf("") }
-    val visibleQueue =
+    val filteredQueue =
         remember(snapshot.queue, queueQuery) {
             val query = queueQuery.trim()
-            if (query.isEmpty()) snapshot.queue.withIndex().toList()
+            if (query.isEmpty()) emptyList()
             else
-                snapshot.queue.withIndex().filter { indexed ->
-                    val track = indexed.value.track
+                snapshot.queue.filter { item ->
+                    val track = item.track
                     track.displayTitle.contains(query, ignoreCase = true) ||
                         track.artist?.contains(query, ignoreCase = true) == true ||
                         track.album?.contains(query, ignoreCase = true) == true
@@ -252,7 +236,7 @@ internal fun SharedRoomScreen(
         }
 
     fun openAddMusic() {
-        onPickerQueryChange("")
+        actions.onPickerQueryChange("")
         showAddMusic = true
     }
 
@@ -348,83 +332,21 @@ internal fun SharedRoomScreen(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             item(key = "room-header") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            snapshot.roomName,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            "${snapshot.members.count { it.connected }} listening",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { roomMenu = true }) {
-                            Icon(Icons.Default.MoreVert, "Room actions")
-                        }
-                        DropdownMenu(expanded = roomMenu, onDismissRequest = { roomMenu = false }) {
-                            if (localRoomCode != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Show room code") },
-                                    leadingIcon = { Icon(Icons.Default.ContentCopy, null) },
-                                    onClick = {
-                                        roomMenu = false
-                                        showRoomCode = true
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Listeners") },
-                                leadingIcon = { Icon(Icons.Default.Person, null) },
-                                onClick = {
-                                    roomMenu = false
-                                    showListeners = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Save queue as playlist") },
-                                enabled = snapshot.queue.isNotEmpty(),
-                                onClick = {
-                                    roomMenu = false
-                                    saveQueueOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Clear played songs") },
-                                enabled =
-                                    snapshot.queue.indexOfFirst {
-                                        it.queueItemId == snapshot.playback.queueItemId
-                                    } > 0,
-                                onClick = {
-                                    roomMenu = false
-                                    onClearPlayed()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Room settings") },
-                                leadingIcon = { Icon(Icons.Default.Settings, null) },
-                                onClick = {
-                                    roomMenu = false
-                                    showOptions = true
-                                },
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("Leave room") },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, null) },
-                                onClick = {
-                                    roomMenu = false
-                                    confirmLeave = true
-                                },
-                            )
-                        }
-                    }
-                }
+                RoomHeader(
+                    roomName = snapshot.roomName,
+                    connectedListeners = snapshot.members.count { it.connected },
+                    canShowRoomCode = localRoomCode != null,
+                    canSaveQueue = snapshot.queue.isNotEmpty(),
+                    canClearPlayed =
+                        snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId } > 0,
+                    onShowRoomCode = { showRoomCode = true },
+                    onShowListeners = { showListeners = true },
+                    onShowLogs = { showLogs = true },
+                    onSaveQueue = { saveQueueOpen = true },
+                    onClearPlayed = actions.onClearPlayed,
+                    onShowSettings = { showOptions = true },
+                    onLeave = { confirmLeave = true },
+                )
             }
 
             item(key = "participants") {
@@ -448,9 +370,9 @@ internal fun SharedRoomScreen(
                     PersistentRoomIssueCard(
                         issue = issue,
                         transportStatus = room.transportStatus,
-                        onDismiss = { onDismissIssue(issue.message) },
-                        onRetryTransport = onRetryIssue,
-                        onChooseFiles = onChooseFiles,
+                        onDismiss = { actions.onDismissIssue(issue.message) },
+                        onRetryTransport = actions.onRetryIssue,
+                        onChooseFiles = actions.onChooseFiles,
                         onLeaveRoom = { confirmLeave = true },
                     )
                 }
@@ -479,13 +401,28 @@ internal fun SharedRoomScreen(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        if (localOutputInhibited && snapshot.playback.isPlaying) {
+                            Text(
+                                "Room is still playing · Tap Play to rejoin",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
+                                textAlign = TextAlign.Center,
+                            )
+                        } else if (localRejoining) {
+                            Text(
+                                "Rejoining live playback…",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                         if (nowPlaying != null) {
                             RoomSeekSlider(
                                 playbackPositionFlow = playbackPositionFlow,
                                 durationMs = duration,
                                 enabled = transportControls.canSeek,
                                 transportStatus = transportStatus,
-                                onSeek = onSeek,
+                                onSeek = actions.onSeek,
                             )
                             Row(
                                 Modifier.fillMaxWidth(),
@@ -534,12 +471,13 @@ internal fun SharedRoomScreen(
             item(key = "queue-toolbar") {
                 RoomQueueToolbar(
                     query = queueQuery,
-                    shuffleEnabled = snapshot.shuffleEnabled,
                     repeatMode = snapshot.repeatMode,
                     queueEnabled = snapshot.queue.isNotEmpty(),
+                    shuffleAvailable =
+                        QueueShufflePolicy.canShuffle(snapshot.queue, displayedQueueItemId),
                     onQueryChange = { queueQuery = it },
-                    onShuffle = onShuffle,
-                    onRepeat = { onRepeat(snapshot.repeatMode.next()) },
+                    onShuffle = actions.onShuffle,
+                    onRepeat = { actions.onRepeat(snapshot.repeatMode.next()) },
                     onClear = { confirmClearQueue = true },
                 )
             }
@@ -583,7 +521,7 @@ internal fun SharedRoomScreen(
                             if (queueQuery.isBlank()) {
                                 "${snapshot.queue.size} ${if (snapshot.queue.size == 1) "song" else "songs"}"
                             } else {
-                                "${visibleQueue.size} matching"
+                                "${filteredQueue.size} matching"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -605,7 +543,7 @@ internal fun SharedRoomScreen(
                             textAlign = TextAlign.Center,
                         )
                     }
-                visibleQueue.isEmpty() ->
+                queueQuery.isNotBlank() && filteredQueue.isEmpty() ->
                     item(key = "queue-no-results") {
                         Text(
                             "No queue matches",
@@ -614,11 +552,12 @@ internal fun SharedRoomScreen(
                             textAlign = TextAlign.Center,
                         )
                     }
-                else ->
-                    items(visibleQueue, key = { "queue:${it.value.queueItemId.value}" }) { indexed
-                        ->
-                        val index = indexed.index
-                        val item = indexed.value
+                queueQuery.isBlank() ->
+                    itemsIndexed(
+                        items = snapshot.queue,
+                        key = { _, item -> "queue:${item.queueItemId.value}" },
+                        contentType = { _, _ -> "queue-row" },
+                    ) { index, item ->
                         QueueRow(
                             index = index,
                             lastIndex = snapshot.queue.lastIndex,
@@ -627,7 +566,7 @@ internal fun SharedRoomScreen(
                             playing = item.queueItemId == displayedQueueItemId && displayedPlaying,
                             temporary = item.track.trackId in temporaryTrackIds,
                             pending = item.queueItemId == feedbackQueueItemId,
-                            canReorder = !snapshot.shuffleEnabled && queueQuery.isBlank(),
+                            canReorder = true,
                             draggedIndex = draggedQueueIndex,
                             dragTargetIndex = dragTargetIndex,
                             dragOffsetPx = if (draggedQueueIndex == index) dragOffsetPx else 0f,
@@ -637,15 +576,47 @@ internal fun SharedRoomScreen(
                             onDragEnd = {
                                 val target = dragTargetIndex ?: index
                                 resetQueueDrag()
-                                if (target != index) onMoveQueueItem(item.queueItemId, target)
+                                if (target != index) actions.onMoveQueueItem(item.queueItemId, target)
                             },
-                            onMove = { onMoveQueueItem(item.queueItemId, it) },
+                            onMove = { actions.onMoveQueueItem(item.queueItemId, it) },
                             playEnabled =
                                 transportControls.canSelectItem && optimisticAction == null,
                             onPlay = { requestQueueItem(item.queueItemId) },
-                            onMoveNext = { onMoveQueueItemNext(item.queueItemId) },
-                            onRemove = { onRemoveQueueItem(item.queueItemId) },
-                            onKeep = { onKeepTrack(item.track.trackId) },
+                            onMoveNext = { actions.onMoveQueueItemNext(item.queueItemId) },
+                            onRemove = { actions.onRemoveQueueItem(item.queueItemId) },
+                            onKeep = { actions.onKeepTrack(item.track.trackId) },
+                        )
+                    }
+                else ->
+                    items(
+                        items = filteredQueue,
+                        key = { item -> "queue:${item.queueItemId.value}" },
+                        contentType = { "queue-row" },
+                    ) { item ->
+                        val index = queueIndexByLazyKey.getValue("queue:${item.queueItemId.value}")
+                        QueueRow(
+                            index = index,
+                            lastIndex = snapshot.queue.lastIndex,
+                            track = item.track,
+                            current = item.queueItemId == displayedQueueItemId,
+                            playing = item.queueItemId == displayedQueueItemId && displayedPlaying,
+                            temporary = item.track.trackId in temporaryTrackIds,
+                            pending = item.queueItemId == feedbackQueueItemId,
+                            canReorder = false,
+                            draggedIndex = null,
+                            dragTargetIndex = null,
+                            dragOffsetPx = 0f,
+                            onDragStart = {},
+                            onDragDelta = {},
+                            onDragCancel = {},
+                            onDragEnd = {},
+                            onMove = { actions.onMoveQueueItem(item.queueItemId, it) },
+                            playEnabled =
+                                transportControls.canSelectItem && optimisticAction == null,
+                            onPlay = { requestQueueItem(item.queueItemId) },
+                            onMoveNext = { actions.onMoveQueueItemNext(item.queueItemId) },
+                            onRemove = { actions.onRemoveQueueItem(item.queueItemId) },
+                            onKeep = { actions.onKeepTrack(item.track.trackId) },
                         )
                     }
             }
@@ -676,19 +647,19 @@ internal fun SharedRoomScreen(
             pickerQueryState = pickerQueryState,
             playlists = playlists,
             libraryTotalCount = libraryTotalCount,
-            onPickerQueryChange = onPickerQueryChange,
+            onPickerQueryChange = actions.onPickerQueryChange,
             onChooseFiles = {
                 showAddMusic = false
-                onChooseFiles()
+                actions.onChooseFiles()
             },
             onImportM3u = {
                 showAddMusic = false
-                onImportM3u()
+                actions.onImportM3u()
             },
-            onSelectAllTracks = onSelectAllTracks,
+            onSelectAllTracks = actions.onSelectAllTracks,
             onAddSelection = { includeAllMusic, playlistIds, trackIds ->
                 showAddMusic = false
-                onAddLibrarySelectionToRoom(includeAllMusic, playlistIds, trackIds)
+                actions.onAddLibrarySelectionToRoom(includeAllMusic, playlistIds, trackIds)
             },
             onDismiss = { showAddMusic = false },
         )
@@ -705,12 +676,20 @@ internal fun SharedRoomScreen(
         )
     }
 
+    if (showLogs) {
+        RoomLogsDialog(
+            revision = diagnosticRevision,
+            loadEvents = actions.loadRoomLogs,
+            onDismiss = { showLogs = false },
+        )
+    }
+
     if (saveQueueOpen) {
         SaveQueueDialog(
             initialName = "${snapshot.roomName} queue",
             onSave = { name ->
                 saveQueueOpen = false
-                onSaveQueue(name)
+                actions.onSaveQueue(name, snapshot.queue.map { it.track.trackId })
             },
             onDismiss = { saveQueueOpen = false },
         )
@@ -720,10 +699,12 @@ internal fun SharedRoomScreen(
         RoomOptionsDialog(
             initialOptions = snapshot.options,
             initialRetention = retentionPolicy,
-            onSave = { options, retention ->
+            initialSyncProfile = playbackSyncProfile,
+            onSave = { options, retention, syncProfile ->
                 showOptions = false
-                onUpdateOptions(options)
-                onSetRetentionPolicy(retention)
+                actions.onUpdateOptions(options)
+                actions.onSetRetentionPolicy(retention)
+                actions.onSetPlaybackSyncProfile(syncProfile)
             },
             onDismiss = { showOptions = false },
         )
@@ -737,7 +718,7 @@ internal fun SharedRoomScreen(
             dismissLabel = "Cancel",
             onConfirm = {
                 confirmClearQueue = false
-                onClearQueue()
+                actions.onClearQueue()
             },
             onDismiss = { confirmClearQueue = false },
         )
@@ -751,7 +732,7 @@ internal fun SharedRoomScreen(
             dismissLabel = "Stay",
             onConfirm = {
                 confirmLeave = false
-                onLeave()
+                actions.onLeave()
             },
             onDismiss = { confirmLeave = false },
         )
