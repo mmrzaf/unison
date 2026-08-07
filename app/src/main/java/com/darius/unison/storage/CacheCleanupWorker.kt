@@ -5,6 +5,7 @@ import androidx.room.withTransaction
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.darius.unison.model.TrackId
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import kotlinx.coroutines.CancellationException
 
@@ -83,10 +84,12 @@ class CacheCleanupWorker(
             throw cancelled
         } catch (error: Exception) {
             val retry = runAttemptCount < MAX_RETRY_ATTEMPTS
-            log.w(
+            log.warn(
                 TAG,
-                "Local cleanup failed attempt=${runAttemptCount + 1} retry=$retry",
-                error,
+                DiagnosticCategory.STORAGE,
+                "storage.cleanup.failed",
+                attributes = mapOf("cleanup.attempt" to runAttemptCount + 1, "cleanup.retry" to retry),
+                throwable = error,
             )
             if (retry) Result.retry() else Result.failure()
         }

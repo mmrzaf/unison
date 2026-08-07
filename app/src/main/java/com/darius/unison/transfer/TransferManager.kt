@@ -22,6 +22,7 @@ import com.darius.unison.protocol.HandshakeRejectionCode
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.storage.ManagedFileLeaseReason
 import com.darius.unison.storage.ManagedFileStore
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -62,7 +63,11 @@ class TransferManager(
             maxEntries = MAX_TRACKED_AUTHORIZATIONS,
             nowElapsedMs = { android.os.SystemClock.elapsedRealtime() },
             onCapacityEviction = {
-                log.w(TAG, "Evicted oldest transfer authorization at capacity")
+                log.warn(
+                    TAG,
+                    DiagnosticCategory.TRANSFER,
+                    "transfer.authorization.evicted",
+                )
             },
         )
     private val uploadGate = TransferUploadGate(MAX_CONCURRENT_UPLOADS)
@@ -111,7 +116,12 @@ class TransferManager(
                             android.os.SystemClock.elapsedRealtime() - lastProgressMs.get() >
                                 UPLOAD_IDLE_TIMEOUT_MS
                         ) {
-                            log.w(TAG, "Closing stalled upload peer=${hello.peerId.value.take(8)}")
+                            log.warn(
+                                TAG,
+                                DiagnosticCategory.TRANSFER,
+                                "transfer.upload.stalled",
+                                attributes = mapOf("peer.id" to hello.peerId.value.take(12)),
+                            )
                             runCatching { socket.close() }
                             break
                         }
@@ -358,7 +368,13 @@ class TransferManager(
                     )
                     throw cancelled
                 } catch (error: Exception) {
-                    log.w(TAG, "Transfer failed track=${track.trackId.value.take(8)}", error)
+                    log.warn(
+                        TAG,
+                        DiagnosticCategory.TRANSFER,
+                        "transfer.track.failed",
+                        attributes = mapOf("track.id" to track.trackId.value.take(12)),
+                        throwable = error,
+                    )
                     onProgress(
                         TransferProgress(
                             track.trackId,
