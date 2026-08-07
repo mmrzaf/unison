@@ -507,9 +507,12 @@ class ScheduledPlaybackControllerTest {
             return true
         }
 
-        override suspend fun beginLocalRejoin() {}
+        override suspend fun rejoinLivePlayback(
+            queueItemId: QueueItemId,
+            positionMs: Long,
+        ): Boolean = true
 
-        override suspend fun completeLocalRejoin() {}
+        override suspend fun resetLocalPlaybackParticipation() {}
 
         override suspend fun pause(cause: PlaybackPauseCause) {
             pauseCalls++

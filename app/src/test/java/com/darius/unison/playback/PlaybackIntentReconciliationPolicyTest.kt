@@ -18,16 +18,12 @@ class PlaybackIntentReconciliationPolicyTest {
     }
 
     @Test
-    fun `canonical state sync never overrides an inhibited or rejoining device`() {
-        listOf(
-            LocalPlaybackParticipation.OUTPUT_INHIBITED,
-            LocalPlaybackParticipation.REJOINING,
-        ).forEach { participation ->
-            assertEquals(
-                PlaybackIntentReconciliationPolicy.Action.NONE,
-                PlaybackIntentReconciliationPolicy.decide(true, false, participation),
-            )
-        }
+    fun `canonical state sync never overrides an inhibited device`() {
+        assertEquals(
+            PlaybackIntentReconciliationPolicy.Action.NONE,
+            PlaybackIntentReconciliationPolicy.decide(
+                true, false, LocalPlaybackParticipation.OUTPUT_INHIBITED),
+        )
     }
 
     @Test
@@ -68,14 +64,12 @@ class PlaybackIntentReconciliationPolicyTest {
     }
 
     @Test
-    fun `play request mutates canonical room in every non rejoin state`() {
+    fun `play request mutates canonical room unless it is a live inhibited resume`() {
         listOf(
             PlaybackIntentReconciliationPolicy.decidePlayRequest(
                 false, LocalPlaybackParticipation.OUTPUT_INHIBITED),
             PlaybackIntentReconciliationPolicy.decidePlayRequest(
                 true, LocalPlaybackParticipation.ACTIVE),
-            PlaybackIntentReconciliationPolicy.decidePlayRequest(
-                true, LocalPlaybackParticipation.REJOINING),
         ).forEach {
             assertEquals(
                 PlaybackIntentReconciliationPolicy.PlayRequestAction.MUTATE_CANONICAL_ROOM, it)

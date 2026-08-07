@@ -71,7 +71,7 @@ data class PlayerState(
     val playWhenReady: Boolean = false,
     /** True only while media is currently advancing and audible. */
     val isPlaying: Boolean = false,
-    /** Local participation in room playback. Inhibited/rejoining devices never influence room timing. */
+    /** Local participation in room playback. Inhibited devices never influence room timing. */
     val participation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
     val inhibitionReason: LocalPlaybackInhibitionReason? = null,
     val playbackSpeed: Float = 1f,
@@ -109,11 +109,15 @@ interface PlayerPort {
     /** Canonical/scheduled play. Must never clear local output inhibition. */
     suspend fun play(): Boolean
 
-    /** Explicit local intent to rejoin the live room after a device-local interruption. */
-    suspend fun beginLocalRejoin()
+    /**
+     * Atomically positions an inhibited player on the live room timeline and resumes local output.
+     * A successful return means local participation is ACTIVE again; sync convergence is tracked
+     * independently by the synchronization/peer-health layers.
+     */
+    suspend fun rejoinLivePlayback(queueItemId: QueueItemId, positionMs: Long): Boolean
 
-    /** Marks a rejoining player ACTIVE only after fresh synchronization has converged. */
-    suspend fun completeLocalRejoin()
+    /** Clears device-local interruption state at a room/session boundary without starting audio. */
+    suspend fun resetLocalPlaybackParticipation()
 
     suspend fun pause(cause: PlaybackPauseCause)
 

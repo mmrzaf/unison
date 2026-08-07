@@ -18,6 +18,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.darius.unison.model.LocalPlaybackInhibitionReason
 import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
+import com.darius.unison.util.AudioMimePolicy
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import kotlinx.coroutines.CoroutineScope
@@ -59,6 +60,7 @@ class Media3PlayerAdapter(
     private var seekRevision = 0L
     private var itemTransitionRevision = 0L
     private var itemTransitionReason: PlayerItemTransitionReason? = null
+    private var playableItemsById: Map<String, LocalPlayableItem> = emptyMap()
     private var participation = LocalPlaybackParticipation.ACTIVE
     private var inhibitionReason: LocalPlaybackInhibitionReason? = null
     private var lastPlaybackSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE
@@ -210,13 +212,43 @@ class Media3PlayerAdapter(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                val currentId = exoPlayer.currentMediaItem?.mediaId
+                val localItem = currentId?.let(playableItemsById::get)
+                val resolvedMime =
+                    localItem?.track?.let { track ->
+                        AudioMimePolicy.resolve(
+                            providerMimeType = track.mimeType,
+                            metadataMimeType = null,
+                            fileName = track.originalFileName,
+                        ).mimeType
+                    }
                 val message = buildString {
                     append("Playback failed: ").append(error.errorCodeName)
                     error.message?.takeIf(String::isNotBlank)?.let { append(" — ").append(it) }
                 }
                 log.error(
                     TAG, DiagnosticCategory.PLAYBACK, "playback.player.failed", message,
-                    attributes = mapOf("media3.error_code" to error.errorCodeName), throwable = error,
+                    attributes = mapOf(
+                        "media3.error_code" to error.errorCode,
+                        "media3.error_code_name" to error.errorCodeName,
+                        "queue.item_id" to currentId?.take(12),
+                        "track.id" to localItem?.track?.trackId?.value?.take(12),
+                        "track.mime" to resolvedMime,
+                        "track.size_bytes" to localItem?.track?.sizeBytes,
+                        "track.file_extension" to
+                            localItem?.track?.originalFileName
+                                ?.substringAfterLast('.', "")
+                                ?.lowercase()
+                                ?.take(12),
+                        "playback.state" to stateName(exoPlayer.playbackState),
+                        "playback.play_when_ready" to exoPlayer.playWhenReady,
+                        "playback.participation" to participation.name,
+                        "audio.output_route" to outputRoute.name,
+                        "android.api_level" to Build.VERSION.SDK_INT,
+                        "device.manufacturer" to Build.MANUFACTURER.take(40),
+                        "device.model" to Build.MODEL.take(60),
+                    ),
+                    throwable = error,
                 )
                 publish("This song could not be played")
             }
@@ -263,7 +295,9 @@ class Media3PlayerAdapter(
         // Building metadata and file URIs is pure work. Keep it off the player/main thread so a
         // queue refresh cannot delay audio callbacks or Compose input handling.
         val desired = withContext(Dispatchers.Default) { items.map(::toMediaItem) }
+        val desiredItemsById = items.associateBy { it.queueItemId.value }
         onMain {
+            playableItemsById = desiredItemsById
             val currentIds =
                 (0 until exoPlayer.mediaItemCount).map { exoPlayer.getMediaItemAt(it).mediaId }
             if (desired.isEmpty()) {
@@ -445,7 +479,13 @@ class Media3PlayerAdapter(
                         .setAlbumTitle(item.track.album)
                         .build()
                 )
-        item.track.mimeType?.takeIf { it.isNotBlank() }?.let(builder::setMimeType)
+        AudioMimePolicy.resolve(
+                providerMimeType = item.track.mimeType,
+                metadataMimeType = null,
+                fileName = item.track.originalFileName,
+            )
+            .mimeType
+            ?.let(builder::setMimeType)
         return builder.build()
     }
 
@@ -471,8 +511,8 @@ class Media3PlayerAdapter(
             return@onMain false
         }
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
-        log.info(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.play.started",
+        log.debug(
+            TAG, DiagnosticCategory.PLAYBACK, "playback.play.requested",
             attributes = mapOf(
                 "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
                 "playback.position_ms" to exoPlayer.currentPosition.coerceAtLeast(0),
@@ -484,32 +524,95 @@ class Media3PlayerAdapter(
         true
     }
 
-    override suspend fun beginLocalRejoin() = onMain {
-        if (participation != LocalPlaybackParticipation.OUTPUT_INHIBITED) return@onMain
-        participation = LocalPlaybackParticipation.REJOINING
+    override suspend fun rejoinLivePlayback(
+        queueItemId: QueueItemId,
+        positionMs: Long,
+    ): Boolean = onMain {
+        if (participation != LocalPlaybackParticipation.OUTPUT_INHIBITED) return@onMain false
+
+        val activeSuppression = lastPlaybackSuppressionReason.toLocalSuppressionReason()
+        if (activeSuppression != null) {
+            inhibitionReason = activeSuppression
+            log.info(
+                TAG, DiagnosticCategory.PLAYBACK, "playback.rejoin.blocked",
+                attributes = mapOf(
+                    "playback.inhibition_reason" to activeSuppression.name,
+                    "media3.playback_suppression_reason" to lastPlaybackSuppressionReason,
+                    "queue.item_id" to queueItemId.value.take(12),
+                ),
+            )
+            publish()
+            return@onMain false
+        }
+
+        val index =
+            (0 until exoPlayer.mediaItemCount).firstOrNull {
+                exoPlayer.getMediaItemAt(it).mediaId == queueItemId.value
+            }
+        if (index == null) {
+            publishFailure("This song is not ready yet")
+            return@onMain false
+        }
+
+        val targetPositionMs = positionMs.coerceAtLeast(0)
+        val previousReason = inhibitionReason
         log.info(
             TAG, DiagnosticCategory.PLAYBACK, "playback.rejoin.started",
             attributes = mapOf(
-                "playback.inhibition_reason" to inhibitionReason?.name,
-                "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
+                "playback.inhibition_reason" to previousReason?.name,
+                "queue.item_id" to queueItemId.value.take(12),
+                "playback.position_ms" to targetPositionMs,
             ),
         )
-        publish()
-    }
 
-    override suspend fun completeLocalRejoin() = onMain {
-        if (participation != LocalPlaybackParticipation.REJOINING) return@onMain
+        exoPlayer.seekTo(index, targetPositionMs)
+        seekRevision++
+        if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
+
+        // Local participation is an output-safety state, not a sync-convergence state. Clear the
+        // inhibition only after the player is positioned, immediately before requesting audio.
         participation = LocalPlaybackParticipation.ACTIVE
-        val previousReason = inhibitionReason
         inhibitionReason = null
+        requestPlayInternal("local_rejoin")
         log.info(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.rejoin.synchronized",
+            TAG, DiagnosticCategory.PLAYBACK, "playback.rejoin.completed",
             attributes = mapOf(
                 "playback.inhibition_reason" to previousReason?.name,
-                "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
+                "queue.item_id" to queueItemId.value.take(12),
+                "playback.position_ms" to targetPositionMs,
             ),
         )
         publish()
+        true
+    }
+
+    override suspend fun resetLocalPlaybackParticipation() = onMain {
+        expectedPlayIntentChanges.clear()
+        val previousParticipation = participation
+        val previousReason = inhibitionReason
+        val activeSuppression = lastPlaybackSuppressionReason.toLocalSuppressionReason()
+        if (activeSuppression != null) {
+            participation = LocalPlaybackParticipation.OUTPUT_INHIBITED
+            inhibitionReason = activeSuppression
+        } else {
+            participation = LocalPlaybackParticipation.ACTIVE
+            inhibitionReason = null
+        }
+        if (
+            previousParticipation != participation ||
+                previousReason != inhibitionReason
+        ) {
+            log.debug(
+                TAG, DiagnosticCategory.PLAYBACK, "playback.local_participation.reset",
+                attributes = mapOf(
+                    "playback.participation_from" to previousParticipation.name,
+                    "playback.participation_to" to participation.name,
+                    "playback.inhibition_reason_from" to previousReason?.name,
+                    "playback.inhibition_reason_to" to inhibitionReason?.name,
+                ),
+            )
+            publish()
+        }
     }
 
     override suspend fun pause(cause: PlaybackPauseCause) = onMain {
@@ -695,7 +798,7 @@ class Media3PlayerAdapter(
         expectedPlayIntentChanges.consume(value, nowNs)
 
     private fun publishFailure(message: String) {
-        log.error(TAG, DiagnosticCategory.PLAYBACK, "playback.request.failed", message)
+        log.warn(TAG, DiagnosticCategory.PLAYBACK, "playback.request.failed", message)
         publish(message)
     }
 
@@ -791,23 +894,34 @@ class Media3PlayerAdapter(
         val itemId = player.currentMediaItem?.mediaId
         val state = player.playbackState
         val playing = player.isPlaying
+        val previousPlaying = lastLoggedIsPlaying
         if (
             itemId == lastLoggedItemId &&
                 state == lastLoggedPlaybackState &&
-                playing == lastLoggedIsPlaying
+                playing == previousPlaying
         )
             return
         lastLoggedItemId = itemId
         lastLoggedPlaybackState = state
         lastLoggedIsPlaying = playing
-        log.info(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.state.changed",
-            attributes = mapOf(
-                "queue.item_id" to itemId?.take(12), "playback.state" to stateName(state),
-                "playback.play_when_ready" to player.playWhenReady, "playback.is_playing" to playing,
+        val attributes =
+            mapOf(
+                "queue.item_id" to itemId?.take(12),
+                "playback.state" to stateName(state),
+                "playback.play_when_ready" to player.playWhenReady,
+                "playback.is_playing" to playing,
                 "playback.position_ms" to player.currentPosition.coerceAtLeast(0),
-            ),
+            )
+        log.debug(
+            TAG, DiagnosticCategory.PLAYBACK, "playback.state.changed",
+            attributes = attributes,
         )
+        if (playing && previousPlaying != true) {
+            log.info(
+                TAG, DiagnosticCategory.PLAYBACK, "playback.play.started",
+                attributes = attributes,
+            )
+        }
     }
 
     private fun stateName(state: Int): String =

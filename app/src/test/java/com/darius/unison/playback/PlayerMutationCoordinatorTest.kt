@@ -105,9 +105,12 @@ class PlayerMutationCoordinatorTest {
             return true
         }
 
-        override suspend fun beginLocalRejoin() = Unit
+        override suspend fun rejoinLivePlayback(
+            queueItemId: QueueItemId,
+            positionMs: Long,
+        ): Boolean = true
 
-        override suspend fun completeLocalRejoin() = Unit
+        override suspend fun resetLocalPlaybackParticipation() = Unit
 
         override suspend fun pause(cause: PlaybackPauseCause) = Unit
 
