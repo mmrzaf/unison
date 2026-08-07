@@ -298,6 +298,7 @@ fun UnisonApp(viewModel: MainViewModel) {
                         m3uLauncher.launch(M3U_TYPES)
                     },
                     onEditName = { showNameEdit = true },
+                    onSetPlaybackSyncProfile = viewModel::setPlaybackSyncProfile,
                     onCreateOfflineNetwork = createOfflineNetwork,
                     onStopOfflineNetwork = { viewModel.command(AppCommand.StopOfflineNetwork) },
                     onQueryChange = viewModel::setLibraryQuery,
@@ -317,45 +318,55 @@ fun UnisonApp(viewModel: MainViewModel) {
                     libraryTotalCount = ui.libraryTotalCount,
                     temporaryTrackIds = ui.temporaryTrackIds,
                     retentionPolicy = ui.retentionPolicy,
+                    playbackSyncProfile = ui.playbackSyncProfile,
                     playbackPositionFlow = viewModel.playbackPositionMs,
                     pickerTracksFlow = viewModel.pickerTracks,
                     pickerQueryState = viewModel.pickerQuery,
-                    onPickerQueryChange = viewModel::setPickerQuery,
-                    onPlay = { viewModel.command(AppCommand.Play()) },
-                    onPause = { viewModel.command(AppCommand.Pause()) },
-                    onSeek = { viewModel.command(AppCommand.Seek(it)) },
-                    onNext = { viewModel.command(AppCommand.SkipNext()) },
-                    onPrevious = { viewModel.command(AppCommand.SkipPrevious()) },
-                    onPlayQueueItem = { viewModel.command(AppCommand.PlayQueueItem(it)) },
-                    onShuffle = { viewModel.command(AppCommand.ShuffleQueue) },
-                    onRepeat = { viewModel.command(AppCommand.SetRepeat(it)) },
-                    onChooseFiles = {
-                        importToRoom = true
-                        filesLauncher.launch(arrayOf("audio/*"))
-                    },
-                    onImportM3u = {
-                        importToRoom = true
-                        m3uLauncher.launch(M3U_TYPES)
-                    },
-                    onSelectAllTracks = viewModel::loadRoomTrackIds,
-                    onAddLibrarySelectionToRoom = viewModel::addLibrarySelectionToRoom,
-                    onRemoveQueueItem = { viewModel.command(AppCommand.RemoveQueueItem(it)) },
-                    onMoveQueueItem = { item, index ->
-                        viewModel.command(AppCommand.MoveQueueItem(item, index))
-                    },
-                    onMoveQueueItemNext = { viewModel.command(AppCommand.MoveQueueItemNext(it)) },
-                    onKeepTrack = viewModel::keepTrack,
-                    onUpdateOptions = { viewModel.command(AppCommand.UpdateRoomOptions(it)) },
-                    onSetRetentionPolicy = viewModel::setRetentionPolicy,
-                    onSaveQueue = { name ->
-                        val ids = ui.room.snapshot?.queue?.map { it.track.trackId }.orEmpty()
-                        if (ids.isNotEmpty()) viewModel.createPlaylist(name, ids)
-                    },
-                    onClearPlayed = { viewModel.command(AppCommand.ClearPlayed) },
-                    onClearQueue = { viewModel.command(AppCommand.ClearQueue) },
-                    onLeave = { viewModel.command(AppCommand.LeaveRoom) },
-                    onRetryIssue = viewModel::retryRoomIssue,
-                    onDismissIssue = viewModel::clearRoomError,
+                    diagnosticRevision = viewModel.diagnosticRevision,
+                    actions =
+                        remember(viewModel, filesLauncher, m3uLauncher) {
+                            SharedRoomActions(
+                                loadRoomLogs = viewModel::roomLogEvents,
+                                onPickerQueryChange = viewModel::setPickerQuery,
+                                onPlay = { viewModel.command(AppCommand.Play()) },
+                                onPause = { viewModel.command(AppCommand.Pause()) },
+                                onSeek = { viewModel.command(AppCommand.Seek(it)) },
+                                onNext = { viewModel.command(AppCommand.SkipNext()) },
+                                onPrevious = { viewModel.command(AppCommand.SkipPrevious()) },
+                                onPlayQueueItem = { viewModel.command(AppCommand.PlayQueueItem(it)) },
+                                onShuffle = { viewModel.command(AppCommand.ShuffleQueue) },
+                                onRepeat = { viewModel.command(AppCommand.SetRepeat(it)) },
+                                onChooseFiles = {
+                                    importToRoom = true
+                                    filesLauncher.launch(arrayOf("audio/*"))
+                                },
+                                onImportM3u = {
+                                    importToRoom = true
+                                    m3uLauncher.launch(M3U_TYPES)
+                                },
+                                onSelectAllTracks = viewModel::loadRoomTrackIds,
+                                onAddLibrarySelectionToRoom = viewModel::addLibrarySelectionToRoom,
+                                onRemoveQueueItem = { viewModel.command(AppCommand.RemoveQueueItem(it)) },
+                                onMoveQueueItem = { item, index ->
+                                    viewModel.command(AppCommand.MoveQueueItem(item, index))
+                                },
+                                onMoveQueueItemNext = {
+                                    viewModel.command(AppCommand.MoveQueueItemNext(it))
+                                },
+                                onKeepTrack = viewModel::keepTrack,
+                                onUpdateOptions = { viewModel.command(AppCommand.UpdateRoomOptions(it)) },
+                                onSetRetentionPolicy = viewModel::setRetentionPolicy,
+                                onSetPlaybackSyncProfile = viewModel::setPlaybackSyncProfile,
+                                onSaveQueue = { name, ids ->
+                                    if (ids.isNotEmpty()) viewModel.createPlaylist(name, ids)
+                                },
+                                onClearPlayed = { viewModel.command(AppCommand.ClearPlayed) },
+                                onClearQueue = { viewModel.command(AppCommand.ClearQueue) },
+                                onLeave = { viewModel.command(AppCommand.LeaveRoom) },
+                                onRetryIssue = viewModel::retryRoomIssue,
+                                onDismissIssue = viewModel::clearRoomError,
+                            )
+                        },
                 )
             }
 

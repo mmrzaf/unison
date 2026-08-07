@@ -65,6 +65,7 @@ import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
+import com.darius.unison.sync.PlaybackSyncProfile
 
 /** Out-of-room surface: rooms first, then a playlist-only music shelf. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -79,6 +80,7 @@ internal fun HomeScreen(
     onChooseFiles: () -> Unit,
     onImportM3u: () -> Unit,
     onEditName: () -> Unit,
+    onSetPlaybackSyncProfile: (PlaybackSyncProfile) -> Unit,
     onCreateOfflineNetwork: () -> Unit,
     onStopOfflineNetwork: () -> Unit,
     onQueryChange: (String) -> Unit,
@@ -99,6 +101,7 @@ internal fun HomeScreen(
     var settingsOpen by remember { mutableStateOf(false) }
     var musicMenuOpen by remember { mutableStateOf(false) }
     var storageOpen by remember { mutableStateOf(false) }
+    var synchronizationOpen by remember { mutableStateOf(false) }
     var connectionHelpOpen by remember { mutableStateOf(false) }
     var confirmClearTemporary by remember { mutableStateOf(false) }
     var createPlaylistOpen by remember { mutableStateOf(false) }
@@ -150,6 +153,14 @@ internal fun HomeScreen(
                                 onClick = {
                                     settingsOpen = false
                                     onEditName()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Playback synchronization") },
+                                leadingIcon = { Icon(Icons.Default.Settings, null) },
+                                onClick = {
+                                    settingsOpen = false
+                                    synchronizationOpen = true
                                 },
                             )
                             DropdownMenuItem(
@@ -480,6 +491,17 @@ internal fun HomeScreen(
             dismissButton = {
                 TextButton(onClick = { createPlaylistOpen = false }) { Text("Cancel") }
             },
+        )
+    }
+
+    if (synchronizationOpen) {
+        PlaybackSynchronizationDialog(
+            initialProfile = state.playbackSyncProfile,
+            onSave = { profile ->
+                synchronizationOpen = false
+                onSetPlaybackSyncProfile(profile)
+            },
+            onDismiss = { synchronizationOpen = false },
         )
     }
 
