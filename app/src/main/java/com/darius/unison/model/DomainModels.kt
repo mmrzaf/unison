@@ -77,7 +77,6 @@ data class QueueItem(
 enum class LocalPlaybackParticipation {
     ACTIVE,
     OUTPUT_INHIBITED,
-    REJOINING,
 }
 
 @Serializable

@@ -31,6 +31,7 @@ import com.darius.unison.model.UserCommand
 import com.darius.unison.model.UserFacingStatus
 import com.darius.unison.model.transportAction
 import com.darius.unison.model.transportActionOrNull
+import com.darius.unison.network.AndroidLocalNetworkRouter
 import com.darius.unison.network.ControlClient
 import com.darius.unison.network.ControlConnection
 import com.darius.unison.network.DiscoveredRoomRegistry
@@ -100,7 +101,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-
 /**
  * Owns one room session. UI permissions are peer-equal; the coordinator only serializes commands,
  * supplies the shared monotonic clock, and assigns file sources.
@@ -118,7 +118,6 @@ class RoomRuntime(
         val attemptsStarted: Int = 0,
         val identityCollisionRetried: Boolean = false,
     )
-
     private val appContext = context.applicationContext
     private val log = container.diagnostics
     private val diagnostics = RoomDiagnostics(log)
@@ -127,11 +126,12 @@ class RoomRuntime(
     private val playbackSynchronization = PlaybackSynchronizationRuntime()
     private val syncDiagnostics = SynchronizationDiagnostics(scope, log)
     private val wifiLocks = WifiLocks(appContext)
-    private val discovery = NsdRoomDiscovery(appContext, wifiLocks, log)
+    private val localNetworkRouter = AndroidLocalNetworkRouter(appContext, log)
+    private val discovery = NsdRoomDiscovery(appContext, wifiLocks, log, localNetworkRouter)
     private val discoveredRoomRegistry = DiscoveredRoomRegistry()
     private val hotspot = LocalHotspotController(appContext, log)
-    private val controlClient = ControlClient(scope, log)
-    private val server = PeerServer(scope, log, this)
+    private val controlClient = ControlClient(scope, log, localNetworkRouter)
+    private val server = PeerServer(scope, log, this, localNetworkRouter)
     private val playerMutations = PlayerMutationCoordinator(player)
     private val transportIntents = TransportIntentCoordinator()
     private val queuePreparationFence = QueuePreparationFence()
@@ -153,7 +153,6 @@ class RoomRuntime(
             lifecycleDiscontinuityNs = LIFECYCLE_DISCONTINUITY_NS,
             clockQualityReportIntervalNs = CLOCK_QUALITY_REPORT_INTERVAL_NS,
         )
-
     private lateinit var identity: LocalIdentity
     private var engine: RoomEngine? = null
     private var roomSecret: ByteArray? = null
@@ -165,7 +164,6 @@ class RoomRuntime(
         PeerPlaybackHealthRegistry(readyLeaseNs = CLOCK_READY_LEASE_NS)
     private val connections
         get() = peers.connections
-
     private val peerDirectory
         get() = peers.endpoints
 
@@ -797,6 +795,7 @@ class RoomRuntime(
                     fileStore = container.fileStore,
                     scope = scope,
                     log = log,
+                    socketProvider = localNetworkRouter,
                     retentionPolicyProvider = { container.settings.retentionPolicy.first() },
                     onProgress = { progress ->
                         if (managerGeneration == sessionJobs.generation) {
@@ -3721,7 +3720,6 @@ class RoomRuntime(
                 )
             }
         applyPlaybackSyncDecision(decision, sample.playbackSpeed)
-        localPlaybackParticipation.completeRejoinIfSynchronized(decision.state, snapshot)
 
         container.roomStore.updatePlayback { state ->
             state.copy(localDriftMs = decision.rawDriftMs)
@@ -4400,6 +4398,7 @@ class RoomRuntime(
             closingConnections.forEach { it.closeAndJoin(notifyClosed = false) }
         }
         resetSessionState(keepDiscovery)
+        localPlaybackParticipation.resetForSessionBoundary()
         diagnostics.end(
             closingDiagnosticSessionId, SystemClock.elapsedRealtime() - startedAtMs,
             closingConnections.size, transferCountBeforeShutdown, sessionJobs.activeJobCount, playbackMetrics,
@@ -4469,6 +4468,7 @@ class RoomRuntime(
         heartbeatLiveness.reset()
         transferManager?.cancelAll()
         transferManager = null
+        localNetworkRouter.resetSession()
         peers.clearSession(ControlConnection::closeSilently)
         peerPlaybackHealth.clear()
         playbackSession.resetSession()
@@ -4632,7 +4632,7 @@ class RoomRuntime(
         )
 
     private fun selectedLocalAddress(): String? =
-        NetworkAddressPolicy.bestLocalAddress(preferHotspot = hotspot.state.value != null)
+        localNetworkRouter.preferredLocalAddress(preferHotspot = hotspot.state.value != null)
             ?.hostAddress
 
     private fun updateSnapshot(
