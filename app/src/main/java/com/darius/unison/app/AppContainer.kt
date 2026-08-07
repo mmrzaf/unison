@@ -25,7 +25,7 @@ class AppContainer(context: Context) {
             log = diagnostics,
         )
     val roomCommandBus = RoomCommandBus()
-    val trackRepository = TrackRepository(appContext, database, fileStore)
+    val trackRepository = TrackRepository(appContext, database, fileStore, diagnostics)
     val playlistRepository = PlaylistRepository(database, trackRepository)
     val persistedUriPermissions = PersistedUriPermissionManager(appContext.contentResolver)
     val importManager = ImportManager(appContext, trackRepository, playlistRepository)

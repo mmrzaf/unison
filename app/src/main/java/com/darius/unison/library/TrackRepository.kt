@@ -20,6 +20,9 @@ import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.storage.TrackEntity
 import com.darius.unison.storage.TrackSourceEntity
 import com.darius.unison.storage.UnisonDatabase
+import com.darius.unison.util.AudioMimePolicy
+import com.darius.unison.util.DiagnosticCategory
+import com.darius.unison.util.DiagnosticLog
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +48,7 @@ class TrackRepository(
     private val context: Context,
     private val database: UnisonDatabase,
     private val fileStore: ManagedFileStore,
+    private val log: DiagnosticLog,
 ) {
     fun pagedLibrary(query: String, sort: LibrarySort): Flow<PagingData<TrackDescriptor>> =
         Pager(
@@ -261,9 +265,28 @@ class TrackRepository(
             val resolver = context.contentResolver
             requireSupportedSize(resolver, uri)
             val name = queryDisplayName(resolver, uri)
-            val mime = resolver.getType(uri)
+            val providerMime = resolver.getType(uri)
             val metadata = extractMetadata(uri)
-            validateAudioCandidate(name, mime ?: metadata.mimeType, metadata.durationMs)
+            val mimeResolution =
+                AudioMimePolicy.resolve(
+                    providerMimeType = providerMime,
+                    metadataMimeType = metadata.mimeType,
+                    fileName = name,
+                )
+            validateAudioCandidate(name, mimeResolution.mimeType, metadata.durationMs)
+            log.debug(
+                TAG,
+                DiagnosticCategory.STORAGE,
+                "storage.track.mime_resolved",
+                attributes = mapOf(
+                    "track.mime_provider" to providerMime,
+                    "track.mime_metadata" to metadata.mimeType,
+                    "track.mime_resolved" to mimeResolution.mimeType,
+                    "track.mime_source" to mimeResolution.source.name,
+                    "track.file_extension" to
+                        name?.substringAfterLast('.', "")?.lowercase(Locale.ROOT)?.take(12),
+                ),
+            )
 
             val result =
                 resolver.openInputStream(uri)?.use { input ->
@@ -279,7 +302,7 @@ class TrackRepository(
                     TrackDescriptor(
                         trackId = result.trackId,
                         sizeBytes = result.sizeBytes,
-                        mimeType = mime ?: metadata.mimeType,
+                        mimeType = mimeResolution.mimeType,
                         durationMs = metadata.durationMs,
                         title = metadata.title,
                         artist = metadata.artist,
@@ -449,8 +472,14 @@ class TrackRepository(
     private fun normalizeDescriptor(descriptor: TrackDescriptor): TrackDescriptor {
         require(descriptor.trackId.value.matches(TRACK_ID_PATTERN)) { "Invalid audio identity" }
         require(descriptor.sizeBytes in 1..MAX_TRACK_BYTES) { "Invalid audio size" }
+        val normalizedMime =
+            AudioMimePolicy.resolve(
+                providerMimeType = descriptor.mimeType,
+                metadataMimeType = null,
+                fileName = descriptor.originalFileName,
+            ).mimeType
         return descriptor.copy(
-            mimeType = descriptor.mimeType.cleanText(MAX_MIME_LENGTH),
+            mimeType = normalizedMime.cleanText(MAX_MIME_LENGTH),
             durationMs = descriptor.durationMs.coerceIn(0, MAX_TRACK_DURATION_MS),
             title = descriptor.title.cleanText(MAX_METADATA_LENGTH),
             artist = descriptor.artist.cleanText(MAX_METADATA_LENGTH),
@@ -516,6 +545,7 @@ class TrackRepository(
     )
 
     companion object {
+        private const val TAG = "TrackRepository"
         const val TEMPORARY_RETENTION_MS = 24 * 60 * 60 * 1000L
         private const val MAX_TRACK_BYTES = 1L shl 30
         private const val MAX_TRACK_DURATION_MS = 30L * 24 * 60 * 60 * 1000
@@ -549,7 +579,12 @@ internal fun TrackEntity.toDescriptor() =
     TrackDescriptor(
         trackId = TrackId(trackId),
         sizeBytes = sizeBytes,
-        mimeType = mimeType,
+        mimeType =
+            AudioMimePolicy.resolve(
+                providerMimeType = mimeType,
+                metadataMimeType = null,
+                fileName = originalFileName,
+            ).mimeType,
         durationMs = durationMs,
         title = title,
         artist = artist,
