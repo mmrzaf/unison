@@ -1,5 +1,7 @@
 package com.darius.unison.playback
 
+import com.darius.unison.model.LocalPlaybackInhibitionReason
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.sync.ClockSyncConfig
@@ -384,6 +386,63 @@ class ScheduledPlaybackControllerTest {
         }
     }
 
+
+    @Test
+    fun scheduledPlayAlignsSilentlyWhileOutputIsInhibited() = runBlocking {
+        val player =
+            FakePlayer(
+                PlayerState(
+                    queueItemId = itemId,
+                    positionMs = 1_000L,
+                    participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                    inhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+                )
+            )
+        val settled = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            controller(player, scope) { id, phase, _ ->
+                    if (id == "inhibited-play" && phase == TransportCommandPhase.SETTLED)
+                        settled.complete(Unit)
+                }
+                .schedulePlay(itemId, 2_000L, 0L, "inhibited-play")
+
+            withTimeout(2_000L) { settled.await() }
+            assertEquals(0, player.playCalls)
+            assertTrue(player.seekItemCalls > 0)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun scheduledResumeSeekNeverPlaysWhileOutputIsInhibited() = runBlocking {
+        val player =
+            FakePlayer(
+                PlayerState(
+                    queueItemId = itemId,
+                    positionMs = 0L,
+                    participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                    inhibitionReason = LocalPlaybackInhibitionReason.BECOMING_NOISY,
+                )
+            )
+        val settled = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            controller(player, scope) { id, phase, _ ->
+                    if (id == "inhibited-seek" && phase == TransportCommandPhase.SETTLED)
+                        settled.complete(Unit)
+                }
+                .scheduleSeek(itemId, 5_000L, resume = true, executeAtCoordinatorNs = 0L, commandId = "inhibited-seek")
+
+            withTimeout(2_000L) { settled.await() }
+            assertEquals(0, player.playCalls)
+            assertTrue(player.seekItemCalls > 0)
+        } finally {
+            scope.cancel()
+        }
+    }
+
     private fun controller(
         player: FakePlayer,
         scope: CoroutineScope,
@@ -448,7 +507,11 @@ class ScheduledPlaybackControllerTest {
             return true
         }
 
-        override suspend fun pause() {
+        override suspend fun beginLocalRejoin() {}
+
+        override suspend fun completeLocalRejoin() {}
+
+        override suspend fun pause(cause: PlaybackPauseCause) {
             pauseCalls++
         }
 

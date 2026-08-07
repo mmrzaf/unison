@@ -1,8 +1,10 @@
 package com.darius.unison.playback
 
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.sync.ClockSyncEngine
+import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import com.darius.unison.util.MonotonicClock
 import kotlin.math.abs
@@ -39,9 +41,9 @@ class ScheduledPlaybackController(
         executeAtCoordinatorNs: Long,
         commandId: String? = null,
     ) {
-        log.i(
-            TAG,
-            "Schedule play item=${queueItemId.value.take(8)} positionMs=$positionMs executeAtNs=$executeAtCoordinatorNs",
+        log.info(
+            TAG, DiagnosticCategory.PLAYBACK, "playback.command.scheduled",
+            attributes = scheduledAttributes("play", commandId, queueItemId, positionMs, executeAtCoordinatorNs),
         )
         schedule("play", commandId, queueItemId, executeAtCoordinatorNs) {
             val lateMs =
@@ -49,6 +51,18 @@ class ScheduledPlaybackController(
                     1_000_000L)
             val expectedPositionMs = positionMs + lateMs
             val local = state.value
+            if (local.participation == LocalPlaybackParticipation.OUTPUT_INHIBITED) {
+                if (
+                    local.queueItemId != queueItemId ||
+                        abs(local.positionMs - expectedPositionMs) > PLAY_POSITION_TOLERANCE_MS
+                ) {
+                    if (!seekToItem(queueItemId, expectedPositionMs)) return@schedule false
+                }
+                setPlaybackSpeed(1f)
+                if (state.value.playWhenReady) pause(PlaybackPauseCause.OUTPUT_INHIBITION)
+                logOutputDeferred("play", commandId, queueItemId)
+                return@schedule true
+            }
             if (
                 local.queueItemId == queueItemId &&
                     abs(local.positionMs - expectedPositionMs) <= PLAY_POSITION_TOLERANCE_MS &&
@@ -73,15 +87,15 @@ class ScheduledPlaybackController(
         executeAtCoordinatorNs: Long,
         commandId: String? = null,
     ) {
-        log.i(
-            TAG,
-            "Schedule pause item=${queueItemId.value.take(8)} positionMs=$positionMs executeAtNs=$executeAtCoordinatorNs",
+        log.info(
+            TAG, DiagnosticCategory.PLAYBACK, "playback.command.scheduled",
+            attributes = scheduledAttributes("pause", commandId, queueItemId, positionMs, executeAtCoordinatorNs),
         )
         schedule("pause", commandId, queueItemId, executeAtCoordinatorNs) {
             // Pause is intentionally non-seeking. Seeking here flushed the decoder and made a basic
             // pause feel delayed and unstable. Normal synchronization reconciles position later.
             if (!state.value.playWhenReady) return@schedule true
-            pause()
+            pause(PlaybackPauseCause.SCHEDULED_TRANSPORT)
             setPlaybackSpeed(1f)
             true
         }
@@ -94,9 +108,10 @@ class ScheduledPlaybackController(
         executeAtCoordinatorNs: Long,
         commandId: String? = null,
     ) {
-        log.i(
-            TAG,
-            "Schedule seek item=${queueItemId.value.take(8)} positionMs=$positionMs resume=$resume executeAtNs=$executeAtCoordinatorNs",
+        log.info(
+            TAG, DiagnosticCategory.PLAYBACK, "playback.command.scheduled",
+            attributes = scheduledAttributes("seek", commandId, queueItemId, positionMs, executeAtCoordinatorNs) +
+                ("playback.resume" to resume),
         )
         schedule("seek", commandId, queueItemId, executeAtCoordinatorNs) {
             val lateMs =
@@ -106,6 +121,18 @@ class ScheduledPlaybackController(
                 } else 0L
             val expectedPositionMs = positionMs + lateMs
             val local = state.value
+            if (resume && local.participation == LocalPlaybackParticipation.OUTPUT_INHIBITED) {
+                if (
+                    local.queueItemId != queueItemId ||
+                        abs(local.positionMs - expectedPositionMs) > SEEK_POSITION_TOLERANCE_MS
+                ) {
+                    if (!seekToItem(queueItemId, expectedPositionMs)) return@schedule false
+                }
+                setPlaybackSpeed(1f)
+                if (state.value.playWhenReady) pause(PlaybackPauseCause.OUTPUT_INHIBITION)
+                logOutputDeferred("seek", commandId, queueItemId)
+                return@schedule true
+            }
             if (
                 local.queueItemId == queueItemId &&
                     abs(local.positionMs - expectedPositionMs) <= SEEK_POSITION_TOLERANCE_MS &&
@@ -117,10 +144,29 @@ class ScheduledPlaybackController(
             setPlaybackSpeed(1f)
             if (resume) play()
             else {
-                pause()
+                pause(PlaybackPauseCause.SCHEDULED_TRANSPORT)
                 true
             }
         }
+    }
+
+    private fun logOutputDeferred(
+        commandType: String,
+        commandId: String?,
+        queueItemId: QueueItemId,
+    ) {
+        val local = player.state.value
+        log.info(
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.command.output_deferred",
+            attributes = mapOf(
+                "command.type" to commandType,
+                "command.id" to commandId?.take(12),
+                "queue.item_id" to queueItemId.value.take(12),
+                "playback.inhibition_reason" to local.inhibitionReason?.name,
+            ),
+        )
     }
 
     fun cancel(reason: String = "Cancelled") {
@@ -195,9 +241,13 @@ class ScheduledPlaybackController(
                             yield()
                         }
                     }
-                    log.i(
-                        TAG,
-                        "Execute $name lateMs=${((clock.nowNs() - latestLocalTarget).coerceAtLeast(0) / 1_000_000L)}",
+                    log.info(
+                        TAG, DiagnosticCategory.PLAYBACK, "playback.command.executing",
+                        attributes = mapOf(
+                            "command.type" to name, "command.id" to commandId?.take(12),
+                            "queue.item_id" to queueItemId.value.take(12),
+                            "playback.late_ms" to ((clock.nowNs() - latestLocalTarget).coerceAtLeast(0) / 1_000_000L),
+                        ),
                     )
                     commandId?.let { onCommandPhase(it, TransportCommandPhase.EXECUTING, null) }
                     when (mutations.executeTransport(ticket) { action() }) {
@@ -224,7 +274,11 @@ class ScheduledPlaybackController(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    log.e(TAG, "Scheduled $name failed", error)
+                    log.error(
+                        TAG, DiagnosticCategory.PLAYBACK, "playback.command.failed",
+                        attributes = mapOf("command.type" to name, "command.id" to commandId?.take(12)),
+                        throwable = error,
+                    )
                     fail(
                         PlaybackFailure.ActionFailed(commandId, name, error),
                         "Playback could not complete that action",
@@ -240,12 +294,29 @@ class ScheduledPlaybackController(
         replacement.start()
     }
 
+    private fun scheduledAttributes(
+        type: String,
+        commandId: String?,
+        queueItemId: QueueItemId,
+        positionMs: Long,
+        executeAtCoordinatorNs: Long,
+    ): Map<String, Any?> =
+        mapOf(
+            "command.type" to type, "command.id" to commandId?.take(12),
+            "queue.item_id" to queueItemId.value.take(12), "playback.position_ms" to positionMs,
+            "playback.execute_at_coordinator_ns" to executeAtCoordinatorNs,
+        )
+
     private fun localTargetNs(executeAtCoordinatorNs: Long): Long =
         if (usesLocalCoordinatorClock()) executeAtCoordinatorNs
         else clockSync.toLocalTime(executeAtCoordinatorNs)
 
     private fun fail(failure: PlaybackFailure, message: String) {
-        log.e(TAG, message, (failure as? PlaybackFailure.ActionFailed)?.cause)
+        log.error(
+            TAG, DiagnosticCategory.PLAYBACK, "playback.command.rejected", message,
+            attributes = mapOf("command.id" to failure.commandId?.take(12), "failure.type" to failure::class.simpleName),
+            throwable = (failure as? PlaybackFailure.ActionFailed)?.cause,
+        )
         failure.commandId?.let { onCommandPhase(it, TransportCommandPhase.REJECTED, message) }
         onError(failure)
     }
