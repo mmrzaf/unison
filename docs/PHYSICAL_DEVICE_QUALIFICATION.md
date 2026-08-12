@@ -27,7 +27,8 @@ without leaving and rejoining the room.
     resumes. Tap Play/Rejoin once and verify that phone joins the current song/current room position.
 12. On Android 16, keep cellular data enabled while connected to a private Wi-Fi network with no
     Internet. Join from Android 11/13 and transfer several full songs in both directions; verify the
-    selected control/transfer route stays `NETWORK_BOUND` whenever Android exposes an owning network.
+    selected control/transfer route is `SYSTEM_DEFAULT` when the owning Wi-Fi network is already
+    Android's active network, and stays `NETWORK_BOUND` when the room uses a non-default LAN.
 13. Android 16 development-only Local Network Protection check: enable the platform compatibility
     restriction for the debug package, revoke Nearby devices, verify Create/Join requests permission,
     grant it, then verify discovery, control, full transfer, and playback. Disable the compatibility

@@ -29,8 +29,9 @@ Retain the trace, device details, source archive checksum, and APK checksum.
 The final signed candidate must be exercised on physical Android 11 (API 30), Android 13 (API 33),
 and Android 16 (API 36) devices. For each API level, qualify both discovery/control and a complete
 verified file transfer followed by playback. Include private Wi-Fi; also qualify LocalOnlyHotspot on
-at least one supported device. The selected route should be `NETWORK_BOUND` whenever Android exposes
-an owning `Network`, with `ENDPOINT_FALLBACK` reserved for genuine hotspot/downstream cases.
+at least one supported device. The selected route should be `SYSTEM_DEFAULT` when the owning LAN is
+Android's active network, `NETWORK_BOUND` for a non-default owning `Network`, and
+`ENDPOINT_FALLBACK` only for genuine hotspot/downstream cases where Android exposes no `Network`.
 
 ## Required scenarios
 
@@ -51,8 +52,8 @@ an owning `Network`, with `ENDPOINT_FALLBACK` reserved for genuine hotspot/downs
   with fresh local participation and never requires a process restart to clear stale interruption state;
 - Android 16 debug compatibility test with `RESTRICT_LOCAL_NETWORK`: revoke Nearby devices, verify
   Create/Join requests it, grant it, then complete discovery, control, transfer, and playback;
-- Android 16 with cellular active plus private/no-Internet Wi-Fi; verify LAN sockets remain on the
-  selected local `Network` rather than falling back to the default route;
+- Android 16 with cellular active plus private/no-Internet Wi-Fi; verify a non-default Wi-Fi LAN
+  remains `NETWORK_BOUND` rather than leaking onto the cellular default route;
 - transfer interruption/resume, insufficient storage, corruption, and source loss;
 - repeated create/join/leave cycles followed by idle resource inspection;
 - process recreation while connected.
