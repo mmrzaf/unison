@@ -32,6 +32,7 @@ fun main() = runBlocking {
     modernDiscoveryKeepsSameServicePerNetwork()
     nonDefaultLanUsesExplicitNetworkBinding()
     bindFailureFallsBackToReachableActiveLan()
+    remoteSelectionRejectsLoopbackOnlyCandidates()
     routeFallsBackWhenAndroidExposesNoNetwork()
     println("NETWORK_LIFECYCLE_TESTS_OK")
 }
@@ -295,6 +296,17 @@ private fun bindFailureFallsBackToReachableActiveLan() {
         "Bind fallback did not select the active LAN"
     }
     routed.socket.close()
+}
+
+private fun remoteSelectionRejectsLoopbackOnlyCandidates() {
+    val selected =
+        NetworkAddressPolicy.chooseRemoteAddress(
+            listOf(
+                InetAddress.getByName("127.0.0.1"),
+                InetAddress.getByName("::1"),
+            )
+        )
+    check(selected == null) { "Loopback-only NSD endpoints must not be selected" }
 }
 
 private fun routeFallsBackWhenAndroidExposesNoNetwork() {
