@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repository-level release invariants for the clean Unison 1.0 source tree."""
+"""Repository-level release invariants for the Unison 1.0 release line."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -68,8 +68,14 @@ def main() -> int:
             require(generated_path in gitignore, f"Generated path is not ignored: {generated_path}")
 
         versions = text("gradle/libs.versions.toml")
-        require(re.search(r'appVersionName\s*=\s*"1\.0\.0"', versions) is not None, "Version name is not 1.0.0")
-        require(re.search(r'appVersionCode\s*=\s*"1"', versions) is not None, "Version code is not 1")
+        require(
+            re.search(r'appVersionName\s*=\s*"1\.0\.\d+"', versions) is not None,
+            "Version name is not a supported 1.0 patch release",
+        )
+        require(
+            re.search(r'appVersionCode\s*=\s*"[1-9]\d*"', versions) is not None,
+            "Version code must be a positive integer",
+        )
         require(re.search(r'compileSdk\s*=\s*"36"', versions) is not None, "compileSdk changed unexpectedly")
         require(re.search(r'minSdk\s*=\s*"30"', versions) is not None, "minSdk changed unexpectedly")
         require(re.search(r'targetSdk\s*=\s*"33"', versions) is not None, "targetSdk changed unexpectedly")
