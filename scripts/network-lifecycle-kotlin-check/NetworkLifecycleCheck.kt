@@ -14,6 +14,9 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import com.darius.unison.util.DiagnosticLog
 import java.net.InetAddress
+import java.net.Socket
+import java.net.SocketException
+import javax.net.SocketFactory
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -27,6 +30,9 @@ fun main() = runBlocking {
     legacyDiscoveryInfersWifiNetwork()
     modernDiscoveryUsesServiceInfoAndNetwork()
     modernDiscoveryKeepsSameServicePerNetwork()
+    nonDefaultLanUsesExplicitNetworkBinding()
+    bindFailureFallsBackToReachableActiveLan()
+    remoteSelectionRejectsLoopbackOnlyCandidates()
     routeFallsBackWhenAndroidExposesNoNetwork()
     println("NETWORK_LIFECYCLE_TESTS_OK")
 }
@@ -116,8 +122,8 @@ private suspend fun modernDiscoveryUsesServiceInfoAndNetwork() {
     nsd.serviceInfoCallbacks.values.single().onServiceUpdated(service)
     awaitCondition { found.any { it is NsdDiscoveryEvent.Found } }
     val routed = router.createSocket(InetAddress.getByName("192.168.1.10"), "modern_test")
-    check(routed.routeMode == LocalNetworkRouteMode.NETWORK_BOUND) {
-        "Resolved Android Network was not preserved"
+    check(routed.routeMode == LocalNetworkRouteMode.SYSTEM_DEFAULT) {
+        "Active Android Network should use the system-default socket"
     }
     check(routed.networkId == network.networkHandle.toString(16)) { "Wrong NSD Network selected" }
     collector.cancelAndJoin()
@@ -188,12 +194,119 @@ private suspend fun legacyDiscoveryInfersWifiNetwork() {
     nsd.resolveListener!!.onServiceResolved(service)
     delay(10)
     val routed = router.createSocket(InetAddress.getByName("192.168.1.10"), "legacy_test")
-    check(routed.routeMode == LocalNetworkRouteMode.NETWORK_BOUND) {
-        "Android 11 route was not inferred from LinkProperties"
+    check(routed.routeMode == LocalNetworkRouteMode.SYSTEM_DEFAULT) {
+        "Android 11 active LAN should use the system-default socket"
     }
     check(routed.networkId == "1e") { "Android 11 selected the wrong network" }
     collector.cancelAndJoin()
     Build.VERSION.SDK_INT = 33
+}
+
+private fun nonDefaultLanUsesExplicitNetworkBinding() {
+    val activeNetwork = Network(301)
+    val roomNetwork = Network(302)
+    val wifiCaps = NetworkCapabilities(setOf(NetworkCapabilities.TRANSPORT_WIFI))
+    fun properties(prefix: String, local: String) = object : LinkProperties() {
+        override val interfaceName: String = "wlan0"
+        override val linkAddresses = listOf(LinkAddress(InetAddress.getByName(local)))
+        override val routes = listOf(RouteInfo { address -> address.hostAddress?.startsWith(prefix) == true })
+    }
+    val cm =
+        FakeConnectivityManager(
+            activeNetwork = activeNetwork,
+            allNetworks = arrayOf(activeNetwork, roomNetwork),
+            capabilities = mapOf(activeNetwork to wifiCaps, roomNetwork to wifiCaps),
+            properties =
+                mapOf(
+                    activeNetwork to properties("192.168.1.", "192.168.1.50"),
+                    roomNetwork to properties("192.168.2.", "192.168.2.50"),
+                ),
+        )
+    val context = ServiceContext(connectivity = cm)
+    val router = AndroidLocalNetworkRouter(context, DiagnosticLog())
+    val remote = InetAddress.getByName("192.168.2.10")
+    router.rememberResolvedService(listOf(remote), roomNetwork)
+
+    val routed = router.createSocket(remote, "non_default_test")
+
+    check(routed.routeMode == LocalNetworkRouteMode.NETWORK_BOUND) {
+        "Non-default room LAN must remain explicitly network-bound"
+    }
+    check(routed.networkId == roomNetwork.networkHandle.toString(16)) {
+        "Non-default room LAN selected the wrong Android Network"
+    }
+    routed.socket.close()
+}
+
+private fun bindFailureFallsBackToReachableActiveLan() {
+    val activeNetwork = Network(401)
+    val failingNetwork =
+        Network(
+            402,
+            socketFactory =
+                object : SocketFactory() {
+                    override fun createSocket(): Socket =
+                        throw SocketException("simulated bind failure")
+
+                    override fun createSocket(host: String?, port: Int): Socket =
+                        throw UnsupportedOperationException()
+
+                    override fun createSocket(
+                        host: String?,
+                        port: Int,
+                        localHost: InetAddress?,
+                        localPort: Int,
+                    ): Socket = throw UnsupportedOperationException()
+
+                    override fun createSocket(host: InetAddress?, port: Int): Socket =
+                        throw UnsupportedOperationException()
+
+                    override fun createSocket(
+                        address: InetAddress?,
+                        port: Int,
+                        localAddress: InetAddress?,
+                        localPort: Int,
+                    ): Socket = throw UnsupportedOperationException()
+                },
+        )
+    val wifiCaps = NetworkCapabilities(setOf(NetworkCapabilities.TRANSPORT_WIFI))
+    val properties = object : LinkProperties() {
+        override val interfaceName: String = "wlan0"
+        override val linkAddresses = listOf(LinkAddress(InetAddress.getByName("192.168.1.50")))
+        override val routes = listOf(RouteInfo { address -> address.hostAddress?.startsWith("192.168.1.") == true })
+    }
+    val cm =
+        FakeConnectivityManager(
+            activeNetwork = activeNetwork,
+            allNetworks = arrayOf(activeNetwork, failingNetwork),
+            capabilities = mapOf(activeNetwork to wifiCaps, failingNetwork to wifiCaps),
+            properties = mapOf(activeNetwork to properties, failingNetwork to properties),
+        )
+    val context = ServiceContext(connectivity = cm)
+    val router = AndroidLocalNetworkRouter(context, DiagnosticLog())
+    val remote = InetAddress.getByName("192.168.1.10")
+    router.rememberResolvedService(listOf(remote), failingNetwork)
+
+    val routed = router.createSocket(remote, "bind_failure_test")
+
+    check(routed.routeMode == LocalNetworkRouteMode.SYSTEM_DEFAULT) {
+        "Failed explicit bind should fall back to a reachable active LAN"
+    }
+    check(routed.networkId == activeNetwork.networkHandle.toString(16)) {
+        "Bind fallback did not select the active LAN"
+    }
+    routed.socket.close()
+}
+
+private fun remoteSelectionRejectsLoopbackOnlyCandidates() {
+    val selected =
+        NetworkAddressPolicy.chooseRemoteAddress(
+            listOf(
+                InetAddress.getByName("127.0.0.1"),
+                InetAddress.getByName("::1"),
+            )
+        )
+    check(selected == null) { "Loopback-only NSD endpoints must not be selected" }
 }
 
 private fun routeFallsBackWhenAndroidExposesNoNetwork() {

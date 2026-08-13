@@ -4,7 +4,7 @@ Unison produces a locally signed APK. It has no store publishing workflow and no
 
 ## GitHub release workflow
 
-Pushing a matching version tag (for example, `v1.0.0`) runs the
+Pushing a matching version tag (for example, `v1.0.1`) runs the
 [`Publish Unison release` workflow](../.github/workflows/release.yml). It builds and verifies signed
 release and debug APKs, uploads them with `SHA256SUMS.txt`, and creates or updates the GitHub
 release. A manual run is also available from the Actions tab.
@@ -25,7 +25,7 @@ The tag must exactly match `appVersionName` in `gradle/libs.versions.toml`.
 ```
 
 Back up the generated key and passwords offline. A later supported release must use the same key to
-install over 1.0.0.
+install over earlier signed releases such as 1.0.0.
 
 ## Build
 
@@ -42,7 +42,8 @@ APK assembly, mandatory `apksigner` verification, APK-size analysis, and SHA-256
 - `app/build/outputs/apk/release/app-release.apk`
 - `app/build/outputs/release-SHA256SUMS.txt`
 
-Install 1.0.0 cleanly; pre-release database and protocol states are not migrated or decoded.
+Install 1.0.1 over the signed 1.0.0 release or cleanly; pre-release database and protocol states
+are not migrated or decoded.
 
 ## APK size gate
 

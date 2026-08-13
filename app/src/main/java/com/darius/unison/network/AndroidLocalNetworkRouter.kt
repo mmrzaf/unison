@@ -7,6 +7,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
+import java.io.IOException
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -77,20 +78,10 @@ class AndroidLocalNetworkRouter(
 
         val network = resolveNetwork(remoteAddress)
         val routed =
-            if (network != null) {
-                RoutedSocket(
-                    socket = network.socketFactory.createSocket(),
-                    routeMode = LocalNetworkRouteMode.NETWORK_BOUND,
-                    networkId = networkId(network),
-                    transport = transportName(network),
-                    addressFamily = addressFamily(remoteAddress),
-                )
-            } else {
-                RoutedSocket(
-                    socket = Socket(),
-                    routeMode = LocalNetworkRouteMode.ENDPOINT_FALLBACK,
-                    addressFamily = addressFamily(remoteAddress),
-                )
+            when {
+                network == null -> endpointFallbackRoute(remoteAddress)
+                network == connectivityManager.activeNetwork -> systemDefaultRoute(remoteAddress, network)
+                else -> createNetworkBoundRoute(remoteAddress, network, purpose)
             }
 
         log.debug(
@@ -100,6 +91,84 @@ class AndroidLocalNetworkRouter(
             attributes = routed.diagnosticAttributes() + ("network.socket_purpose" to purpose),
         )
         return routed
+    }
+
+    /**
+     * The system default route already follows [ConnectivityManager.activeNetwork]. Avoiding an
+     * explicit bind here is both cheaper and more robust on Android 16 devices where binding a raw
+     * socket back onto the already-active Wi-Fi network can fail with EPERM.
+     */
+    private fun systemDefaultRoute(
+        remoteAddress: InetAddress,
+        network: Network,
+    ): RoutedSocket =
+        RoutedSocket(
+            socket = Socket(),
+            routeMode = LocalNetworkRouteMode.SYSTEM_DEFAULT,
+            networkId = networkId(network),
+            transport = transportName(network),
+            addressFamily = addressFamily(remoteAddress),
+        )
+
+    private fun endpointFallbackRoute(remoteAddress: InetAddress): RoutedSocket =
+        RoutedSocket(
+            socket = Socket(),
+            routeMode = LocalNetworkRouteMode.ENDPOINT_FALLBACK,
+            addressFamily = addressFamily(remoteAddress),
+        )
+
+    private fun createNetworkBoundRoute(
+        remoteAddress: InetAddress,
+        network: Network,
+        purpose: String,
+    ): RoutedSocket =
+        try {
+            RoutedSocket(
+                socket = network.socketFactory.createSocket(),
+                routeMode = LocalNetworkRouteMode.NETWORK_BOUND,
+                networkId = networkId(network),
+                transport = transportName(network),
+                addressFamily = addressFamily(remoteAddress),
+            )
+        } catch (error: IOException) {
+            fallbackAfterNetworkBindFailure(remoteAddress, network, purpose, error) ?: throw error
+        } catch (error: SecurityException) {
+            fallbackAfterNetworkBindFailure(remoteAddress, network, purpose, error) ?: throw error
+        }
+
+    /**
+     * A network can become the system default between route selection and socket creation. If an
+     * explicit bind fails, a plain socket is safe only when the current active LAN itself routes to
+     * the validated endpoint. Otherwise preserve the failure instead of silently switching LANs.
+     */
+    private fun fallbackAfterNetworkBindFailure(
+        remoteAddress: InetAddress,
+        selectedNetwork: Network,
+        purpose: String,
+        error: Exception,
+    ): RoutedSocket? {
+        val activeNetwork =
+            connectivityManager.activeNetwork
+                ?.takeIf(::isLocalNetworkUsable)
+                ?.takeIf { network -> networkRoutesTo(network, remoteAddress) }
+                ?: return null
+
+        log.warn(
+            TAG,
+            DiagnosticCategory.NETWORK,
+            "network.socket.bind_failed_fallback",
+            attributes =
+                mapOf(
+                    "network.socket_purpose" to purpose,
+                    "network.selected_id" to networkId(selectedNetwork),
+                    "network.selected_transport" to transportName(selectedNetwork),
+                    "network.fallback_id" to networkId(activeNetwork),
+                    "network.fallback_transport" to transportName(activeNetwork),
+                    "network.address_family" to addressFamily(remoteAddress),
+                ),
+            throwable = error,
+        )
+        return systemDefaultRoute(remoteAddress, activeNetwork)
     }
 
     override fun onConnected(route: RoutedSocket, socket: Socket) {

@@ -36,6 +36,12 @@ data class RoutedSocket(
 }
 
 enum class LocalNetworkRouteMode {
+    /** Socket explicitly bound to an Android Network. */
     NETWORK_BOUND,
+
+    /** Plain socket using Android's current default network. */
+    SYSTEM_DEFAULT,
+
+    /** Plain socket used when Android exposes no Network for the validated LAN endpoint. */
     ENDPOINT_FALLBACK,
 }

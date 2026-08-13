@@ -1,4 +1,4 @@
-# Unison 1.0.0
+# Unison 1.0.1
 
 Unison is a local-first Android app for synchronized music playback with nearby people. Each phone
 plays a verified local copy of the same track while one room timeline orders queue and playback
@@ -7,7 +7,7 @@ intent over private Wi-Fi or Android LocalOnlyHotspot.
 ## Product contract
 
 - Application ID: `com.darius.unison`
-- Version: `1.0.0` (`versionCode` 1)
+- Version: `1.0.1` (`versionCode` 2)
 - Wire protocol: 1 only
 - Room database schema: 1 only
 - Runtime floor: Android 11 (`minSdk 30`, `targetSdk 33`); release qualification includes Android 11, 13, and 16
@@ -17,8 +17,8 @@ intent over private Wi-Fi or Android LocalOnlyHotspot.
 - Public addresses and DNS joins are rejected
 - Audio is identified by SHA-256 and committed only after full verification
 
-This is a fresh 1.0.0 release. Install it cleanly; it has no compatibility obligations to
-pre-release installations.
+This 1.0.1 patch release installs over the signed 1.0.0 release. Pre-release installations are not
+supported as upgrade sources.
 
 ## Experience
 

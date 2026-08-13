@@ -58,4 +58,16 @@ class NetworkAddressPolicyTest {
         assertTrue(selected?.hostAddress == "192.168.1.25")
     }
 
+    @Test
+    fun remoteSelectionRejectsLoopbackOnlyCandidates() {
+        val selected =
+            NetworkAddressPolicy.chooseRemoteAddress(
+                listOf(
+                    InetAddress.getByName("127.0.0.1"),
+                    InetAddress.getByName("::1"),
+                )
+            )
+        assertNull(selected)
+    }
+
 }

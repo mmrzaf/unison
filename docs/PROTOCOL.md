@@ -1,6 +1,6 @@
 # Protocol 1
 
-Protocol 1 is Unison 1.0.0's only wire contract. There is no version list, negotiation, fallback
+Protocol 1 is Unison 1.0.x's only wire contract. There is no version list, negotiation, fallback
 shape, or compatibility decoder. Unknown fields, missing required fields, invalid enum values, and a
 protocol value other than `1` are rejected.
 

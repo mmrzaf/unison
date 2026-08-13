@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+- Avoid redundant Android network binding when the resolved LAN is already the system default, and
+  safely fall back to that reachable active LAN if explicit binding fails.
+- Reject loopback-only discovery endpoints.
+
 ## 1.0.0
 
 Fresh production release.

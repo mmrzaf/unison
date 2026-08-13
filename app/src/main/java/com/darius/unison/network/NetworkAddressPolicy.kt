@@ -58,7 +58,7 @@ object NetworkAddressPolicy {
     fun chooseRemoteAddress(addresses: Collection<InetAddress>): InetAddress? =
         addresses
             .asSequence()
-            .filter(::isAllowed)
+            .filter { address -> !address.isLoopbackAddress && isAllowed(address) }
             .maxWithOrNull(
                 compareBy<InetAddress> { remoteAddressScore(it) }
                     .thenByDescending { it.hostAddress.orEmpty() }
