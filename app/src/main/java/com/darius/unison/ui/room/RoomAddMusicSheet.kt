@@ -17,7 +17,6 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -33,7 +32,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -214,21 +212,12 @@ internal fun RoomAddMusicSheet(
 
             when (section) {
                 QueueMusicPickerSection.PLAYLISTS -> {
-                    OutlinedTextField(
+                    UnisonSearchField(
                         value = playlistQuery,
                         onValueChange = { playlistQuery = it.take(120) },
+                        placeholder = "Search playlists",
                         modifier =
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                        placeholder = { Text("Search playlists") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        trailingIcon = {
-                            if (playlistQuery.isNotEmpty()) {
-                                IconButton(onClick = { playlistQuery = "" }) {
-                                    Icon(Icons.Default.Close, "Clear search")
-                                }
-                            }
-                        },
-                        singleLine = true,
                     )
                     SelectionHeader(
                         selectedCount = selectedSourceCount,
@@ -317,28 +306,18 @@ internal fun RoomAddMusicSheet(
                                         )
                                     }
                                 }
-                                HorizontalDivider(Modifier.padding(start = 56.dp))
                             }
                         }
                     }
                 }
 
                 QueueMusicPickerSection.SONGS -> {
-                    OutlinedTextField(
+                    UnisonSearchField(
                         value = pickerQuery,
                         onValueChange = onPickerQueryChange,
+                        placeholder = "Search songs",
                         modifier =
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                        placeholder = { Text("Search songs") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        trailingIcon = {
-                            if (pickerQuery.isNotEmpty()) {
-                                IconButton(onClick = { onPickerQueryChange("") }) {
-                                    Icon(Icons.Default.Close, "Clear search")
-                                }
-                            }
-                        },
-                        singleLine = true,
                     )
                     if (refreshState is LoadState.Loading && stableTracks.isNotEmpty()) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -420,8 +399,7 @@ internal fun RoomAddMusicSheet(
                                                 toggleTrack(track.trackId, !selected)
                                             },
                                     )
-                                    HorizontalDivider(Modifier.padding(start = 56.dp))
-                                }
+                                    }
                                 when (pickerTracks.loadState.append) {
                                     is LoadState.Loading ->
                                         item(key = "picker-loading") {

@@ -14,16 +14,20 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.storage.PlaylistSummary
 
-enum class ShareDestination {
-    ROOM,
-    LIBRARY,
-    BOTH,
-}
+data class MusicDestination(
+    val saveToLibrary: Boolean = true,
+    val playlistIds: Set<String> = emptySet(),
+    val newPlaylistName: String? = null,
+    val addToRoom: Boolean = false,
+) {
+    val keepsInLibrary: Boolean
+        get() =
+            saveToLibrary ||
+                playlistIds.isNotEmpty() ||
+                !newPlaylistName.isNullOrBlank()
 
-internal enum class ImportCompletion {
-    ROOM,
-    LIBRARY,
-    BOTH,
+    val hasDestination: Boolean
+        get() = keepsInLibrary || addToRoom
 }
 
 data class ImportProgress(
@@ -36,9 +40,12 @@ data class ImportProgress(
         get() = if (total <= 0) 0f else completed.toFloat() / total
 }
 
-data class PendingShare(
+data class PendingMusicImport(
     val uris: List<Uri>,
     val isM3u: Boolean,
+    val defaultSaveToLibrary: Boolean,
+    val defaultAddToRoom: Boolean,
+    val sharedFromAnotherApp: Boolean,
 )
 
 data class PendingM3uResolution(
@@ -77,7 +84,7 @@ internal data class TransientUiState(
     val message: String?,
     val pendingM3uResolution: PendingM3uResolution?,
     val selectedPlaylist: PlaylistDetail?,
-    val pendingShare: PendingShare?,
+    val pendingMusicImport: PendingMusicImport?,
 )
 
 data class MainUiState(
@@ -98,5 +105,5 @@ data class MainUiState(
     val message: String? = null,
     val pendingM3uResolution: PendingM3uResolution? = null,
     val selectedPlaylist: PlaylistDetail? = null,
-    val pendingShare: PendingShare? = null,
+    val pendingMusicImport: PendingMusicImport? = null,
 )

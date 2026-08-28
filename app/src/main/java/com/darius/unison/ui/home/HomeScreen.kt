@@ -39,10 +39,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -60,11 +60,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.paging.compose.LazyPagingItems
-import com.darius.unison.library.LibrarySort
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.RoomLifecycleState
-import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.sync.PlaybackSyncProfile
 
@@ -73,7 +70,6 @@ import com.darius.unison.sync.PlaybackSyncProfile
 @Composable
 internal fun HomeScreen(
     state: MainUiState,
-    tracks: LazyPagingItems<TrackDescriptor>,
     onCreateRoom: (String?) -> Unit,
     onStartDiscovery: () -> Unit,
     onJoinRoom: (DiscoveredRoom, String) -> Unit,
@@ -85,14 +81,9 @@ internal fun HomeScreen(
     onSetPlaybackSyncProfile: (PlaybackSyncProfile) -> Unit,
     onCreateOfflineNetwork: () -> Unit,
     onStopOfflineNetwork: () -> Unit,
-    onQueryChange: (String) -> Unit,
-    onSortChange: (LibrarySort) -> Unit,
+    onOpenAllMusic: () -> Unit,
     onOpenPlaylist: (String) -> Unit,
     onCreatePlaylist: (String, List<TrackId>) -> Unit,
-    onAddTracksToPlaylist: (String, List<TrackId>) -> Unit,
-    onKeepTracks: (Set<TrackId>) -> Unit,
-    onRemoveTemporaryTracks: (Set<TrackId>) -> Unit,
-    onSelectAllTracks: (String, (Set<TrackId>) -> Unit) -> Unit,
     onClearTemporaryMusic: () -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -108,7 +99,6 @@ internal fun HomeScreen(
     var confirmClearTemporary by remember { mutableStateOf(false) }
     var createPlaylistOpen by remember { mutableStateOf(false) }
     var playlistName by rememberSaveable { mutableStateOf("") }
-    var allMusicOpen by rememberSaveable { mutableStateOf(false) }
     var discoveryRequestedOnEntry by rememberSaveable { mutableStateOf(false) }
     val connecting =
         state.room.lifecycle == RoomLifecycleState.PREPARING ||
@@ -129,90 +119,107 @@ internal fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         stickyHeader(key = "app-bar") {
-            Card(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth()
-                        .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "Unison",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Box {
-                        IconButton(onClick = { settingsOpen = true }) {
-                            Icon(Icons.Default.Settings, "Settings")
-                        }
-                        DropdownMenu(
-                            expanded = settingsOpen,
-                            onDismissRequest = { settingsOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Change your name") },
-                                leadingIcon = { Icon(Icons.Default.Person, null) },
-                                onClick = {
-                                    settingsOpen = false
-                                    onEditName()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Playback synchronization") },
-                                leadingIcon = { Icon(Icons.Default.Settings, null) },
-                                onClick = {
-                                    settingsOpen = false
-                                    synchronizationOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Connection help") },
-                                leadingIcon = { Icon(Icons.Default.WifiTethering, null) },
-                                onClick = {
-                                    settingsOpen = false
-                                    connectionHelpOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Storage") },
-                                leadingIcon = { Icon(Icons.Default.Storage, null) },
-                                onClick = {
-                                    settingsOpen = false
-                                    storageOpen = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("About Unison") },
-                                leadingIcon = { Icon(Icons.Default.Code, null) },
-                                onClick = {
-                                    settingsOpen = false
-                                    onShowAbout()
-                                },
-                            )
-                        }
+            ScreenTopBar(title = "Unison") {
+                Box {
+                    IconButton(onClick = { settingsOpen = true }) {
+                        Icon(Icons.Default.Settings, "Settings")
+                    }
+                    DropdownMenu(
+                        expanded = settingsOpen,
+                        onDismissRequest = { settingsOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Change your name") },
+                            leadingIcon = { Icon(Icons.Default.Person, null) },
+                            onClick = {
+                                settingsOpen = false
+                                onEditName()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Playback synchronization") },
+                            leadingIcon = { Icon(Icons.Default.Settings, null) },
+                            onClick = {
+                                settingsOpen = false
+                                synchronizationOpen = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Connection help") },
+                            leadingIcon = { Icon(Icons.Default.WifiTethering, null) },
+                            onClick = {
+                                settingsOpen = false
+                                connectionHelpOpen = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Storage") },
+                            leadingIcon = { Icon(Icons.Default.Storage, null) },
+                            onClick = {
+                                settingsOpen = false
+                                storageOpen = true
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("About Unison") },
+                            leadingIcon = { Icon(Icons.Default.Code, null) },
+                            onClick = {
+                                settingsOpen = false
+                                onShowAbout()
+                            },
+                        )
                     }
                 }
             }
         }
 
         item(key = "room-shelf-title") {
-            Text(
-                "Listen together",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 6.dp),
+            SectionHeader(
+                title = "Listen together",
+                subtitle = "Start a synchronized room or join someone nearby.",
+                modifier = Modifier.padding(top = 8.dp),
             )
         }
 
         item(key = "create-room") {
-            Button(
-                onClick = { createRoomOpen = true },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp),
-                enabled = !connecting,
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
-                Icon(Icons.Default.Add, null)
-                Spacer(Modifier.width(10.dp))
-                Text("Create room", style = MaterialTheme.typography.titleMedium)
+                Column(
+                    Modifier.fillMaxWidth().padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        TonalIcon(Icons.Default.Groups, null)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                "Create a room",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "Play the same music in sync on nearby phones.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = { createRoomOpen = true },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        enabled = !connecting,
+                    ) {
+                        Icon(Icons.Default.Add, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Create room")
+                    }
+                }
             }
         }
 
@@ -308,23 +315,11 @@ internal fun HomeScreen(
         }
 
         item(key = "music-divider") {
-            Column(
-                Modifier.padding(top = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                HorizontalDivider()
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "Your music",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            "Playlists and saved music",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+            SectionHeader(
+                title = "Your music",
+                subtitle = "${state.libraryTotalCount} saved ${if (state.libraryTotalCount == 1) "song" else "songs"}",
+                modifier = Modifier.padding(top = 22.dp),
+                action = {
                     IconButton(
                         onClick = {
                             playlistName = ""
@@ -367,15 +362,15 @@ internal fun HomeScreen(
                             )
                         }
                     }
-                }
-            }
+                },
+            )
         }
 
         item(key = "all-music") {
             PlaylistShelfRow(
                 name = "All Music",
                 count = state.libraryTotalCount,
-                onClick = { allMusicOpen = true },
+                onClick = onOpenAllMusic,
             )
         }
 
@@ -389,35 +384,33 @@ internal fun HomeScreen(
 
         if (state.playlists.isEmpty()) {
             item(key = "playlist-empty") {
-                Text(
-                    "Create playlists to organize your music.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-                )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Create a playlist to organize music for later.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = {
+                                playlistName = ""
+                                createPlaylistOpen = true
+                            }
+                        ) {
+                            Text("New playlist")
+                        }
+                    }
+                }
             }
         }
-    }
-
-    if (allMusicOpen) {
-        AllMusicSheet(
-            tracks = tracks,
-            query = state.libraryQuery,
-            sort = state.librarySort,
-            totalCount = state.libraryTotalCount,
-            temporaryTrackIds = state.temporaryTrackIds,
-            playlists = state.playlists,
-            onQueryChange = onQueryChange,
-            onSortChange = onSortChange,
-            onChooseFiles = onChooseFiles,
-            onAddTracksToPlaylist = onAddTracksToPlaylist,
-            onKeepTracks = onKeepTracks,
-            onRemoveTemporaryTracks = onRemoveTemporaryTracks,
-            onSelectAll = onSelectAllTracks,
-            onDismiss = {
-                onQueryChange("")
-                allMusicOpen = false
-            },
-        )
     }
 
     if (createRoomOpen) {
@@ -596,12 +589,31 @@ internal fun HomeScreen(
 
 @Composable
 private fun PlaylistShelfRow(name: String, count: Int, onClick: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        supportingContent = { Text("$count ${if (count == 1) "song" else "songs"}") },
-        leadingContent = { Icon(Icons.Default.LibraryMusic, null) },
-        trailingContent = { Icon(Icons.Default.ChevronRight, null) },
-        modifier = Modifier.clickable(onClick = onClick),
-    )
-    HorizontalDivider(Modifier.padding(start = 56.dp))
+    Row(
+        Modifier.fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        TonalIcon(Icons.Default.LibraryMusic, null)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "$count ${if (count == 1) "song" else "songs"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Icon(
+            Icons.Default.ChevronRight,
+            null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }

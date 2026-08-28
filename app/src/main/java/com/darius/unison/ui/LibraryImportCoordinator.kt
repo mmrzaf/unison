@@ -34,18 +34,21 @@ internal class LibraryImportCoordinator(
     val importProgress = _importProgress.asStateFlow()
     private val _pendingM3uResolution = MutableStateFlow<PendingM3uResolution?>(null)
     val pendingM3uResolution = _pendingM3uResolution.asStateFlow()
-    private val _pendingShare = MutableStateFlow<PendingShare?>(null)
-    val pendingShare = _pendingShare.asStateFlow()
+    private val _pendingMusicImport = MutableStateFlow<PendingMusicImport?>(null)
+    val pendingMusicImport = _pendingMusicImport.asStateFlow()
     private var importJob: Job? = null
 
     fun importMusic(uris: List<Uri>, toRoom: Boolean) {
-        startAudioImport(
-            uris = uris,
-            retention =
-                if (toRoom) RetentionPolicy.TEMPORARY_24_HOURS else RetentionPolicy.KEEP_IN_LIBRARY,
-            addToRoom = toRoom,
-            completion = if (toRoom) ImportCompletion.ROOM else ImportCompletion.LIBRARY,
-        )
+        val uniqueUris = uris.distinct()
+        if (uniqueUris.isEmpty()) return
+        _pendingMusicImport.value =
+            PendingMusicImport(
+                uris = uniqueUris,
+                isM3u = false,
+                defaultSaveToLibrary = !toRoom,
+                defaultAddToRoom = toRoom,
+                sharedFromAnotherApp = false,
+            )
     }
 
     fun cancel() {
@@ -58,7 +61,14 @@ internal class LibraryImportCoordinator(
     }
 
     fun importM3u(uri: Uri, toRoom: Boolean) {
-        startM3uImport(uri, toRoom, null, null, emptyMap())
+        _pendingMusicImport.value =
+            PendingMusicImport(
+                uris = listOf(uri),
+                isM3u = true,
+                defaultSaveToLibrary = true,
+                defaultAddToRoom = toRoom,
+                sharedFromAnotherApp = false,
+            )
     }
 
     fun resolvePendingM3u(treeUri: Uri) {
@@ -148,35 +158,34 @@ internal class LibraryImportCoordinator(
             }
         if (uris.isEmpty()) return
         val isPlaylist = uris.size == 1 && isM3u(intent.type, uris.single())
-        if (container.roomStore.structure.value.snapshot != null) {
-            _pendingShare.value = PendingShare(uris, isPlaylist)
-        } else if (isPlaylist) {
-            importM3u(uris.single(), toRoom = false)
-        } else {
-            importMusic(uris, toRoom = false)
-        }
+        _pendingMusicImport.value =
+            PendingMusicImport(
+                uris = uris,
+                isM3u = isPlaylist,
+                defaultSaveToLibrary = true,
+                defaultAddToRoom = false,
+                sharedFromAnotherApp = true,
+            )
     }
 
-    fun resolvePendingShare(destination: ShareDestination?) {
-        val pending = _pendingShare.value ?: return
-        _pendingShare.value = null
-        if (destination == null) return
-        when {
-            pending.isM3u ->
-                importM3u(
-                    pending.uris.single(),
-                    toRoom = destination != ShareDestination.LIBRARY,
-                )
-            destination == ShareDestination.ROOM -> importMusic(pending.uris, toRoom = true)
-            destination == ShareDestination.LIBRARY -> importMusic(pending.uris, toRoom = false)
-            destination == ShareDestination.BOTH ->
-                startAudioImport(
-                    uris = pending.uris,
-                    retention = RetentionPolicy.KEEP_IN_LIBRARY,
-                    addToRoom = true,
-                    completion = ImportCompletion.BOTH,
-                )
+    fun resolvePendingImport(destination: MusicDestination?) {
+        val pending = _pendingMusicImport.value ?: return
+        _pendingMusicImport.value = null
+        if (destination == null || !destination.hasDestination) return
+        if (pending.isM3u) {
+            startM3uImport(
+                sourceUri = pending.uris.single(),
+                toRoom = destination.addToRoom,
+                treeUri = null,
+                existingPlaylistId = null,
+                manualSelections = emptyMap(),
+            )
+            return
         }
+        startAudioImport(
+            uris = pending.uris,
+            destination = destination,
+        )
     }
 
     private fun startM3uImport(
@@ -263,9 +272,7 @@ internal class LibraryImportCoordinator(
 
     private fun startAudioImport(
         uris: List<Uri>,
-        retention: RetentionPolicy,
-        addToRoom: Boolean,
-        completion: ImportCompletion,
+        destination: MusicDestination,
     ) {
         val uniqueUris = uris.distinct()
         if (uniqueUris.isEmpty()) return
@@ -277,25 +284,54 @@ internal class LibraryImportCoordinator(
             activeOperationCount.update { it + 1 }
             _importProgress.value = ImportProgress(0, uniqueUris.size)
             try {
+                val retention =
+                    if (destination.keepsInLibrary) {
+                        RetentionPolicy.KEEP_IN_LIBRARY
+                    } else {
+                        RetentionPolicy.TEMPORARY_24_HOURS
+                    }
                 val result =
                     container.importManager.importAudio(uniqueUris, retention) { completed, total ->
                         _importProgress.value = ImportProgress(completed, total)
                     }
-                if (addToRoom && result.tracks.isNotEmpty()) {
-                    roomActions.addTracksToRoom(result.tracks.map { it.trackId })
+                val trackIds = result.tracks.map { it.trackId }
+                if (destination.addToRoom && trackIds.isNotEmpty()) {
+                    roomActions.addTracksToRoom(trackIds)
                 }
-                message.value =
-                    when {
-                        result.tracks.isEmpty() ->
-                            result.errors.firstOrNull() ?: "Unison could not add this music"
-                        result.errors.isNotEmpty() ->
-                            "Added ${result.tracks.size}; ${result.errors.size} could not be opened"
-                        completion == ImportCompletion.BOTH -> "Added to your library and room"
-                        completion == ImportCompletion.ROOM ->
-                            "Added ${result.tracks.size} song${if (result.tracks.size == 1) "" else "s"} to the room"
-                        else ->
-                            "Added ${result.tracks.size} song${if (result.tracks.size == 1) "" else "s"}"
+
+                var playlistFailures = 0
+                if (trackIds.isNotEmpty()) {
+                    destination.playlistIds.distinct().forEach { playlistId ->
+                        try {
+                            container.playlistRepository.appendTracks(playlistId, trackIds)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            playlistFailures += 1
+                        }
                     }
+                    destination.newPlaylistName
+                        ?.trim()
+                        ?.takeIf(String::isNotEmpty)
+                        ?.let { name ->
+                            try {
+                                container.playlistRepository.create(name, trackIds)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                playlistFailures += 1
+                            }
+                        }
+                }
+
+                message.value =
+                    importCompletionMessage(
+                        importedCount = trackIds.size,
+                        importErrorCount = result.errors.size,
+                        playlistFailures = playlistFailures,
+                        destination = destination,
+                        firstImportError = result.errors.firstOrNull(),
+                    )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -305,6 +341,40 @@ internal class LibraryImportCoordinator(
                 activeOperationCount.update { (it - 1).coerceAtLeast(0) }
                 importJob = null
             }
+        }
+    }
+
+    private fun importCompletionMessage(
+        importedCount: Int,
+        importErrorCount: Int,
+        playlistFailures: Int,
+        destination: MusicDestination,
+        firstImportError: String?,
+    ): String {
+        if (importedCount == 0) return firstImportError ?: "Unison could not add this music"
+        if (playlistFailures > 0) return "Added $importedCount; some playlists could not be updated"
+        if (importErrorCount > 0) return "Added $importedCount; $importErrorCount could not be opened"
+
+        val places = buildList {
+            if (destination.keepsInLibrary) add("your library")
+            val playlistCount =
+                destination.playlistIds.size +
+                    if (destination.newPlaylistName.isNullOrBlank()) 0 else 1
+            if (playlistCount == 1) add("a playlist")
+            else if (playlistCount > 1) add("$playlistCount playlists")
+            if (destination.addToRoom) add("the room")
+        }
+        val suffix =
+            when (places.size) {
+                0 -> ""
+                1 -> places.single()
+                2 -> places.joinToString(" and ")
+                else -> places.dropLast(1).joinToString(", ") + ", and " + places.last()
+            }
+        return if (suffix.isBlank()) {
+            "Added $importedCount ${if (importedCount == 1) "song" else "songs"}"
+        } else {
+            "Added $importedCount ${if (importedCount == 1) "song" else "songs"} to $suffix"
         }
     }
 

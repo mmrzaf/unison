@@ -46,6 +46,7 @@ internal fun PersistentRoomIssueCard(
     modifier: Modifier = Modifier,
 ) {
     val action = RoomPlaybackUiPolicy.issueAction(issue, transportStatus)
+    val presentation = RoomPlaybackUiPolicy.issuePresentation(issue)
     val icon =
         when (issue.severity) {
             RoomIssueSeverity.INFO -> Icons.Default.Info
@@ -87,11 +88,11 @@ internal fun PersistentRoomIssueCard(
             Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = issueTitle(issue.severity),
+                    text = presentation.title,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Text(issue.message, style = MaterialTheme.typography.bodyMedium)
+                Text(presentation.message, style = MaterialTheme.typography.bodyMedium)
                 when (action) {
                     RoomPlaybackUiPolicy.IssueAction.RETRY_TRANSPORT ->
                         TextButton(onClick = onRetryTransport) {
@@ -132,13 +133,3 @@ internal fun PersistentRoomIssueCard(
         }
     }
 }
-
-@Composable
-private fun issueTitle(severity: RoomIssueSeverity): String =
-    stringResource(
-        when (severity) {
-            RoomIssueSeverity.INFO -> R.string.issue_title_information
-            RoomIssueSeverity.WARNING -> R.string.issue_title_attention
-            RoomIssueSeverity.ERROR -> R.string.issue_title_problem
-        }
-    )

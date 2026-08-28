@@ -7,7 +7,4 @@
     <string name="action_choose_files">Choose files</string>
     <string name="action_leave_room">Leave room</string>
     <string name="action_dismiss">Dismiss</string>
-    <string name="issue_title_information">Information</string>
-    <string name="issue_title_attention">Needs attention</string>
-    <string name="issue_title_problem">Playback problem</string>
 </resources>
