@@ -19,7 +19,8 @@ without leaving and rejoining the room.
 5. Turn one screen off for five minutes, then wake it and verify automatic convergence.
 6. Background and foreground every phone while playback continues.
 7. Disable Wi-Fi on one listener for thirty seconds, restore it and verify full state repair.
-8. Disconnect the coordinator and verify election/reconnect behavior.
+8. Disconnect the coordinator and verify bounded reconnection to that coordinator. If it cannot be
+   recovered, verify that the room ends cleanly without electing a replacement.
 9. Kill and restart a participant process, then rejoin the active room.
 10. Repeat song changes with Bluetooth connected and while switching audio routes.
 11. On one non-controlling listener, trigger a real incoming call/audio-focus interruption, let the
@@ -41,7 +42,7 @@ without leaving and rejoining the room.
 - APK version and git/source archive checksum;
 - device model, API level and build fingerprint;
 - room diagnostics from every phone;
-- `Room actions → Room logs` remains responsive, searchable, and free of raw credentials/paths;
+- `Diagnostics` remains responsive, searchable, and free of raw credentials/paths;
 - exact scenario and result;
 - any interval where queue item or play/pause state diverged;
 - whether automatic repair succeeded and how long it took.

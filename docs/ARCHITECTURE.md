@@ -25,16 +25,18 @@ Focused components own policies and effects:
 
 - `ControlAdmissionController`: first admission and reconnect authentication;
 - `PlaybackSessionCoordinator`: playback revision, reference cadence, and repair throttling;
-- `PlaybackSynchronizationRuntime`: one local synchronization profile/tuning source for drift
-  measurement, correction, cadence, and Media3 speed actuation;
+- `PlaybackSynchronizationRuntime`: local drift/convergence policy. Its cadence runs independently
+  from the room actor so room/network/storage work cannot manufacture a clock discontinuity;
 - `PeerPlaybackHealthRegistry`: coordinator-owned READY leases so warming or degraded listeners
   repair locally without controlling healthy-room timing;
 - `LocalPlaybackParticipationCoordinator`: device-local interruption/resume lifecycle; audio-focus
   loss never mutates room transport, live resume atomically targets the latest canonical
   item/position, and session boundaries clear stale local interruption state;
 - `CanonicalPlaybackCoordinator`: exact local/peer convergence;
-- `CanonicalPlaybackDispatcher`: ordered timestamped work and replaceable latest-state reconciliation;
-- `PlayerMutationCoordinator`: the only Media3 mutation boundary;
+- `CanonicalPlaybackDispatcher`: ordered canonical work and replaceable latest-state reconciliation;
+- `PlayerExecutor`: the only Media3 mutation authority. Exact transport, timeline maintenance, and
+  synchronization correction share one serialization boundary. Media3 pauses at item boundaries;
+  canonical room policy, never a local automatic transition, chooses the successor;
 - `TransferManager`: authorized upload/download lifecycle;
 - `RoomStore`: structural, playback, and transfer flows for UI consumption.
 

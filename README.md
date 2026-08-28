@@ -1,4 +1,4 @@
-# Unison 1.0.1
+# Unison 1.1.0
 
 Unison is a local-first Android app for synchronized music playback with nearby people. Each phone
 plays a verified local copy of the same track while one room timeline orders queue and playback
@@ -7,8 +7,8 @@ intent over private Wi-Fi or Android LocalOnlyHotspot.
 ## Product contract
 
 - Application ID: `com.darius.unison`
-- Version: `1.0.1` (`versionCode` 2)
-- Wire protocol: 1 only
+- Version: `1.1.0` (`versionCode` 3)
+- Wire protocol: 2 only
 - Room database schema: 1 only
 - Runtime floor: Android 11 (`minSdk 30`, `targetSdk 33`); release qualification includes Android 11, 13, and 16
 - Source: `https://github.com/mmrzaf/unison` (also available from **About Unison** in the app)
@@ -17,16 +17,17 @@ intent over private Wi-Fi or Android LocalOnlyHotspot.
 - Public addresses and DNS joins are rejected
 - Audio is identified by SHA-256 and committed only after full verification
 
-This 1.0.1 patch release installs over the signed 1.0.0 release. Pre-release installations are not
+Unison 1.1.0 installs over the signed 1.0.x release line. Pre-release installations are not
 supported as upgrade sources.
 
 ## Experience
 
-Unison has two primary surfaces:
+Unison has two primary modes with focused library navigation:
 
-1. **Home:** create a room, join a nearby room, search and manage the local library, playlists, and
-   imports in one continuous screen.
-2. **Room:** view the four-digit code, shared player, listeners, and queue in one continuous screen.
+1. **Home:** create a room, join a nearby room, and enter your music library. All Music and playlist
+   detail open as persistent screens; add/import destinations remain contextual sheets.
+2. **Room:** shared playback leads the surface, with the queue immediately below it and listener or
+   diagnostic detail available on demand.
 
 The visible player always represents canonical room intent. Local recovery state never replaces the
 room's official song or play/pause state. Shuffle is a one-shot queue action that randomizes upcoming
@@ -86,7 +87,7 @@ library/    imports, search, playlists, M3U handling
 model/      immutable room, queue, command, and UI models
 network/    NSD, hotspot, private-address policy, sockets
 playback/   Media3 integration and canonical playback application
-protocol/   protocol 1 messages, authentication, framing, crypto
+protocol/   protocol 2 messages, authentication, framing, crypto
 room/       reducer, serialized session actor, convergence policy
 storage/    Room schema 1 and content-addressed files
 sync/       monotonic clock mapping and bounded correction

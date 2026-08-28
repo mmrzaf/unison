@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.0
+
+- Player timelines stop at the first unavailable or unprepared canonical successor instead of exposing later ready songs.
+- Media3 mutations are serialized behind one player authority; natural completion is reported to canonical room logic.
+- Protocol 2 removes transient readiness, endpoint, connection, and transfer state from canonical snapshots.
+- Coordinator loss uses bounded reconnect, then ends the room cleanly when recovery is impossible.
+- Playback demand drives bounded, resumable peer transfers with priority, deadlines, preemption, and typed failures.
+- Joining peers catch up only after current and successor content are ready, without stalling healthy listeners.
+- Pending navigation stays reversible while playback preparation state is shown directly in the player and queue.
+- Runtime readiness and preparation requests stay outside canonical history; hot paths avoid redundant work.
+- UX1: audio shared into Unison and audio chosen from inside the app use one destination sheet for Library, playlists, inline playlist creation, and the current room.
+- UX1: playlist curation uses reusable full-height music/playlist pickers, batch cross-playlist actions, and long-press drag reordering instead of move-up/move-down menus.
+- UX2: the room surface is music-first: the player leads, healthy participants collapse to a tappable listener count, and background prefetch/transfer machinery disappears from the normal listening view.
+- UX2: listeners move to a bottom sheet, queue actions are consolidated behind a compact toolbar overflow, and playback/preparation/failure copy describes user outcomes instead of internal transfer/synchronization mechanics.
+- UX3: All Music and playlist detail are persistent navigation surfaces with real Back behavior; contextual add/import pickers remain bottom sheets instead of stacking long-lived modal screens.
+- UX3: playlist browsing is decoupled from room-queue actions, and Back exits selection/reorder modes before leaving the playlist.
+- UX4: persistent screens, contextual sheets, and queue/library search now share one quieter visual language with consistent top bars, spacing, selection surfaces, and empty states.
+- UX4: the room player has stronger music-first hierarchy, current queue state uses subtle tonal emphasis, and playlist/library rows are denser without returning technical status noise.
+
 ## 1.0.1
 
 - Avoid redundant Android network binding when the resolved LAN is already the system default, and
