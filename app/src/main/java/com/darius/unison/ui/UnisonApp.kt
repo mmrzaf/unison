@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.AlertDialog
@@ -30,13 +29,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -85,6 +82,7 @@ fun UnisonApp(viewModel: MainViewModel) {
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showAbout by rememberSaveable { mutableStateOf(false) }
+    var allMusicOpen by rememberSaveable { mutableStateOf(false) }
 
     var importToRoom by rememberSaveable { mutableStateOf(false) }
     val filesLauncher =
@@ -214,38 +212,29 @@ fun UnisonApp(viewModel: MainViewModel) {
         )
     }
 
-    BackHandler(enabled = ui.selectedPlaylist != null) { viewModel.closePlaylist() }
+    fun closePlaylistScreen() {
+        viewModel.setPickerQuery("")
+        viewModel.closePlaylist()
+    }
 
-    ui.pendingShare?.let { pending ->
-        AlertDialog(
-            onDismissRequest = { viewModel.resolvePendingShare(null) },
-            title = { Text("Add shared music") },
-            text = {
-                Text(
-                    "Choose where to add ${if (pending.isM3u) "this playlist" else "the selected music"}."
-                )
-            },
-            confirmButton = {
-                Button(onClick = { viewModel.resolvePendingShare(ShareDestination.ROOM) }) {
-                    Text("Room")
-                }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(
-                        onClick = { viewModel.resolvePendingShare(ShareDestination.LIBRARY) }
-                    ) {
-                        Text("Library")
-                    }
-                    if (!pending.isM3u) {
-                        TextButton(
-                            onClick = { viewModel.resolvePendingShare(ShareDestination.BOTH) }
-                        ) {
-                            Text("Both")
-                        }
-                    }
-                }
-            },
+    BackHandler(enabled = ui.room.snapshot == null && ui.selectedPlaylist != null) {
+        closePlaylistScreen()
+    }
+
+    LaunchedEffect(ui.room.snapshot?.roomId) {
+        if (ui.room.snapshot != null) {
+            allMusicOpen = false
+            if (ui.selectedPlaylist != null) closePlaylistScreen()
+        }
+    }
+
+    ui.pendingMusicImport?.let { pending ->
+        MusicDestinationSheet(
+            pending = pending,
+            playlists = ui.playlists,
+            roomActive = ui.room.snapshot != null,
+            onDismiss = { viewModel.resolvePendingImport(null) },
+            onConfirm = viewModel::resolvePendingImport,
         )
     }
 
@@ -337,51 +326,110 @@ fun UnisonApp(viewModel: MainViewModel) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             if (ui.room.snapshot == null) {
-                val libraryTracks = viewModel.libraryTracks.collectAsLazyPagingItems()
-                HomeScreen(
-                    state = ui,
-                    tracks = libraryTracks,
-                    onCreateRoom = { name ->
-                        runWithNetworkPermissions(
-                            PendingNetworkPermissionAction.CreateRoom(name),
-                            PermissionController.localNetworkPermissions(),
+                when {
+                    ui.selectedPlaylist != null -> {
+                        val playlist = checkNotNull(ui.selectedPlaylist)
+                        val pickerQuery by viewModel.pickerQuery.collectAsStateWithLifecycle()
+                        val pickerTracks = viewModel.pickerTracks.collectAsLazyPagingItems()
+                        Column(Modifier.fillMaxSize()) {
+                            ScreenTopBar(
+                                title = playlist.name,
+                                subtitle =
+                                    "${playlist.tracks.size} ${if (playlist.tracks.size == 1) "song" else "songs"}",
+                                onBack = ::closePlaylistScreen,
+                            )
+                            Box(Modifier.weight(1f)) {
+                                PlaylistDetailScreen(
+                                    detail = playlist,
+                                    playlists = ui.playlists,
+                                    pickerTracks = pickerTracks,
+                                    pickerQuery = pickerQuery,
+                                    onPickerQueryChange = viewModel::setPickerQuery,
+                                    onRename = { viewModel.renamePlaylist(playlist.playlistId, it) },
+                                    onMoveTrack = { from, to ->
+                                        viewModel.movePlaylistTrack(playlist.playlistId, from, to)
+                                    },
+                                    onRemoveTracks = { indices ->
+                                        viewModel.removePlaylistTracks(playlist.playlistId, indices)
+                                    },
+                                    onAddTracks = {
+                                        viewModel.addTracksToPlaylist(playlist.playlistId, it)
+                                    },
+                                    onAddTracksToPlaylists = viewModel::addTracksToPlaylists,
+                                    onSelectAll = viewModel::loadTrackIds,
+                                    onExport = {
+                                        startPlaylistExport(playlist.playlistId, playlist.name)
+                                    },
+                                    onDelete = { viewModel.deletePlaylist(playlist.playlistId) },
+                                )
+                            }
+                        }
+                    }
+                    allMusicOpen -> {
+                        val libraryTracks = viewModel.libraryTracks.collectAsLazyPagingItems()
+                        AllMusicScreen(
+                            tracks = libraryTracks,
+                            query = ui.libraryQuery,
+                            sort = ui.librarySort,
+                            totalCount = ui.libraryTotalCount,
+                            temporaryTrackIds = ui.temporaryTrackIds,
+                            playlists = ui.playlists,
+                            onQueryChange = viewModel::setLibraryQuery,
+                            onSortChange = viewModel::setLibrarySort,
+                            onChooseFiles = {
+                                importToRoom = false
+                                filesLauncher.launch(arrayOf("audio/*"))
+                            },
+                            onAddTracksToPlaylists = viewModel::addTracksToPlaylists,
+                            onKeepTracks = viewModel::keepTracks,
+                            onRemoveTemporaryTracks = viewModel::removeTemporaryTracks,
+                            onSelectAll = viewModel::loadTrackIds,
+                            onBack = { allMusicOpen = false },
                         )
-                    },
-                    onStartDiscovery = {
-                        viewModel.command(AppCommand.StartDiscovery, feedback = null)
-                    },
-                    onJoinRoom = { room, pin ->
-                        runWithNetworkPermissions(
-                            PendingNetworkPermissionAction.JoinRoom(room, pin),
-                            PermissionController.localNetworkPermissions(),
+                    }
+                    else ->
+                        HomeScreen(
+                            state = ui,
+                            onCreateRoom = { name ->
+                                runWithNetworkPermissions(
+                                    PendingNetworkPermissionAction.CreateRoom(name),
+                                    PermissionController.localNetworkPermissions(),
+                                )
+                            },
+                            onStartDiscovery = {
+                                viewModel.command(AppCommand.StartDiscovery, feedback = null)
+                            },
+                            onJoinRoom = { room, pin ->
+                                runWithNetworkPermissions(
+                                    PendingNetworkPermissionAction.JoinRoom(room, pin),
+                                    PermissionController.localNetworkPermissions(),
+                                )
+                            },
+                            onCancelConnection = {
+                                viewModel.command(AppCommand.LeaveRoom, feedback = null)
+                            },
+                            onChooseFiles = {
+                                importToRoom = false
+                                filesLauncher.launch(arrayOf("audio/*"))
+                            },
+                            onImportM3u = {
+                                importToRoom = false
+                                m3uLauncher.launch(M3U_TYPES)
+                            },
+                            onEditName = { showNameEdit = true },
+                            onShowAbout = { showAbout = true },
+                            onSetPlaybackSyncProfile = viewModel::setPlaybackSyncProfile,
+                            onCreateOfflineNetwork = createOfflineNetwork,
+                            onStopOfflineNetwork = { viewModel.command(AppCommand.StopOfflineNetwork) },
+                            onOpenAllMusic = { allMusicOpen = true },
+                            onOpenPlaylist = { playlistId ->
+                                allMusicOpen = false
+                                viewModel.openPlaylist(playlistId)
+                            },
+                            onCreatePlaylist = viewModel::createPlaylist,
+                            onClearTemporaryMusic = viewModel::clearTemporaryMusic,
                         )
-                    },
-                    onCancelConnection = {
-                        viewModel.command(AppCommand.LeaveRoom, feedback = null)
-                    },
-                    onChooseFiles = {
-                        importToRoom = false
-                        filesLauncher.launch(arrayOf("audio/*"))
-                    },
-                    onImportM3u = {
-                        importToRoom = false
-                        m3uLauncher.launch(M3U_TYPES)
-                    },
-                    onEditName = { showNameEdit = true },
-                    onShowAbout = { showAbout = true },
-                    onSetPlaybackSyncProfile = viewModel::setPlaybackSyncProfile,
-                    onCreateOfflineNetwork = createOfflineNetwork,
-                    onStopOfflineNetwork = { viewModel.command(AppCommand.StopOfflineNetwork) },
-                    onQueryChange = viewModel::setLibraryQuery,
-                    onSortChange = viewModel::setLibrarySort,
-                    onOpenPlaylist = viewModel::openPlaylist,
-                    onCreatePlaylist = viewModel::createPlaylist,
-                    onAddTracksToPlaylist = viewModel::addTracksToPlaylist,
-                    onKeepTracks = viewModel::keepTracks,
-                    onRemoveTemporaryTracks = viewModel::removeTemporaryTracks,
-                    onSelectAllTracks = viewModel::loadTrackIds,
-                    onClearTemporaryMusic = viewModel::clearTemporaryMusic,
-                )
+                }
             } else {
                 SharedRoomScreen(
                     room = ui.room,
@@ -398,6 +446,7 @@ fun UnisonApp(viewModel: MainViewModel) {
                         remember(viewModel, filesLauncher, m3uLauncher) {
                             SharedRoomActions(
                                 loadRoomLogs = viewModel::roomLogEvents,
+                                onClearRoomLogs = viewModel::clearRoomLogs,
                                 onPickerQueryChange = viewModel::setPickerQuery,
                                 onPlay = { viewModel.command(AppCommand.Play()) },
                                 onPause = { viewModel.command(AppCommand.Pause()) },
@@ -456,54 +505,4 @@ fun UnisonApp(viewModel: MainViewModel) {
         AboutUnisonDialog(onDismiss = { showAbout = false })
     }
 
-    ui.selectedPlaylist?.let { playlist ->
-        val pickerQuery by viewModel.pickerQuery.collectAsStateWithLifecycle()
-        val pickerTracks = viewModel.pickerTracks.collectAsLazyPagingItems()
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = viewModel::closePlaylist,
-            sheetState = sheetState,
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        playlist.name,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = viewModel::closePlaylist) {
-                        Icon(Icons.Default.Close, "Close playlist")
-                    }
-                }
-                Box(Modifier.weight(1f)) {
-                    PlaylistDetailScreen(
-                        detail = playlist,
-                        pickerTracks = pickerTracks,
-                        pickerQuery = pickerQuery,
-                        onPickerQueryChange = viewModel::setPickerQuery,
-                        roomActive = ui.room.snapshot != null,
-                        onRename = { viewModel.renamePlaylist(playlist.playlistId, it) },
-                        onMoveTrack = { from, to ->
-                            viewModel.movePlaylistTrack(playlist.playlistId, from, to)
-                        },
-                        onRemoveTracks = { indices ->
-                            viewModel.removePlaylistTracks(playlist.playlistId, indices)
-                        },
-                        onAddTracks = { viewModel.addTracksToPlaylist(playlist.playlistId, it) },
-                        onAddToRoom = { viewModel.addPlaylistToRoom(playlist.playlistId) },
-                        onAddTracksToRoom = viewModel::addTracksToRoom,
-                        onSelectAll = viewModel::loadTrackIds,
-                        onExport = { startPlaylistExport(playlist.playlistId, playlist.name) },
-                        onDelete = { viewModel.deletePlaylist(playlist.playlistId) },
-                    )
-                }
-            }
-        }
-    }
 }

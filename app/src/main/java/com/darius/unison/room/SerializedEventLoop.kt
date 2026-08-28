@@ -24,6 +24,7 @@ class SerializedEventLoop<E>(
     private val handler: suspend (E) -> Unit,
     private val onFailure: (E, Throwable) -> Unit = { _, _ -> },
     private val onDropped: (E, CancellationException) -> Unit = { _, _ -> },
+    private val onHandled: (E, Long) -> Unit = { _, _ -> },
 ) : AutoCloseable {
     private class LoopContext(val owner: Any) : AbstractCoroutineContextElement(Key) {
         companion object Key : CoroutineContext.Key<LoopContext>
@@ -39,6 +40,7 @@ class SerializedEventLoop<E>(
     private val job: Job =
         scope.launch(LoopContext(this@SerializedEventLoop)) {
             for (event in events) {
+                val startedNs = System.nanoTime()
                 try {
                     handler(event)
                 } catch (cancelled: CancellationException) {
@@ -46,6 +48,9 @@ class SerializedEventLoop<E>(
                     throw cancelled
                 } catch (error: Throwable) {
                     onFailure(event, error)
+                } finally {
+                    val durationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L)
+                    runCatching { onHandled(event, durationNs) }
                 }
             }
         }

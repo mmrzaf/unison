@@ -3,12 +3,11 @@ package com.darius.unison.room
 import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomSnapshot
-import com.darius.unison.playback.PlayerMutationCoordinator
+import com.darius.unison.playback.PlayerExecutor
 import com.darius.unison.playback.PlayerPort
 import com.darius.unison.playback.PlayerState
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.sync.ClockSyncEngine
-import com.darius.unison.sync.SynchronizationDiagnostics
 import com.darius.unison.util.MonotonicClock
 
 /**
@@ -22,16 +21,14 @@ import com.darius.unison.util.MonotonicClock
  */
 internal class LocalPlaybackParticipationCoordinator(
     private val player: PlayerPort,
-    private val playerMutations: PlayerMutationCoordinator,
+    private val playerExecutor: PlayerExecutor,
     private val clock: MonotonicClock,
     private val clockSync: ClockSyncEngine,
     private val playbackSession: PlaybackSessionCoordinator,
     private val isCoordinator: () -> Boolean,
     private val refreshPlayerQueue: suspend (RoomSnapshot, QueueItemId, Long) -> Unit,
     private val executeImmediatePlay: suspend (String, suspend PlayerPort.() -> Boolean) -> Unit,
-    private val playbackSynchronization: PlaybackSynchronizationRuntime,
-    private val syncDiagnostics: SynchronizationDiagnostics,
-    private val clearLocalDrift: suspend () -> Unit,
+    private val resetLocalSynchronization: suspend () -> Unit,
     private val publishStatus: suspend (ProtocolBody.PlaybackStatusReport) -> Unit,
     private val onCoordinatorCohortChanged: suspend () -> Unit,
     private val setError: (String) -> Unit,
@@ -108,7 +105,7 @@ internal class LocalPlaybackParticipationCoordinator(
      */
     suspend fun resetForSessionBoundary() {
         val before = player.state.value
-        playerMutations.maintenance { resetLocalPlaybackParticipation() }
+        playerExecutor.maintenance { resetLocalPlaybackParticipation() }
         val after = player.state.value
         lastParticipation = after.participation
         if (
@@ -126,19 +123,11 @@ internal class LocalPlaybackParticipationCoordinator(
     }
 
     private suspend fun resetPlaybackSynchronization() {
-        playbackSynchronization.reset(preserveLearnedBaseline = false)
-        syncDiagnostics.clear()
-        clearLocalDrift()
-        if (kotlin.math.abs(player.state.value.playbackSpeed - 1f) > PLAYBACK_SPEED_EPSILON) {
-            playerMutations.synchronize { setPlaybackSpeed(1f) }
-        }
+        resetLocalSynchronization()
         diagnostics.info("sync.reacquire.required", "reason" to "local_output_rejoin")
     }
 
     private fun coordinatorNowNs(): Long =
         if (isCoordinator()) clock.nowNs() else clockSync.coordinatorNowNs()
 
-    companion object {
-        private const val PLAYBACK_SPEED_EPSILON = 0.0001f
-    }
 }

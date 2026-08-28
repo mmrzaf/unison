@@ -206,7 +206,7 @@ def main() -> int:
         if obsolete.exists():
             problems.append(f"Obsolete production file remains: {obsolete.relative_to(ROOT)}")
 
-    require(protocol, "const val PROTOCOL_VERSION = 1", "Protocol baseline is not 1", problems)
+    require(protocol, "const val PROTOCOL_VERSION = 2", "Protocol baseline is not 2", problems)
     require(protocol, "data class PinClientHello", "PIN hello is not explicit", problems)
     require(protocol, "data class ReconnectClientHello", "Reconnect hello is not explicit", problems)
     require(protocol, "data class FileClientHello", "File hello is not explicit", problems)
@@ -275,7 +275,7 @@ def main() -> int:
     require(diagnostic_sink_text, "event.toLogcatJsonLine()", "Logcat does not use bounded structured records", problems)
     if '"network.target_host"' in production:
         problems.append("Diagnostics persist a raw network endpoint")
-    require(room_logs, "Room logs", "Room diagnostics viewer is missing", problems)
+    require(room_logs, "Diagnostics", "Room diagnostics viewer is missing", problems)
 
     if problems:
         print("\n".join(problems), file=sys.stderr)

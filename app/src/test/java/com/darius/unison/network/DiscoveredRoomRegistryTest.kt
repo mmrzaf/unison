@@ -1,6 +1,7 @@
 package com.darius.unison.network
 
 import com.darius.unison.model.DiscoveredRoom
+import com.darius.unison.protocol.PROTOCOL_VERSION
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,7 +19,7 @@ class DiscoveredRoomRegistryTest {
             roomName = name,
             hostAddress = "192.168.1.2",
             port = 4102,
-            protocolVersion = 1,
+            protocolVersion = PROTOCOL_VERSION,
             term = 1,
         )
 

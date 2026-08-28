@@ -8,7 +8,8 @@ After the pinned Gradle distribution and dependency cache are available:
 ./scripts/verify-offline-ready.sh
 ./scripts/check-release-quality.sh
 ./gradlew --offline --no-daemon --stacktrace \
-  testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
+  testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
+  :app:compileDebugAndroidTestKotlin
 ```
 
 `check-release-quality.sh` runs:

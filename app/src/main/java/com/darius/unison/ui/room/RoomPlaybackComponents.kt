@@ -26,7 +26,6 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -34,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,6 +52,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -59,13 +60,93 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.TrackDescriptor
-import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransferProgress
 import com.darius.unison.model.TransportAction
 import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.model.TransportCommandStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+
+
+@Composable
+internal fun PlaybackTransitionStatus(
+    transition: RoomPlaybackUiPolicy.TransitionPresentation,
+) {
+    val progress = transition.progressFraction
+    val failed = transition.kind == RoomPlaybackUiPolicy.TransitionKind.FAILED
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color =
+            if (failed) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.secondaryContainer,
+        contentColor =
+            if (failed) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Text(
+            buildString {
+                append(transition.message)
+                if (progress != null) append(" · ${(progress * 100).toInt()}%")
+            },
+            style = MaterialTheme.typography.labelLarge,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+        )
+    }
+    if (progress != null) {
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp),
+        )
+    }
+}
+
+@Composable
+internal fun UpNextStatus(
+    track: TrackDescriptor,
+    transfer: TransferProgress?,
+) {
+    val suffix =
+        when (transfer?.state) {
+            MemberTrackState.RECEIVING -> " · Getting ready"
+            MemberTrackState.VERIFYING,
+            MemberTrackState.PREPARING_PLAYER -> " · Almost ready"
+            MemberTrackState.FAILED -> " · Needs attention"
+            else -> ""
+        }
+    val failed = transfer?.state == MemberTrackState.FAILED
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color =
+            if (failed) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.surfaceContainerLow,
+        contentColor =
+            if (failed) MaterialTheme.colorScheme.onErrorContainer
+            else MaterialTheme.colorScheme.onSurface,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            Text(
+                "Up next",
+                style = MaterialTheme.typography.labelSmall,
+                color =
+                    if (failed) MaterialTheme.colorScheme.onErrorContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "${track.displayTitle}$suffix",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
 
 @Composable
 internal fun RoomSeekSlider(
@@ -202,7 +283,7 @@ internal fun TransportControlButton(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val controlScale = if (pressed) 0.9f else 1f
-    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
         IconButton(
             onClick = onClick,
             enabled = enabled,
@@ -235,9 +316,9 @@ internal fun TransportPlayPauseButton(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val controlScale = if (pressed) 0.9f else 1f
-    val outerSize = if (compact) 48.dp else 64.dp
-    val buttonSize = if (compact) 44.dp else 58.dp
-    val iconSize = if (compact) 24.dp else 32.dp
+    val outerSize = if (compact) 48.dp else 72.dp
+    val buttonSize = if (compact) 44.dp else 64.dp
+    val iconSize = if (compact) 24.dp else 34.dp
     val contentDescription =
         when {
             isPlaying && pending -> "Pause; play is scheduled"
@@ -293,71 +374,6 @@ private fun PendingActionIndicator(
 }
 
 @Composable
-internal fun TransferStatusCard(
-    transfers: List<TransferProgress>,
-    titles: Map<TrackId, String>,
-) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            transfers.take(3).forEach { transfer ->
-                val title = titles[transfer.trackId] ?: "Music"
-                val status =
-                    when (transfer.state) {
-                        MemberTrackState.RECEIVING -> "Receiving $title"
-                        MemberTrackState.VERIFYING -> "Verifying $title"
-                        MemberTrackState.CANCELLED -> "Cancelled $title"
-                        MemberTrackState.FAILED -> "Could not receive $title"
-                        else -> title
-                    }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            status,
-                            style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (transfer.state == MemberTrackState.RECEIVING) {
-                            Text(
-                                "${(transfer.fraction * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    if (
-                        transfer.state == MemberTrackState.CANCELLED ||
-                            transfer.state == MemberTrackState.FAILED
-                    ) {
-                        Text(
-                            "Check the Wi-Fi connection. Unison can try another source.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    } else {
-                        LinearProgressIndicator(
-                            progress = { transfer.fraction },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
-            if (transfers.size > 3) {
-                Text(
-                    "${transfers.size - 3} more transfer${if (transfers.size == 4) "" else "s"} in progress",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
 internal fun QueueRow(
     index: Int,
     lastIndex: Int,
@@ -366,6 +382,7 @@ internal fun QueueRow(
     playing: Boolean,
     temporary: Boolean,
     pending: Boolean,
+    transfer: TransferProgress? = null,
     canReorder: Boolean,
     draggedIndex: Int?,
     dragTargetIndex: Int?,
@@ -385,7 +402,7 @@ internal fun QueueRow(
     val dragged = draggedIndex
     val target = dragTargetIndex
     val dragActive = dragged != null && target != null
-    val estimatedRowHeightPx = if (dragActive) with(LocalDensity.current) { 56.dp.toPx() } else 0f
+    val estimatedRowHeightPx = if (dragActive) with(LocalDensity.current) { 58.dp.toPx() } else 0f
     val displacedOffsetPx =
         if (dragged == null || target == null || dragged == index) {
             0f
@@ -407,7 +424,12 @@ internal fun QueueRow(
         }
     Row(
         Modifier.fillMaxWidth()
-            .heightIn(min = 54.dp)
+            .heightIn(min = 58.dp)
+            .background(
+                if (current) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.42f)
+                else androidx.compose.ui.graphics.Color.Transparent,
+                MaterialTheme.shapes.medium,
+            )
             .then(dragModifier)
             .semantics {
                 customActions = buildList {
@@ -483,9 +505,19 @@ internal fun QueueRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val transferDetail =
+                when (transfer?.state) {
+                    MemberTrackState.RECEIVING -> "Getting ready · ${(transfer.fraction * 100).toInt()}%"
+                    MemberTrackState.VERIFYING,
+                    MemberTrackState.PREPARING_PLAYER -> "Almost ready"
+                    MemberTrackState.FAILED -> "Couldn't get ready"
+                    MemberTrackState.CANCELLED -> null
+                    else -> null
+                }
             val detail =
-                remember(track.artist, temporary) {
+                remember(track.artist, temporary, transferDetail) {
                     listOfNotNull(
+                            transferDetail,
                             track.artist?.takeIf(String::isNotBlank),
                             "Temporary".takeIf { temporary },
                         )

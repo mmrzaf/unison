@@ -16,6 +16,7 @@ captures/
 dist/
 
 # Secrets and signing material
+keystore/
 signing/
 *.jks
 *.keystore

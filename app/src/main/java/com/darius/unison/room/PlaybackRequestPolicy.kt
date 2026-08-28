@@ -12,9 +12,14 @@ object PlaybackRequestPolicy {
             snapshot.queue.firstOrNull { it.queueItemId == id }
         } ?: snapshot.queue.firstOrNull()
 
-    fun shouldDeferPlay(snapshot: RoomSnapshot): Boolean {
+    fun shouldDeferPlay(snapshot: RoomSnapshot): Boolean = shouldDeferPlay(snapshot, emptySet())
+
+    fun shouldDeferPlay(
+        snapshot: RoomSnapshot,
+        preparedQueueItemIds: Set<com.darius.unison.model.QueueItemId>,
+    ): Boolean {
         val current = currentItem(snapshot) ?: return false
         return snapshot.options.waitAtTrackBoundary &&
-            current.queueItemId !in snapshot.preparedQueueItemIds
+            current.queueItemId !in preparedQueueItemIds
     }
 }

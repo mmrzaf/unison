@@ -1,5 +1,6 @@
 package com.darius.unison.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,25 +24,22 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -61,9 +58,9 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.storage.PlaylistSummary
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun AllMusicSheet(
+internal fun AllMusicScreen(
     tracks: LazyPagingItems<TrackDescriptor>,
     query: String,
     sort: LibrarySort,
@@ -73,13 +70,12 @@ internal fun AllMusicSheet(
     onQueryChange: (String) -> Unit,
     onSortChange: (LibrarySort) -> Unit,
     onChooseFiles: () -> Unit,
-    onAddTracksToPlaylist: (String, List<TrackId>) -> Unit,
+    onAddTracksToPlaylists: (Set<String>, List<TrackId>, String?) -> Unit,
     onKeepTracks: (Set<TrackId>) -> Unit,
     onRemoveTemporaryTracks: (Set<TrackId>) -> Unit,
     onSelectAll: (String, (Set<TrackId>) -> Unit) -> Unit,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selected by remember { mutableStateOf(setOf<TrackId>()) }
     var sortOpen by remember { mutableStateOf(false) }
     var playlistPickerOpen by remember { mutableStateOf(false) }
@@ -95,28 +91,28 @@ internal fun AllMusicSheet(
         if (refreshState !is LoadState.Loading) stableTracks = currentSnapshot
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "All Music",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "$totalCount ${if (totalCount == 1) "song" else "songs"}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                IconButton(onClick = onChooseFiles) {
-                    Icon(Icons.Default.AudioFile, "Add audio files")
-                }
-                IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Close All Music") }
+    BackHandler {
+        if (selected.isNotEmpty()) {
+            selected = emptySet()
+        } else {
+            onQueryChange("")
+            onBack()
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        ScreenTopBar(
+            title = "All Music",
+            subtitle = "$totalCount ${if (totalCount == 1) "song" else "songs"}",
+            onBack = {
+                onQueryChange("")
+                onBack()
+            },
+        ) {
+            IconButton(onClick = onChooseFiles) {
+                Icon(Icons.Default.AudioFile, "Add audio files")
             }
+        }
 
             if (selected.isNotEmpty()) {
                 SelectionToolbar(
@@ -142,23 +138,15 @@ internal fun AllMusicSheet(
                 )
             } else {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    OutlinedTextField(
+                    UnisonSearchField(
                         value = query,
                         onValueChange = onQueryChange,
+                        placeholder = "Search music",
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Search music") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        trailingIcon = {
-                            if (query.isNotEmpty()) {
-                                IconButton(onClick = { onQueryChange("") }) {
-                                    Icon(Icons.Default.Close, "Clear search")
-                                }
-                            }
-                        },
-                        singleLine = true,
                     )
                     Box {
                         IconButton(onClick = { sortOpen = true }) {
@@ -197,14 +185,15 @@ internal fun AllMusicSheet(
                     }
                 stableTracks.isEmpty() ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                if (query.isBlank()) "No music yet" else "No songs found",
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            if (query.isBlank())
-                                TextButton(onClick = onChooseFiles) { Text("Add audio files") }
-                        }
+                        EmptyState(
+                            title = if (query.isBlank()) "No music yet" else "No songs found",
+                            text =
+                                if (query.isBlank()) "Add audio files to build your Unison library."
+                                else "Try a different title, artist, or album.",
+                            icon = if (query.isBlank()) Icons.Default.MusicNote else Icons.Default.SearchOff,
+                            actionLabel = "Add audio files".takeIf { query.isBlank() },
+                            onAction = onChooseFiles,
+                        )
                     }
                 else ->
                     LazyColumn(Modifier.fillMaxSize()) {
@@ -258,6 +247,8 @@ internal fun AllMusicSheet(
                                                     else selected - track.trackId
                                             },
                                         )
+                                    } else {
+                                        TonalIcon(Icons.Default.MusicNote, null)
                                     }
                                 },
                                 trailingContent = {
@@ -267,9 +258,6 @@ internal fun AllMusicSheet(
                                         }
                                     }
                                 },
-                            )
-                            HorizontalDivider(
-                                Modifier.padding(start = if (selected.isEmpty()) 16.dp else 56.dp)
                             )
                         }
                         when (tracks.loadState.append) {
@@ -299,7 +287,6 @@ internal fun AllMusicSheet(
                     }
             }
         }
-    }
 
     rowMenuTrack?.let { track ->
         AlertDialog(
@@ -353,50 +340,18 @@ internal fun AllMusicSheet(
     }
 
     if (playlistPickerOpen) {
-        AlertDialog(
-            onDismissRequest = { playlistPickerOpen = false },
-            title = { Text("Add to playlist") },
-            text = {
-                if (playlists.isEmpty()) {
-                    Text("Create a playlist from the Home screen first.")
-                } else {
-                    LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                        items(playlists, key = { it.playlistId }) { playlist ->
-                            ListItem(
-                                headlineContent = {
-                                    Text(
-                                        playlist.name,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                },
-                                supportingContent = {
-                                    Text(
-                                        "${playlist.trackCount} ${if (playlist.trackCount == 1) "song" else "songs"}"
-                                    )
-                                },
-                                modifier =
-                                    Modifier.combinedClickable(
-                                        onClick = {
-                                            playlistPickerOpen = false
-                                            onAddTracksToPlaylist(
-                                                playlist.playlistId,
-                                                selected.toList(),
-                                            )
-                                            selected = emptySet()
-                                        },
-                                        onLongClick = {},
-                                    ),
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { playlistPickerOpen = false }) { Text("Cancel") }
+        PlaylistPickerSheet(
+            playlists = playlists,
+            title = "Add to playlist",
+            onDismiss = { playlistPickerOpen = false },
+            onConfirm = { playlistIds, newPlaylistName ->
+                playlistPickerOpen = false
+                onAddTracksToPlaylists(playlistIds, selected.toList(), newPlaylistName)
+                selected = emptySet()
             },
         )
     }
+
 }
 
 @Composable
@@ -410,37 +365,44 @@ private fun SelectionToolbar(
     onKeep: () -> Unit,
     onRemoveTemporary: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Exit selection") }
-            Text(
-                "$selectedCount selected",
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onSelectAll) {
-                Text(if (allSelected) "Clear all" else "Select all")
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Exit selection") }
+                Text(
+                    "$selectedCount selected",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onSelectAll) {
+                    Text(if (allSelected) "Clear all" else "Select all")
+                }
             }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilledTonalButton(onClick = onAddToPlaylist, modifier = Modifier.weight(1f)) {
-                Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Playlist")
-            }
-            FilledTonalButton(onClick = onKeep, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Default.DownloadDone, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Keep")
-            }
-            FilledTonalButton(
-                onClick = onRemoveTemporary,
-                enabled = hasTemporary,
-                modifier = Modifier.weight(1f),
-            ) {
-                Icon(Icons.Default.DeleteOutline, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("Remove")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilledTonalButton(onClick = onAddToPlaylist, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Playlist")
+                }
+                FilledTonalButton(onClick = onKeep, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.DownloadDone, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Keep")
+                }
+                FilledTonalButton(
+                    onClick = onRemoveTemporary,
+                    enabled = hasTemporary,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Default.DeleteOutline, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Remove")
+                }
             }
         }
     }

@@ -5,14 +5,15 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 require_command find "Install findutils"
 require_command sort "Install coreutils"
 require_command tar "Install tar"
+require_command grep "Install grep"
 require_command sha256sum "Install coreutils"
 
-DEST="${WAIO_ARCHIVE_DIR:-${HOME}/tmp/backup/waiotech}"
+DEST="${UNISON_ARCHIVE_DIR:-${HOME}/tmp/backup/unison}"
 mkdir -p "$DEST"
 DEST="$(cd -- "$DEST" && pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
-ARCHIVE="$DEST/waiotech-source-$STAMP.tar.gz"
-TMP_ARCHIVE="$DEST/.waiotech-source-$STAMP.tmp.$$.tar.gz"
+ARCHIVE="$DEST/unison-source-$STAMP.tar.gz"
+TMP_ARCHIVE="$DEST/.unison-source-$STAMP.tmp.$$.tar.gz"
 
 trap 'rm -f "$TMP_ARCHIVE"' EXIT
 
@@ -67,13 +68,11 @@ trap 'rm -f "$TMP_ARCHIVE"' EXIT
       -name logs -o \
       -path './.artifacts' -o \
       -path './backup' -o \
-      -path './android/.gradle' -o \
-      -path './android/.kotlin' -o \
-      -path './android/captures' -o \
-      -path './android/dist' -o \
-      -path './server/bundle-runs' -o \
-      -path './server/artifacts/generated-reports' -o \
-      -path './server/artifacts/reports' \
+      -path './.gradle' -o \
+      -path './.kotlin' -o \
+      -path './captures' -o \
+      -path './dist' -o \
+      -path './keystore' \
     \) -prune \) -o \
     \( \( -type f -o -type l \) \
       ! -name '.DS_Store' \
@@ -112,16 +111,19 @@ trap 'rm -f "$TMP_ARCHIVE"' EXIT
       ! -name '*.zip' \
       ! -name '*.7z' \
       ! -name '*.rar' \
-      ! -path './android/local.properties' \
-      ! -path './deploy/.deployed-release.json' \
-      ! -path './deploy/release-manifest.json' \
-      ! -path './deploy/release-manifests/*' \
-      ! -path './docs/90-generated/020-waiotech.pdf' \
+      ! -path './local.properties' \
+      ! -path './keystore.properties' \
       -print0 \
     \) \
     | sort -z \
     | tar -czf "$TMP_ARCHIVE" --null --no-recursion --files-from=-
 )
+
+# Defense in depth: fail closed if a future exclusion edit lets signing/local secrets through.
+if tar -tzf "$TMP_ARCHIVE" | grep -Eq '(^|/)(keystore\.properties|local\.properties)$|(^|/)keystore/|\.(jks|keystore|p12|pfx|pem|key)$'; then
+  printf 'Refusing to create archive: sensitive signing/local material was included\n' >&2
+  exit 1
+fi
 
 mv -f "$TMP_ARCHIVE" "$ARCHIVE"
 trap - EXIT

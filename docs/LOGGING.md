@@ -78,7 +78,7 @@ resource pressure.
 
 ## Room log console
 
-`Room actions → Room logs` opens a live room-scoped console. It subscribes to the diagnostic revision
+`Diagnostics` opens a live room-scoped console. It subscribes to the diagnostic revision
 flow only while visible, so normal room UI does not observe the log list.
 
 The console provides:

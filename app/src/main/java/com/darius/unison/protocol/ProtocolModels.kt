@@ -14,12 +14,44 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportAction
 import com.darius.unison.model.TransportCommandPhase
+import com.darius.unison.model.TransferPriority
 import com.darius.unison.model.UserCommand
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-const val PROTOCOL_VERSION = 1
+const val PROTOCOL_VERSION = 2
 const val MAX_CONTROL_PAYLOAD_BYTES = 4 * 1024 * 1024
+
+@Serializable
+enum class TransferFailureStage {
+    VALIDATE,
+    CONNECT,
+    HANDSHAKE,
+    BODY,
+    VERIFY,
+    REGISTER,
+    UNKNOWN,
+}
+
+@Serializable
+enum class TransferFailureCode {
+    SOURCE_UNAVAILABLE,
+    DESTINATION_STORAGE,
+    CONNECT_FAILED,
+    AUTHENTICATION,
+    INTEGRITY,
+    PROTOCOL,
+    IO,
+    UNKNOWN,
+}
+
+@Serializable
+enum class TransferFailureBlame {
+    SOURCE,
+    DESTINATION,
+    ROUTE,
+    UNKNOWN,
+}
 
 @Serializable
 data class Envelope(
@@ -123,10 +155,18 @@ sealed interface ProtocolBody {
 
     @Serializable @SerialName("queue_cleared") data object QueueCleared : ProtocolBody
 
+    /**
+     * Ephemeral playback-readiness projection for the current queue revision. This is intentionally
+     * not canonical state and therefore never carries a canonical sequence number.
+     */
     @Serializable
-    @SerialName("queue_prepared_set_changed")
-    data class QueuePreparedSetChanged(val preparedQueueItemIds: Set<QueueItemId>) : ProtocolBody
+    @SerialName("playback_readiness_changed")
+    data class PlaybackReadinessChanged(
+        val queueRevision: Long,
+        val preparedQueueItemIds: Set<QueueItemId>,
+    ) : ProtocolBody
 
+    /** Ephemeral priority hint. Never consumes canonical sequence/history. */
     @Serializable
     @SerialName("queue_item_preparation_requested")
     data class QueueItemPreparationRequested(
@@ -238,7 +278,11 @@ sealed interface ProtocolBody {
 
     @Serializable
     @SerialName("track_need")
-    data class TrackNeed(val trackId: TrackId) : ProtocolBody
+    data class TrackNeed(
+        val trackId: TrackId,
+        val priority: TransferPriority = TransferPriority.BACKGROUND,
+        val neededByCoordinatorNs: Long? = null,
+    ) : ProtocolBody
 
     @Serializable
     @SerialName("track_source_assigned")
@@ -265,8 +309,12 @@ sealed interface ProtocolBody {
     @SerialName("track_failed")
     data class TrackFailed(
         val trackId: TrackId,
-        val reason: String,
         val sourcePeerId: PeerId? = null,
+        val stage: TransferFailureStage = TransferFailureStage.UNKNOWN,
+        val code: TransferFailureCode = TransferFailureCode.UNKNOWN,
+        val blame: TransferFailureBlame = TransferFailureBlame.UNKNOWN,
+        val retryable: Boolean = true,
+        val reason: String,
     ) : ProtocolBody
 
     @Serializable

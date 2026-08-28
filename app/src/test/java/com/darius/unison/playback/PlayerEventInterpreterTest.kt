@@ -5,101 +5,79 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PlayerEventInterpreterTest {
-    private val item = QueueItemId("item")
+    private val ended = QueueItemId("ended")
+    private val selected = QueueItemId("selected")
 
     @Test
-    fun programmaticTransitionsRemainObservationsOnly() {
+    fun programmaticItemTransitionNeverAuthorsCanonicalProgression() {
         val interpreter = PlayerEventInterpreter()
-
-        val action =
-            interpreter.observe(
-                state = state(PlayerItemTransitionReason.SEEK, revision = 1),
-                coordinator = true,
-                nowNs = 0,
+        val state =
+            PlayerState(
+                queueItemId = selected,
+                itemTransitionRevision = 1,
+                itemTransitionReason = PlayerItemTransitionReason.SEEK,
             )
 
-        assertEquals(PlayerEventInterpreter.Action.None, action)
+        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 0))
     }
 
     @Test
-    fun automaticAndRepeatTransitionsBecomeExplicitDecisions() {
+    fun naturalBoundaryReportsTheItemThatEndedNotMedia3sNewSelection() {
         val interpreter = PlayerEventInterpreter()
-        val advance =
-            interpreter.observe(
-                state = state(PlayerItemTransitionReason.AUTO, revision = 1),
-                coordinator = true,
-                nowNs = 0,
-            )
-        val repeat =
-            interpreter.observe(
-                state = state(PlayerItemTransitionReason.REPEAT, revision = 2),
-                coordinator = true,
-                nowNs = 100,
-            )
-
-        assertEquals(PlayerEventInterpreter.Action.NaturalAdvance(item, 1_000), advance)
-        assertEquals(PlayerEventInterpreter.Action.NaturalRepeat(item, 1_000), repeat)
-    }
-
-    @Test
-    fun endedEventIsHandledOnceUntilStateChanges() {
-        val interpreter = PlayerEventInterpreter()
-        val ended = state(PlayerItemTransitionReason.UNKNOWN, revision = 0).copy(ended = true)
-
-        val first = interpreter.observe(ended, coordinator = true, nowNs = 0)
-        val second = interpreter.observe(ended, coordinator = true, nowNs = 1)
-
-        assertEquals(PlayerEventInterpreter.Action.PlaybackEnded(item, 1_000, 10_000), first)
-        assertEquals(PlayerEventInterpreter.Action.None, second)
-    }
-
-    @Test
-    fun automaticTransitionBurstTripsAndResetRestoresNormalBehavior() {
-        val interpreter =
-            PlayerEventInterpreter(
-                PlayerTransitionCircuitBreaker(
-                    maxTransitions = 2,
-                    windowNs = 1_000,
-                    cooldownNs = 5_000,
-                )
+        val state =
+            PlayerState(
+                queueItemId = selected,
+                positionMs = 0,
+                itemTransitionRevision = 1,
+                itemTransitionReason = PlayerItemTransitionReason.AUTO,
+                itemBoundaryRevision = 1,
+                boundaryEndedQueueItemId = ended,
+                boundaryEndedPositionMs = 10_000,
+                boundaryEndedDurationMs = 10_000,
             )
 
         assertEquals(
-            PlayerEventInterpreter.Action.NaturalAdvance(item, 1_000),
-            interpreter.observe(state(PlayerItemTransitionReason.AUTO, 1), true, 0),
+            PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
+            interpreter.observe(state, coordinator = true, nowNs = 0),
         )
         assertEquals(
-            PlayerEventInterpreter.Action.TransitionLoopDetected,
-            interpreter.observe(state(PlayerItemTransitionReason.AUTO, 2), true, 100),
-        )
-
-        interpreter.reset(PlayerState())
-        assertEquals(
-            PlayerEventInterpreter.Action.NaturalAdvance(item, 1_000),
-            interpreter.observe(state(PlayerItemTransitionReason.AUTO, 1), true, 200),
+            PlayerEventInterpreter.Action.None,
+            interpreter.observe(state, coordinator = true, nowNs = 1),
         )
     }
 
     @Test
-    fun participantNeverAuthorsCanonicalTransition() {
+    fun finalPlaylistEndIsHandledOnce() {
         val interpreter = PlayerEventInterpreter()
-        val action =
-            interpreter.observe(
-                state(PlayerItemTransitionReason.AUTO, 1),
-                coordinator = false,
-                nowNs = 0,
+        val state =
+            PlayerState(
+                queueItemId = ended,
+                positionMs = 10_000,
+                durationMs = 10_000,
+                ended = true,
             )
 
-        assertEquals(PlayerEventInterpreter.Action.None, action)
+        assertEquals(
+            PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
+            interpreter.observe(state, true, 0),
+        )
+        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 1))
     }
 
-    private fun state(reason: PlayerItemTransitionReason, revision: Long): PlayerState =
-        PlayerState(
-            queueItemId = item,
-            positionMs = 1_000,
-            durationMs = 10_000,
-            playWhenReady = true,
-            itemTransitionRevision = revision,
-            itemTransitionReason = reason,
-        )
+    @Test
+    fun participantConsumesBoundaryButNeverAuthorsRoomTransition() {
+        val interpreter = PlayerEventInterpreter()
+        val state =
+            PlayerState(
+                queueItemId = selected,
+                itemBoundaryRevision = 1,
+                boundaryEndedQueueItemId = ended,
+                boundaryEndedPositionMs = 10_000,
+                boundaryEndedDurationMs = 10_000,
+            )
+
+        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, false, 0))
+        // Promotion to coordinator later must not replay a boundary already observed as participant.
+        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 1))
+    }
 }

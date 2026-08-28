@@ -25,6 +25,7 @@ object TransportTargetPolicy {
         snapshot: RoomSnapshot,
         coordinatorNowNs: Long,
         pendingTarget: QueueItemId? = null,
+        preparedQueueItemIds: Set<QueueItemId> = emptySet(),
     ): Resolution {
         return when (command) {
             is UserCommand.SkipNext ->
@@ -34,6 +35,7 @@ object TransportTargetPolicy {
                     delta = 1,
                     baseId = pendingTarget ?: snapshot.playback.queueItemId,
                     emptyOrBoundaryMessage = "Already at the end of the queue",
+                    preparedQueueItemIds = preparedQueueItemIds,
                 )
 
             is UserCommand.SkipPrevious -> {
@@ -46,7 +48,7 @@ object TransportTargetPolicy {
                         command = UserCommand.Seek(command.commandId, command.requestedBy, 0L)
                     )
                 } else {
-                    resolvePrevious(command, snapshot, pendingTarget)
+                    resolvePrevious(command, snapshot, pendingTarget, preparedQueueItemIds)
                 }
             }
 
@@ -69,7 +71,7 @@ object TransportTargetPolicy {
                             )
                     }
                 }
-                if (snapshot.requiresPreparation(target.queueItemId)) {
+                if (snapshot.requiresPreparation(target.queueItemId, preparedQueueItemIds)) {
                     Resolution(
                         pendingTarget = target.queueItemId,
                         pendingResumePlayback = command.resumePlayback,
@@ -87,6 +89,7 @@ object TransportTargetPolicy {
         command: UserCommand.SkipPrevious,
         snapshot: RoomSnapshot,
         pendingTarget: QueueItemId?,
+        preparedQueueItemIds: Set<QueueItemId>,
     ): Resolution {
         if (snapshot.queue.isEmpty()) return Resolution(rejection = "The queue is empty")
         val baseId = pendingTarget ?: snapshot.playback.queueItemId
@@ -98,7 +101,7 @@ object TransportTargetPolicy {
                 command = UserCommand.Seek(command.commandId, command.requestedBy, 0L)
             )
         }
-        return targetResolution(command, snapshot, target.queueItemId)
+        return targetResolution(command, snapshot, target.queueItemId, preparedQueueItemIds)
     }
 
     private fun resolveRelative(
@@ -107,6 +110,7 @@ object TransportTargetPolicy {
         delta: Int,
         baseId: QueueItemId?,
         emptyOrBoundaryMessage: String,
+        preparedQueueItemIds: Set<QueueItemId>,
     ): Resolution {
         if (snapshot.queue.isEmpty()) return Resolution(rejection = "The queue is empty")
         val baseIndex = snapshot.queue.indexOfFirst { it.queueItemId == baseId }
@@ -114,15 +118,16 @@ object TransportTargetPolicy {
         val target =
             snapshot.queue.getOrNull(targetIndex)
                 ?: return Resolution(rejection = emptyOrBoundaryMessage)
-        return targetResolution(command, snapshot, target.queueItemId)
+        return targetResolution(command, snapshot, target.queueItemId, preparedQueueItemIds)
     }
 
     private fun targetResolution(
         command: UserCommand,
         snapshot: RoomSnapshot,
         queueItemId: QueueItemId,
+        preparedQueueItemIds: Set<QueueItemId>,
     ): Resolution =
-        if (snapshot.requiresPreparation(queueItemId)) {
+        if (snapshot.requiresPreparation(queueItemId, preparedQueueItemIds)) {
             Resolution(
                 pendingTarget = queueItemId,
                 pendingResumePlayback = snapshot.playback.isPlaying,
@@ -139,8 +144,10 @@ object TransportTargetPolicy {
             )
         }
 
-    private fun RoomSnapshot.requiresPreparation(queueItemId: QueueItemId): Boolean =
-        options.waitAtTrackBoundary && queueItemId !in preparedQueueItemIds
+    private fun RoomSnapshot.requiresPreparation(
+        queueItemId: QueueItemId,
+        preparedQueueItemIds: Set<QueueItemId>,
+    ): Boolean = options.waitAtTrackBoundary && queueItemId !in preparedQueueItemIds
 
     private const val RESTART_THRESHOLD_MS = 4_000L
 }

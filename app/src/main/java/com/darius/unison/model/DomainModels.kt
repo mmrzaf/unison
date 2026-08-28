@@ -114,13 +114,25 @@ enum class MemberTrackState {
     FAILED,
 }
 
+/** Playback-aware priority for acquiring content. Lower ordinal means more urgent. */
+@Serializable
+enum class TransferPriority {
+    CURRENT_REQUIRED,
+    USER_SELECTED,
+    NEXT_BOUNDARY,
+    PLAYBACK_RUNWAY,
+    BACKGROUND,
+}
+
 @Serializable
 data class MemberSnapshot(
     val peerId: PeerId,
     val displayName: String,
-    val endpoint: PeerEndpoint? = null,
-    val connected: Boolean = true,
-    val currentTrackState: MemberTrackState = MemberTrackState.UNKNOWN,
+)
+
+/** Ephemeral per-session member status. Never serialized into canonical room state. */
+data class MemberRuntimeState(
+    val connected: Boolean = false,
 )
 
 @Serializable
@@ -223,7 +235,6 @@ data class RoomSnapshot(
     val options: RoomOptions = RoomOptions(),
     val members: List<MemberSnapshot> = emptyList(),
     val queue: List<QueueItem> = emptyList(),
-    val preparedQueueItemIds: Set<QueueItemId> = emptySet(),
     val playback: CanonicalPlaybackState = CanonicalPlaybackState(),
     val repeatMode: RepeatMode = RepeatMode.OFF,
     /** Sequence of the most recent mutation that changed queue membership or ordering. */
@@ -256,9 +267,7 @@ enum class RoomLifecycleState {
 enum class UserFacingStatus {
     IDLE,
     PREPARING,
-    RECEIVING,
     READY,
-    SYNCING,
     RECONNECTING,
     UNAVAILABLE,
 }
@@ -309,6 +318,7 @@ data class RoomUiState(
      */
     val localRoomPin: String? = null,
     val hotspot: HotspotInfo? = null,
+    val memberRuntime: Map<PeerId, MemberRuntimeState> = emptyMap(),
 ) {
     /** Any finite room operation that needs the service to remain alive. */
     val operationActive: Boolean

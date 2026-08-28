@@ -4,10 +4,9 @@ import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.playback.PlaybackIntentReconciliationPolicy
-import com.darius.unison.playback.PlayerMutationCoordinator
+import com.darius.unison.playback.PlayerExecutor
 import com.darius.unison.playback.PlayerPort
 import com.darius.unison.playback.PlaybackPauseCause
-import com.darius.unison.playback.ScheduledPlaybackController
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.sync.ClockSyncEngine
 import com.darius.unison.util.DiagnosticCategory
@@ -15,13 +14,13 @@ import com.darius.unison.util.DiagnosticLog
 import com.darius.unison.util.MonotonicClock
 
 /**
- * Applies and repairs canonical playback state. All methods are invoked by the serialized room
- * actor; this class owns effects but never owns or mutates the canonical room snapshot.
+ * Applies and repairs canonical playback state as a playback effect component. The room actor may
+ * schedule these methods, but disk/player work executes outside actor ownership. This class never
+ * owns or mutates the canonical room snapshot.
  */
 internal class CanonicalPlaybackCoordinator(
     private val player: PlayerPort,
-    private val playerMutations: PlayerMutationCoordinator,
-    private val scheduler: ScheduledPlaybackController,
+    private val playerExecutor: PlayerExecutor,
     private val clock: MonotonicClock,
     private val clockSync: ClockSyncEngine,
     private val playbackSession: PlaybackSessionCoordinator,
@@ -59,8 +58,8 @@ internal class CanonicalPlaybackCoordinator(
         if (!clockSync.synchronized) return
         val queueItem = canonical.queueItemId
         if (queueItem == null) {
-            scheduler.cancel("Canonical queue is empty")
-            playerMutations.synchronize { pause(PlaybackPauseCause.CANONICAL_QUEUE_EMPTY) }
+            playerExecutor.cancel("Canonical queue is empty")
+            playerExecutor.synchronize { pause(PlaybackPauseCause.CANONICAL_QUEUE_EMPTY) }
             return
         }
         if (snapshot.queue.none { it.queueItemId == queueItem }) {
@@ -71,7 +70,7 @@ internal class CanonicalPlaybackCoordinator(
         val coordinatorNow = clockSync.coordinatorNowNs()
         if (canonical.coordinatorTimestampNs > coordinatorNow + futureCommandToleranceNs) {
             if (player.state.value.queueItemId == null) refreshPlayerQueue(snapshot)
-            scheduler.scheduleSeek(
+            playerExecutor.scheduleSeek(
                 queueItemId = queueItem,
                 positionMs = canonical.positionAtTimestampMs,
                 resume = canonical.isPlaying,
@@ -84,7 +83,7 @@ internal class CanonicalPlaybackCoordinator(
         val local = player.state.value
         if (local.queueItemId != queueItem) {
             refreshPlayerQueue(snapshot)
-            scheduler.scheduleSeek(
+            playerExecutor.scheduleSeek(
                 queueItemId = queueItem,
                 positionMs = canonical.projectedPositionMs(coordinatorNow),
                 resume = canonical.isPlaying,
@@ -101,9 +100,9 @@ internal class CanonicalPlaybackCoordinator(
                 participation = local.participation,
             )
         ) {
-            PlaybackIntentReconciliationPolicy.Action.PLAY -> playerMutations.synchronize { play() }
+            PlaybackIntentReconciliationPolicy.Action.PLAY -> playerExecutor.synchronize { play() }
             PlaybackIntentReconciliationPolicy.Action.PAUSE ->
-                playerMutations.synchronize { pause(PlaybackPauseCause.CANONICAL_RECONCILIATION) }
+                playerExecutor.synchronize { pause(PlaybackPauseCause.CANONICAL_RECONCILIATION) }
             PlaybackIntentReconciliationPolicy.Action.NONE -> Unit
         }
     }
@@ -113,7 +112,7 @@ internal class CanonicalPlaybackCoordinator(
         report: ProtocolBody.PlaybackStatusReport,
     ) {
         val snapshot = snapshotProvider() ?: return
-        if (snapshot.members.none { it.peerId == peerId && it.connected }) return
+        if (snapshot.members.none { it.peerId == peerId }) return
         val now = clock.nowNs()
         when (val action = playbackSession.convergenceAction(peerId, snapshot, report, now)) {
             PlaybackConvergencePolicy.Action.None -> Unit
@@ -166,8 +165,8 @@ internal class CanonicalPlaybackCoordinator(
         val canonical = snapshot.playback
         val queueItemId = canonical.queueItemId
         if (queueItemId == null) {
-            scheduler.cancel("Canonical queue is empty")
-            playerMutations.maintenance { pause(PlaybackPauseCause.CANONICAL_QUEUE_EMPTY) }
+            playerExecutor.cancel("Canonical queue is empty")
+            playerExecutor.maintenance { pause(PlaybackPauseCause.CANONICAL_QUEUE_EMPTY) }
             return
         }
 
@@ -175,7 +174,7 @@ internal class CanonicalPlaybackCoordinator(
         if (local.participation != LocalPlaybackParticipation.ACTIVE) return
         if (local.queueItemId != queueItemId) {
             refreshPlayerQueue(snapshot)
-            scheduler.scheduleSeek(
+            playerExecutor.scheduleSeek(
                 queueItemId = queueItemId,
                 positionMs = canonical.projectedPositionMs(coordinatorNowNs),
                 resume = canonical.isPlaying,
@@ -187,13 +186,13 @@ internal class CanonicalPlaybackCoordinator(
 
         if (local.playWhenReady == canonical.isPlaying) return
         if (canonical.isPlaying) {
-            scheduler.schedulePlay(
+            playerExecutor.schedulePlay(
                 queueItemId = queueItemId,
                 positionMs = canonical.projectedPositionMs(coordinatorNowNs),
                 executeAtCoordinatorNs = coordinatorNowNs,
             )
         } else {
-            scheduler.schedulePause(
+            playerExecutor.schedulePause(
                 queueItemId = queueItemId,
                 positionMs = canonical.projectedPositionMs(coordinatorNowNs),
                 executeAtCoordinatorNs = coordinatorNowNs,

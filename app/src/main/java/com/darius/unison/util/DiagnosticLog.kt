@@ -168,6 +168,14 @@ internal constructor(
             }
         }
 
+    /** Removes the active room's visible diagnostics without affecting other application events. */
+    fun clearRoom(roomSessionId: String) {
+        synchronized(lock) {
+            recentEvents.removeAll { it.roomSessionId == roomSessionId }
+        }
+        _revision.value = _revision.value + 1L
+    }
+
     internal fun emit(
         severity: DiagnosticSeverity,
         component: String,

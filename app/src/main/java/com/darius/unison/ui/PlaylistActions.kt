@@ -83,6 +83,50 @@ internal class PlaylistActions(
         }
     }
 
+    fun addTracksToPlaylists(
+        playlistIds: Set<String>,
+        trackIds: List<TrackId>,
+        newPlaylistName: String?,
+    ) {
+        if (trackIds.isEmpty()) return
+        val existingIds = playlistIds.filter(String::isNotBlank).distinct()
+        val normalizedNewName = newPlaylistName?.trim()?.takeIf(String::isNotEmpty)
+        if (existingIds.isEmpty() && normalizedNewName == null) {
+            message.value = "Choose a playlist"
+            return
+        }
+        scope.launch {
+            activeOperationCount.update { it + 1 }
+            try {
+                var succeeded = 0
+                var failed = 0
+                existingIds.forEach { playlistId ->
+                    userResult { container.playlistRepository.appendTracks(playlistId, trackIds) }
+                        .onSuccess { succeeded += 1 }
+                        .onFailure { failed += 1 }
+                }
+                normalizedNewName?.let { name ->
+                    userResult { container.playlistRepository.create(name, trackIds) }
+                        .onSuccess { succeeded += 1 }
+                        .onFailure { failed += 1 }
+                }
+                _selectedPlaylist.value
+                    ?.playlistId
+                    ?.takeIf { it in existingIds }
+                    ?.let { refreshSelected(it) }
+                message.value =
+                    when {
+                        succeeded == 0 -> "Could not update playlists"
+                        failed > 0 -> "Added songs; $failed playlist${if (failed == 1) "" else "s"} could not be updated"
+                        succeeded == 1 -> "Songs added to playlist"
+                        else -> "Songs added to $succeeded playlists"
+                    }
+            } finally {
+                activeOperationCount.update { (it - 1).coerceAtLeast(0) }
+            }
+        }
+    }
+
     fun moveTrack(playlistId: String, fromIndex: Int, toIndex: Int) {
         scope.launch {
             userResult {

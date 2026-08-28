@@ -12,8 +12,13 @@ object QueueShufflePolicy {
         queue: List<QueueItem>,
         currentId: QueueItemId?,
         seed: Long,
+        preserveNextQueueItemId: QueueItemId? = null,
     ): List<QueueItemId>? {
-        val fixedCount = fixedCount(queue, currentId)
+        val currentFixedCount = fixedCount(queue, currentId)
+        val preserveNext =
+            preserveNextQueueItemId != null &&
+                queue.getOrNull(currentFixedCount)?.queueItemId == preserveNextQueueItemId
+        val fixedCount = currentFixedCount + if (preserveNext) 1 else 0
         if (queue.size - fixedCount < 2) return null
 
         val fixed = queue.take(fixedCount).map { it.queueItemId }

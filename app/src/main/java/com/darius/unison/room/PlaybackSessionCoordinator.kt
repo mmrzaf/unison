@@ -15,7 +15,6 @@ import com.darius.unison.protocol.ProtocolBody
  */
 internal class PlaybackSessionCoordinator(
     private val playbackStatusReportIntervalNs: Long,
-    private val lifecycleDiscontinuityNs: Long,
     private val clockQualityReportIntervalNs: Long,
     private val convergence: PlaybackConvergencePolicy = PlaybackConvergencePolicy(),
 ) {
@@ -33,10 +32,10 @@ internal class PlaybackSessionCoordinator(
     private var latestPlaybackStateSync: CanonicalPlaybackState? = null
     private var lastPlaybackReferenceBroadcastNs = 0L
     private var lastPlaybackStatusReportNs = 0L
-    private var lastPlaybackSyncTickLocalNs = 0L
     private var lastClockQualityReportNs = 0L
     private var lastObservedOutputRoute: AudioOutputRoute? = null
 
+    @Synchronized
     fun evaluateIncomingSync(
         sync: ProtocolBody.PlaybackStateSync,
         snapshot: RoomSnapshot,
@@ -70,9 +69,11 @@ internal class PlaybackSessionCoordinator(
         return IncomingSyncDecision.Apply(canonical)
     }
 
+    @Synchronized
     fun canonicalForTick(snapshot: RoomSnapshot, coordinator: Boolean): CanonicalPlaybackState =
         if (coordinator) snapshot.playback else latestPlaybackStateSync ?: snapshot.playback
 
+    @Synchronized
     fun playbackStateSync(
         snapshot: RoomSnapshot,
         atCoordinatorNs: Long,
@@ -85,17 +86,7 @@ internal class PlaybackSessionCoordinator(
             recovery = recovery,
         )
 
-    fun suspendSynchronizationTicks() {
-        lastPlaybackSyncTickLocalNs = 0L
-    }
-
-    /** Returns true when the actor was delayed long enough to require full reacquisition. */
-    fun beginSynchronizationTick(nowLocalNs: Long): Boolean {
-        val previousTick = lastPlaybackSyncTickLocalNs
-        lastPlaybackSyncTickLocalNs = nowLocalNs
-        return previousTick != 0L && nowLocalNs - previousTick > lifecycleDiscontinuityNs
-    }
-
+    @Synchronized
     fun shouldReportPlaybackStatus(sampledAtLocalNs: Long): Boolean {
         if (sampledAtLocalNs - lastPlaybackStatusReportNs < playbackStatusReportIntervalNs) {
             return false
@@ -104,12 +95,14 @@ internal class PlaybackSessionCoordinator(
         return true
     }
 
+    @Synchronized
     fun shouldBroadcastPlaybackReference(nowCoordinatorNs: Long, intervalNs: Long): Boolean {
         if (nowCoordinatorNs - lastPlaybackReferenceBroadcastNs < intervalNs) return false
         lastPlaybackReferenceBroadcastNs = nowCoordinatorNs
         return true
     }
 
+    @Synchronized
     fun shouldReportClockQuality(nowLocalNs: Long, newlySynchronized: Boolean): Boolean {
         if (
             !newlySynchronized &&
@@ -122,12 +115,14 @@ internal class PlaybackSessionCoordinator(
     }
 
     /** Returns true only when a previously observed route changed. */
+    @Synchronized
     fun observeOutputRoute(route: AudioOutputRoute): Boolean {
         val previous = lastObservedOutputRoute
         lastObservedOutputRoute = route
         return previous != null && previous != route
     }
 
+    @Synchronized
     fun convergenceAction(
         peerId: PeerId,
         snapshot: RoomSnapshot,
@@ -136,33 +131,37 @@ internal class PlaybackSessionCoordinator(
     ): PlaybackConvergencePolicy.Action =
         convergence.decide(peerId, snapshot, report, coordinatorNowNs)
 
+    @Synchronized
     fun forgetPeer(peerId: PeerId) = convergence.forget(peerId)
 
+    @Synchronized
     fun seedCanonical(playback: CanonicalPlaybackState) {
         latestPlaybackStateSync = playback
     }
 
+    @Synchronized
     fun clearCanonical() {
         latestPlaybackStateSync = null
     }
 
+    @Synchronized
     fun resetClockQuality() {
         lastClockQualityReportNs = 0L
     }
 
+    @Synchronized
     fun resetAfterDiscontinuity(canonical: CanonicalPlaybackState?) {
         latestPlaybackStateSync = canonical
         lastPlaybackReferenceBroadcastNs = 0L
         lastPlaybackStatusReportNs = 0L
-        lastPlaybackSyncTickLocalNs = 0L
         lastObservedOutputRoute = null
     }
 
+    @Synchronized
     fun resetSession() {
         latestPlaybackStateSync = null
         lastPlaybackReferenceBroadcastNs = 0L
         lastPlaybackStatusReportNs = 0L
-        lastPlaybackSyncTickLocalNs = 0L
         lastClockQualityReportNs = 0L
         lastObservedOutputRoute = null
         convergence.reset()

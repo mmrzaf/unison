@@ -84,8 +84,14 @@ data class PlayerState(
     val seekRevision: Long = 0,
     /** Increments for every Media3 current-item transition callback. */
     val itemTransitionRevision: Long = 0,
-    /** Preserves Media3's transition origin so programmatic changes cannot look natural. */
+    /** Preserves Media3's transition origin for diagnostics only. */
     val itemTransitionReason: PlayerItemTransitionReason? = null,
+    /** Increments only when Media3 reaches a natural item boundary (AUTO or REPEAT). */
+    val itemBoundaryRevision: Long = 0,
+    /** Item that actually ended at [itemBoundaryRevision], independent of the newly selected item. */
+    val boundaryEndedQueueItemId: QueueItemId? = null,
+    val boundaryEndedPositionMs: Long = 0,
+    val boundaryEndedDurationMs: Long = 0,
 )
 
 data class LocalPlayableItem(

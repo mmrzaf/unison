@@ -19,7 +19,7 @@ after successful proof verification.
 
 ## Control traffic
 
-- Protocol 1 uses strict decoding and exact version equality.
+- Protocol 2 uses strict decoding and exact version equality.
 - Direction-specific AES-GCM keys protect every control frame.
 - Headers and envelope context are authenticated.
 - Message UUIDs and sequence checks reject replay and reordering outside allowed semantics.

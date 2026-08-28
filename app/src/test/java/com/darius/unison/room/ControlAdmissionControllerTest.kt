@@ -190,6 +190,27 @@ class ControlAdmissionControllerTest {
     }
 
     @Test
+    fun oldProtocolIsRejectedBeforeAuthentication() = runBlocking {
+        val hello =
+            HandshakeMessage.ReconnectClientHello(
+                peerId = guest,
+                displayName = "Guest",
+                appVersion = "1.0.0",
+                protocolVersion = PROTOCOL_VERSION - 1,
+                listeningPort = 4321,
+                roomId = roomId,
+                clientNonce = Crypto.randomBase64(18),
+            )
+
+        val result =
+            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.Rejected
+        assertEquals(
+            com.darius.unison.protocol.HandshakeRejectionCode.PROTOCOL_MISMATCH,
+            result.code,
+        )
+    }
+
+    @Test
     fun mismatchedProtocolIsRejectedBeforeAuthentication() = runBlocking {
         val hello =
             HandshakeMessage.ReconnectClientHello(

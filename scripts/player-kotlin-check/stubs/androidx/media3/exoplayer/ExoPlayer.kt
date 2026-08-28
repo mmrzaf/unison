@@ -12,6 +12,7 @@ open class ExoPlayer : Player {
     class Builder(context: Context) {
         fun setAudioAttributes(attributes: AudioAttributes, handleAudioFocus: Boolean): Builder = this
         fun setHandleAudioBecomingNoisy(value: Boolean): Builder = this
+        fun setPauseAtEndOfMediaItems(value: Boolean): Builder = this
         fun setWakeMode(value: Int): Builder = this
         fun build(): ExoPlayer = ExoPlayer()
     }

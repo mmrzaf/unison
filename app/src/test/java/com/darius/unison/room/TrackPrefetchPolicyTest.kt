@@ -3,13 +3,11 @@ package com.darius.unison.room
 import com.darius.unison.model.CanonicalPlaybackState
 import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.MemberSnapshot
-import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
-import com.darius.unison.model.TransferProgress
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -75,22 +73,54 @@ class TrackPrefetchPolicyTest {
     }
 
     @Test
-    fun obsoleteNearCompleteTransferIsAllowedToFinish() {
+    fun obsoleteDemandIsCancelledRegardlessOfPartialProgress() {
         val obsolete = queue[0].track.trackId
-        val slow = queue[1].track.trackId
-        val progress =
-            mapOf(
-                obsolete to
-                    TransferProgress(obsolete, 900, 1_000, peer, peer, MemberTrackState.RECEIVING),
-                slow to TransferProgress(slow, 200, 1_000, peer, peer, MemberTrackState.RECEIVING),
-            )
-        val cancellable =
-            TrackPrefetchPolicy.cancellableObsoleteTracks(
-                previousDesired = setOf(obsolete, slow),
-                nextDesired = emptySet(),
-                progressByTrack = progress,
-            )
-        assertFalse(obsolete in cancellable)
-        assertTrue(slow in cancellable)
+        val stillNeeded = queue[1].track.trackId
+        assertEquals(
+            setOf(obsolete),
+            TrackPrefetchPolicy.obsoleteTracks(
+                previousDesired = setOf(obsolete, stillNeeded),
+                nextDesired = setOf(stillNeeded),
+            ),
+        )
     }
+
+    @Test
+    fun transferDemandGivesUserSelectionAndNextBoundaryPriority() {
+        val timedQueue =
+            queue.map { item -> item.copy(track = item.track.copy(durationMs = 60_000L)) }
+        val timedSnapshot =
+            snapshot.copy(
+                queue = timedQueue,
+                playback = CanonicalPlaybackState(
+                    timedQueue[2].queueItemId,
+                    positionAtTimestampMs = 30_000L,
+                    coordinatorTimestampNs = 1_000_000_000L,
+                    isPlaying = true,
+                ),
+            )
+        val demands =
+            TrackPrefetchPolicy.transferDemands(
+                snapshot = timedSnapshot,
+                destinationPeerId = peer,
+                coordinatorNowNs = 1_000_000_000L,
+                priorityQueueItemId = timedQueue[7].queueItemId,
+            )
+        val byTrack = demands.associateBy { it.trackId }
+
+        assertEquals(
+            com.darius.unison.model.TransferPriority.CURRENT_REQUIRED,
+            byTrack[timedQueue[2].track.trackId]?.priority,
+        )
+        assertEquals(
+            com.darius.unison.model.TransferPriority.NEXT_BOUNDARY,
+            byTrack[timedQueue[3].track.trackId]?.priority,
+        )
+        assertTrue(byTrack[timedQueue[3].track.trackId]?.neededByCoordinatorNs != null)
+        assertEquals(
+            com.darius.unison.model.TransferPriority.USER_SELECTED,
+            byTrack[timedQueue[7].track.trackId]?.priority,
+        )
+    }
+
 }

@@ -9,11 +9,12 @@ gates all pass against the exact APK checksum.
 ./scripts/verify-offline-ready.sh
 ./scripts/check-release-quality.sh
 ./gradlew --offline --no-daemon --stacktrace \
-  clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
+  clean testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
+  :app:compileDebugAndroidTestKotlin
 ```
 
 The generated Room schema must still contain exactly schema `1.json` and the four production tables.
-Protocol constants, NSD advertisement, handshakes, frames, and envelopes must all use protocol 1.
+Protocol constants, NSD advertisement, handshakes, frames, and envelopes must all use protocol 2.
 
 ## Playback-log gate
 
@@ -42,7 +43,8 @@ Android's active network, `NETWORK_BOUND` for a non-default owning `Network`, an
   introduced by reconciliation or a stale transport watchdog;
 - song change while another listener downloads or reconnects;
 - queue reorder and clear during import/preparation;
-- coordinator departure and recovery;
+- coordinator loss: bounded reconnection to the existing coordinator, followed by a clean room end
+  if recovery fails; no replacement coordinator is elected;
 - Wi-Fi interruption and complete reconnect reconciliation;
 - Bluetooth route changes;
 - phone-call/audio-focus interruption on one listener while the room advances across at least two

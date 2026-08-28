@@ -21,10 +21,14 @@ import com.darius.unison.protocol.HandshakeCodec
 import com.darius.unison.protocol.HandshakeMessage
 import com.darius.unison.protocol.HandshakeRejectionCode
 import com.darius.unison.protocol.PROTOCOL_VERSION
+import com.darius.unison.protocol.TransferFailureBlame
+import com.darius.unison.protocol.TransferFailureCode
+import com.darius.unison.protocol.TransferFailureStage
 import com.darius.unison.storage.ManagedFileLeaseReason
 import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
+import java.io.FileInputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.Base64
@@ -45,6 +49,16 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 
+data class TransferFailure(
+    val trackId: TrackId,
+    val sourcePeerId: PeerId?,
+    val stage: TransferFailureStage,
+    val code: TransferFailureCode,
+    val blame: TransferFailureBlame,
+    val retryable: Boolean,
+    val message: String,
+)
+
 class TransferManager(
     private val localIdentity: LocalIdentity,
     private val listeningPort: () -> Int,
@@ -57,7 +71,7 @@ class TransferManager(
     private val retentionPolicyProvider: suspend () -> RetentionPolicy,
     private val onProgress: (TransferProgress) -> Unit,
     private val onCompleted: suspend (TrackDescriptor) -> Unit,
-    private val onFailed: suspend (TrackId, PeerId?, String) -> Unit,
+    private val onFailed: suspend (TransferFailure) -> Unit,
     private val onActiveTransferCountChanged: (Int) -> Unit = {},
 ) {
     private val authorizations =
@@ -109,26 +123,8 @@ class TransferManager(
                 runCatching { previous.close() }
             }
             notifyActiveTransferCount()
-            val lastProgressMs = AtomicLong(android.os.SystemClock.elapsedRealtime())
-            val watchdog =
-                scope.launch(Dispatchers.IO) {
-                    while (isActive && !socket.isClosed) {
-                        delay(UPLOAD_WATCHDOG_INTERVAL_MS)
-                        if (
-                            android.os.SystemClock.elapsedRealtime() - lastProgressMs.get() >
-                                UPLOAD_IDLE_TIMEOUT_MS
-                        ) {
-                            log.warn(
-                                TAG,
-                                DiagnosticCategory.TRANSFER,
-                                "transfer.upload.stalled",
-                                attributes = mapOf("peer.id" to hello.peerId.value.take(12)),
-                            )
-                            runCatching { socket.close() }
-                            break
-                        }
-                    }
-                }
+            val lastProgressMs = AtomicLong(0L)
+            var watchdog: kotlinx.coroutines.Job? = null
             try {
                 if (request.roomId != hello.roomId) {
                     HandshakeCodec.write(
@@ -274,11 +270,30 @@ class TransferManager(
                             associatedData,
                         )
                         lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
-                        file
-                            .inputStream()
-                            .buffered(AuthenticatedFileStreamCodec.MAX_CHUNK_BYTES)
-                            .use { input ->
-                                if (request.offset > 0) input.skipFully(request.offset)
+                        watchdog =
+                            scope.launch(Dispatchers.IO) {
+                                while (isActive && !socket.isClosed) {
+                                    delay(UPLOAD_WATCHDOG_INTERVAL_MS)
+                                    if (
+                                        android.os.SystemClock.elapsedRealtime() - lastProgressMs.get() >
+                                            UPLOAD_IDLE_TIMEOUT_MS
+                                    ) {
+                                        log.warn(
+                                            TAG,
+                                            DiagnosticCategory.TRANSFER,
+                                            "transfer.upload.stalled",
+                                            attributes = mapOf("peer.id" to hello.peerId.value.take(12)),
+                                        )
+                                        runCatching { socket.close() }
+                                        break
+                                    }
+                                }
+                            }
+                        FileInputStream(file).use { fileInput ->
+                            fileInput.channel.position(request.offset)
+                            fileInput
+                                .buffered(AuthenticatedFileStreamCodec.MAX_CHUNK_BYTES)
+                                .use { input ->
                                 FileWireCodec.writeEncryptedBody(
                                     input = input,
                                     output = socket.getOutputStream(),
@@ -288,6 +303,7 @@ class TransferManager(
                                     associatedData = associatedData,
                                 ) {
                                     lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+                                }
                                 }
                             }
                     } finally {
@@ -299,7 +315,7 @@ class TransferManager(
                     uploadLease.close()
                 }
             } finally {
-                watchdog.cancelAndJoin()
+                watchdog?.cancelAndJoin()
                 activeUploadSockets.remove(uploadOperationId, socket)
                 notifyActiveTransferCount()
                 runCatching { socket.close() }
@@ -394,7 +410,7 @@ class TransferManager(
                             userMessage,
                         )
                     )
-                    onFailed(track.trackId, source.peerId, userMessage)
+                    onFailed(classifyFailure(track.trackId, source.peerId, staged, error, userMessage))
                 }
             }
         cancellationRegistry.registerJob(track.trackId, job)
@@ -682,6 +698,53 @@ class TransferManager(
         }
     }
 
+    private fun classifyFailure(
+        trackId: TrackId,
+        sourcePeerId: PeerId?,
+        staged: TransferStageException?,
+        error: Exception,
+        message: String,
+    ): TransferFailure {
+        val stage =
+            when (staged?.stage) {
+                "VALIDATE" -> TransferFailureStage.VALIDATE
+                "CONNECT" -> TransferFailureStage.CONNECT
+                "HANDSHAKE" -> TransferFailureStage.HANDSHAKE
+                "BODY" -> TransferFailureStage.BODY
+                "VERIFY" -> TransferFailureStage.VERIFY
+                "REGISTER" -> TransferFailureStage.REGISTER
+                else -> TransferFailureStage.UNKNOWN
+            }
+        val lower = message.lowercase()
+        val (code, blame, retryable) =
+            when {
+                "not enough storage" in lower ->
+                    Triple(TransferFailureCode.DESTINATION_STORAGE, TransferFailureBlame.DESTINATION, false)
+                "file unavailable" in lower ->
+                    Triple(TransferFailureCode.SOURCE_UNAVAILABLE, TransferFailureBlame.SOURCE, true)
+                "sha-256 verification failed" in lower ->
+                    Triple(TransferFailureCode.INTEGRITY, TransferFailureBlame.SOURCE, true)
+                stage == TransferFailureStage.CONNECT ->
+                    Triple(TransferFailureCode.CONNECT_FAILED, TransferFailureBlame.ROUTE, true)
+                "authorization" in lower || "proof" in lower || "authentication" in lower ->
+                    Triple(TransferFailureCode.AUTHENTICATION, TransferFailureBlame.ROUTE, true)
+                stage == TransferFailureStage.HANDSHAKE ->
+                    Triple(TransferFailureCode.PROTOCOL, TransferFailureBlame.ROUTE, true)
+                error is java.io.IOException ->
+                    Triple(TransferFailureCode.IO, TransferFailureBlame.ROUTE, true)
+                else -> Triple(TransferFailureCode.UNKNOWN, TransferFailureBlame.UNKNOWN, true)
+            }
+        return TransferFailure(
+            trackId = trackId,
+            sourcePeerId = sourcePeerId,
+            stage = stage,
+            code = code,
+            blame = blame,
+            retryable = retryable,
+            message = message,
+        )
+    }
+
     fun cancel(trackId: TrackId) {
         cancellationRegistry.cancel(trackId)
         notifyActiveTransferCount()
@@ -718,21 +781,6 @@ class TransferManager(
 
     private fun notifyActiveTransferCount() {
         onActiveTransferCountChanged(activeTransferCount)
-    }
-
-    private fun java.io.InputStream.skipFully(byteCount: Long) {
-        var remaining = byteCount
-        val buffer = ByteArray(32 * 1024)
-        while (remaining > 0) {
-            val skipped = skip(remaining)
-            if (skipped > 0) {
-                remaining -= skipped
-            } else {
-                val read = read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                if (read < 0) error("Source file ended before resume offset")
-                remaining -= read
-            }
-        }
     }
 
     private class TransferStageException(

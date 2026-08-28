@@ -7,6 +7,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Single serialized ownership boundary between canonical room mutations and Media3 work.
@@ -20,6 +22,7 @@ class CanonicalPlaybackDispatcher(
     private val applyExact: suspend (ProtocolBody, RoomSnapshot) -> Unit,
     private val reconcileLatest: suspend (PlaybackReconciliation) -> Unit,
     private val onFailure: (ProtocolBody?, Throwable) -> Unit,
+    private val preparedQueueItemIds: () -> Set<com.darius.unison.model.QueueItemId> = { emptySet() },
     capacity: Int = DEFAULT_CAPACITY,
 ) : AutoCloseable {
 
@@ -49,7 +52,7 @@ class CanonicalPlaybackDispatcher(
     private sealed interface Work {
         data class Exact(val body: ProtocolBody, val snapshot: RoomSnapshot) : Work
 
-        data object ReconcileLatest : Work
+        data class Reconcile(val batchId: Long) : Work
     }
 
     private data class PendingReconciliation(
@@ -59,9 +62,11 @@ class CanonicalPlaybackDispatcher(
     )
 
     private val stateLock = Any()
+    private val submissionMutex = Mutex()
     private val work = Channel<Work>(capacity)
-    private var pendingReconciliation: PendingReconciliation? = null
-    private var reconciliationQueued = false
+    private val pendingReconciliations = mutableMapOf<Long, PendingReconciliation>()
+    private var openReconciliationBatchId: Long? = null
+    private var nextReconciliationBatchId = 0L
     private var lastAppliedContentRevision: Long? = null
     private var exactSubmitted = 0L
     private var exactApplied = 0L
@@ -78,7 +83,7 @@ class CanonicalPlaybackDispatcher(
                         applyExact(item.body, item.snapshot)
                         synchronized(stateLock) { exactApplied++ }
                     }
-                    Work.ReconcileLatest -> applyPendingReconciliation()
+                    is Work.Reconcile -> applyPendingReconciliation(item.batchId)
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -89,49 +94,64 @@ class CanonicalPlaybackDispatcher(
         }
     }
 
-    suspend fun submit(body: ProtocolBody, snapshot: RoomSnapshot) {
-        when (val classification = classify(body)) {
-            Classification.Ignore -> Unit
-            Classification.Exact -> {
-                synchronized(stateLock) { exactSubmitted++ }
-                work.send(Work.Exact(body, snapshot))
+    suspend fun submit(body: ProtocolBody, snapshot: RoomSnapshot) =
+        submissionMutex.withLock {
+            when (val classification = classify(body)) {
+                Classification.Ignore -> Unit
+                Classification.Exact -> {
+                    synchronized(stateLock) {
+                        exactSubmitted++
+                        // An exact transport command is an ordering barrier. Reconciliation work
+                        // submitted after this point must use a new batch and may not collapse into
+                        // a token already queued ahead of the exact command.
+                        openReconciliationBatchId = null
+                    }
+                    work.send(Work.Exact(body, snapshot))
+                }
+                is Classification.Reconcile ->
+                    requestReconciliationLocked(snapshot, classification.trigger)
             }
-            is Classification.Reconcile -> requestReconciliation(snapshot, classification.trigger)
         }
-    }
 
-    suspend fun reconcile(snapshot: RoomSnapshot, trigger: Trigger) {
-        requestReconciliation(snapshot, trigger)
-    }
+    suspend fun reconcile(snapshot: RoomSnapshot, trigger: Trigger) =
+        submissionMutex.withLock { requestReconciliationLocked(snapshot, trigger) }
 
-    private suspend fun requestReconciliation(snapshot: RoomSnapshot, trigger: Trigger) {
+    private suspend fun requestReconciliationLocked(snapshot: RoomSnapshot, trigger: Trigger) {
+        var batchId = 0L
         val shouldQueue =
             synchronized(stateLock) {
                 reconciliationSubmitted++
-                val previous = pendingReconciliation
-                pendingReconciliation =
-                    PendingReconciliation(
-                        snapshot = snapshot,
-                        desired = DesiredPlaybackState.from(snapshot),
-                        triggers = previous?.triggers.orEmpty() + trigger,
-                    )
-                if (reconciliationQueued) {
+                val existingBatchId = openReconciliationBatchId
+                if (existingBatchId != null) {
+                    val previous = pendingReconciliations.getValue(existingBatchId)
+                    pendingReconciliations[existingBatchId] =
+                        PendingReconciliation(
+                            snapshot = snapshot,
+                            desired = DesiredPlaybackState.from(snapshot, preparedQueueItemIds()),
+                            triggers = previous.triggers + trigger,
+                        )
                     reconciliationCollapsed++
                     false
                 } else {
-                    reconciliationQueued = true
+                    batchId = ++nextReconciliationBatchId
+                    openReconciliationBatchId = batchId
+                    pendingReconciliations[batchId] =
+                        PendingReconciliation(
+                            snapshot = snapshot,
+                            desired = DesiredPlaybackState.from(snapshot, preparedQueueItemIds()),
+                            triggers = setOf(trigger),
+                        )
                     true
                 }
             }
-        if (shouldQueue) work.send(Work.ReconcileLatest)
+        if (shouldQueue) work.send(Work.Reconcile(batchId))
     }
 
-    private suspend fun applyPendingReconciliation() {
+    private suspend fun applyPendingReconciliation(batchId: Long) {
         val pending =
             synchronized(stateLock) {
-                val value = pendingReconciliation
-                pendingReconciliation = null
-                reconciliationQueued = false
+                val value = pendingReconciliations.remove(batchId)
+                if (openReconciliationBatchId == batchId) openReconciliationBatchId = null
                 value
             } ?: return
 
@@ -178,8 +198,8 @@ class CanonicalPlaybackDispatcher(
         work.close()
         worker.cancel()
         synchronized(stateLock) {
-            pendingReconciliation = null
-            reconciliationQueued = false
+            pendingReconciliations.clear()
+            openReconciliationBatchId = null
         }
     }
 
@@ -196,15 +216,12 @@ class CanonicalPlaybackDispatcher(
             is ProtocolBody.QueueItemsAdded,
             is ProtocolBody.QueueItemMoved -> Classification.Reconcile(Trigger.QUEUE_CHANGED)
 
-            is ProtocolBody.QueuePreparedSetChanged ->
-                Classification.Reconcile(Trigger.PREPARATION_CHANGED)
             is ProtocolBody.RoomOptionsChanged -> Classification.Reconcile(Trigger.OPTIONS_CHANGED)
             is ProtocolBody.QueueShuffled -> Classification.Reconcile(Trigger.QUEUE_CHANGED)
             is ProtocolBody.RepeatModeChanged -> Classification.Reconcile(Trigger.PLAYBACK_MODE_CHANGED)
 
             is ProtocolBody.QueueItemsRemoved,
             ProtocolBody.QueueCleared,
-            is ProtocolBody.QueueItemPreparationRequested,
             is ProtocolBody.PlayScheduled,
             is ProtocolBody.PauseScheduled,
             is ProtocolBody.SeekScheduled,

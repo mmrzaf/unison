@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,14 +18,17 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,7 +39,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.darius.unison.model.MemberSnapshot
+import com.darius.unison.model.MemberRuntimeState
+import com.darius.unison.model.PeerId
 import com.darius.unison.model.RetentionPolicy
+import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.RoomOptions
 import com.darius.unison.sync.PlaybackSyncProfile
 
@@ -83,29 +90,54 @@ internal fun RoomCodeDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun RoomListenersDialog(
+internal fun RoomListenersSheet(
     members: List<MemberSnapshot>,
+    memberRuntime: Map<PeerId, MemberRuntimeState>,
+    localPeerId: PeerId?,
+    isCoordinator: Boolean,
+    lifecycle: RoomLifecycleState,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("Listeners") },
-        text = {
-            LazyColumn(Modifier.heightIn(max = 380.dp)) {
+        sheetState = sheetState,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            SheetHeader(
+                title = "Listeners",
+                subtitle =
+                    if (members.size == 1) "1 person in this room"
+                    else "${members.size} people in this room",
+                onClose = onDismiss,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 520.dp)) {
                 items(members, key = { it.peerId.value }) { member ->
+                    val isLocal = member.peerId == localPeerId
+                    val directlyDisconnected =
+                        isCoordinator && !isLocal && memberRuntime[member.peerId]?.connected == false
+                    val status =
+                        when {
+                            isLocal && lifecycle == RoomLifecycleState.RECONNECTING -> "Reconnecting…"
+                            directlyDisconnected -> "Reconnecting…"
+                            isLocal -> "Listening · This phone"
+                            else -> "Listening"
+                        }
                     ListItem(
                         headlineContent = { Text(member.displayName) },
-                        supportingContent = {
-                            Text(memberStatusLabel(member.connected, member.currentTrackState))
-                        },
-                        leadingContent = { Icon(Icons.Default.Person, null) },
+                        supportingContent = { Text(status) },
+                        leadingContent = { TonalIcon(Icons.Default.Person, null) },
                     )
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
-    )
+        }
+    }
 }
 
 @Composable

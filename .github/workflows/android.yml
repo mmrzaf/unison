@@ -47,7 +47,7 @@ jobs:
         run: ./scripts/check-release-quality.sh
 
       - name: Test, lint, and build APKs
-        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease :app:compileDebugAndroidTestKotlin
 
       - name: Name debug APK
         id: debug_apk

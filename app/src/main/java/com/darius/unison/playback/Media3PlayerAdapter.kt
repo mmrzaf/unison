@@ -14,6 +14,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.darius.unison.model.LocalPlaybackInhibitionReason
 import com.darius.unison.model.LocalPlaybackParticipation
@@ -32,6 +33,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class Media3PlayerAdapter(
     context: Context,
     private val scope: CoroutineScope,
@@ -47,6 +49,9 @@ class Media3PlayerAdapter(
                 true,
             )
             .setHandleAudioBecomingNoisy(true)
+            // Canonical room state owns track progression. Media3 may preload the next item, but
+            // it must stop at every item boundary until the coordinator commits the successor.
+            .setPauseAtEndOfMediaItems(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
 
@@ -60,6 +65,12 @@ class Media3PlayerAdapter(
     private var seekRevision = 0L
     private var itemTransitionRevision = 0L
     private var itemTransitionReason: PlayerItemTransitionReason? = null
+    private var itemBoundaryRevision = 0L
+    /** Last item selected by Media3, maintained from transition callbacks for boundary ownership. */
+    private var observedQueueItemId: QueueItemId? = null
+    private var boundaryEndedQueueItemId: QueueItemId? = null
+    private var boundaryEndedPositionMs = 0L
+    private var boundaryEndedDurationMs = 0L
     private var playableItemsById: Map<String, LocalPlayableItem> = emptyMap()
     private var participation = LocalPlaybackParticipation.ACTIVE
     private var inhibitionReason: LocalPlaybackInhibitionReason? = null
@@ -194,12 +205,34 @@ class Media3PlayerAdapter(
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val previousState = _state.value
+                val selectedId =
+                    mediaItem?.mediaId?.takeIf(String::isNotBlank)?.let(::QueueItemId)
+                val endedId = observedQueueItemId
                 itemTransitionRevision++
                 val transitionReason = reason.toPlayerItemTransitionReason()
                 itemTransitionReason = transitionReason
-                if (transitionReason == PlayerItemTransitionReason.AUTO) {
+                if (
+                    (transitionReason == PlayerItemTransitionReason.AUTO ||
+                        transitionReason == PlayerItemTransitionReason.REPEAT) &&
+                        endedId != null
+                ) {
+                    val descriptorDurationMs =
+                        playableItemsById[endedId.value]?.track?.durationMs?.coerceAtLeast(0L) ?: 0L
+                    val publishedDurationMs =
+                        previousState.durationMs.takeIf { previousState.queueItemId == endedId } ?: 0L
+                    val endedDurationMs = maxOf(descriptorDurationMs, publishedDurationMs)
+                    val publishedPositionMs =
+                        previousState.positionMs.takeIf { previousState.queueItemId == endedId } ?: 0L
+                    itemBoundaryRevision++
+                    boundaryEndedQueueItemId = endedId
+                    boundaryEndedDurationMs = endedDurationMs
+                    boundaryEndedPositionMs = maxOf(publishedPositionMs, endedDurationMs)
                     lastNaturalTransitionNs = SystemClock.elapsedRealtimeNanos()
                 }
+                // Update only after capturing the prior item. This does not depend on the ordering
+                // of onEvents/onPlaybackStateChanged relative to this callback.
+                observedQueueItemId = selectedId
                 log.info(
                     TAG, DiagnosticCategory.PLAYBACK, "playback.item.transitioned",
                     attributes = mapOf(
@@ -827,6 +860,10 @@ class Media3PlayerAdapter(
                 seekRevision = seekRevision,
                 itemTransitionRevision = itemTransitionRevision,
                 itemTransitionReason = itemTransitionReason,
+                itemBoundaryRevision = itemBoundaryRevision,
+                boundaryEndedQueueItemId = boundaryEndedQueueItemId,
+                boundaryEndedPositionMs = boundaryEndedPositionMs,
+                boundaryEndedDurationMs = boundaryEndedDurationMs,
             )
         if (_state.value != next) _state.value = next
     }
