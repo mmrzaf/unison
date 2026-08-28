@@ -189,6 +189,56 @@ class CanonicalPlaybackDispatcherTest {
         }
     }
 
+    @Test
+    fun reconciliationCannotCrossExactTransportBarrier() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val order = Collections.synchronizedList(mutableListOf<String>())
+        val dispatcher =
+            CanonicalPlaybackDispatcher(
+                scope = scope,
+                applyExact = { _, snapshot -> order += "exact:${snapshot.sequence}" },
+                reconcileLatest = { work ->
+                    order += "reconcile:${work.snapshot.sequence}"
+                    if (work.snapshot.sequence == 1L) {
+                        firstStarted.complete(Unit)
+                        releaseFirst.await()
+                    }
+                },
+                onFailure = { _, error -> throw error },
+            )
+        try {
+            dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))
+            withTimeout(2_000) { firstStarted.await() }
+
+            dispatcher.submit(
+                ProtocolBody.QueueItemMoved(QueueItemId("item"), 0),
+                snapshot(2),
+            )
+            dispatcher.submit(
+                ProtocolBody.PlayScheduled(QueueItemId("item"), 0, 0, "play"),
+                snapshot(3),
+            )
+            dispatcher.submit(
+                ProtocolBody.QueueItemMoved(QueueItemId("item"), 0),
+                snapshot(4),
+            )
+            releaseFirst.complete(Unit)
+
+            withTimeout(2_000) {
+                while (order.size < 4) delay(5)
+            }
+            assertEquals(
+                listOf("reconcile:1", "reconcile:2", "exact:3", "reconcile:4"),
+                order.toList(),
+            )
+        } finally {
+            dispatcher.close()
+            scope.cancel()
+        }
+    }
+
     private fun snapshot(sequence: Long, playing: Boolean = false): RoomSnapshot {
         val peer = PeerId("peer")
         val item =

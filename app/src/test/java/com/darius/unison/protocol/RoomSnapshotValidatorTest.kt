@@ -3,7 +3,6 @@ package com.darius.unison.protocol
 import com.darius.unison.model.CanonicalPlaybackState
 import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.MemberSnapshot
-import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
@@ -21,14 +20,6 @@ class RoomSnapshotValidatorTest {
     private val itemId = QueueItemId("33333333-3333-3333-3333-333333333333")
     private val trackId = TrackId("a".repeat(64))
 
-    private fun endpoint(peerId: PeerId, port: Int = 1234) =
-        PeerEndpoint(
-            peerId = peerId,
-            displayName = "Device",
-            hostAddress = "192.168.1.2",
-            port = port,
-            appVersion = "1.0",
-        )
 
     private fun validSnapshot(): RoomSnapshot {
         val item =
@@ -51,11 +42,10 @@ class RoomSnapshotValidatorTest {
             sequence = 1,
             members =
                 listOf(
-                    MemberSnapshot(coordinator, "Coordinator", endpoint(coordinator)),
-                    MemberSnapshot(guest, "Guest", endpoint(guest)),
+                    MemberSnapshot(coordinator, "Coordinator"),
+                    MemberSnapshot(guest, "Guest"),
                 ),
             queue = listOf(item),
-            preparedQueueItemIds = setOf(itemId),
             playback = CanonicalPlaybackState(queueItemId = itemId),
         )
     }
@@ -88,21 +78,17 @@ class RoomSnapshotValidatorTest {
     }
 
     @Test
-    fun rejectsPlaybackAndPreparedReferencesOutsideQueue() {
+    fun rejectsPlaybackReferenceOutsideQueue() {
         val missing = QueueItemId("44444444-4444-4444-4444-444444444444")
         val invalid =
             validSnapshot()
-                .copy(
-                    preparedQueueItemIds = setOf(missing),
-                    playback = CanonicalPlaybackState(queueItemId = missing),
-                )
+                .copy(playback = CanonicalPlaybackState(queueItemId = missing))
         val result = validator.validate(invalid) as SnapshotValidationResult.Invalid
-        assertTrue(result.issues.any { it.code == "prepared_items" })
         assertTrue(result.issues.any { it.code == "playback_item" })
     }
 
     @Test
-    fun rejectsMalformedTrackAndEndpoint() {
+    fun rejectsMalformedTrackAndMember() {
         val base = validSnapshot()
         val invalidItem =
             base.queue
@@ -114,7 +100,7 @@ class RoomSnapshotValidatorTest {
                             .track
                             .copy(trackId = TrackId("not-a-hash"), sizeBytes = -1)
                 )
-        val invalidMember = base.members.last().copy(endpoint = endpoint(guest, port = 0))
+        val invalidMember = base.members.last().copy(displayName = "Bad\u0000Name")
         val invalid =
             base.copy(
                 queue = listOf(invalidItem),
@@ -123,7 +109,7 @@ class RoomSnapshotValidatorTest {
         val result = validator.validate(invalid) as SnapshotValidationResult.Invalid
         assertTrue(result.issues.any { it.code == "track_id" })
         assertTrue(result.issues.any { it.code == "track_size" })
-        assertTrue(result.issues.any { it.code == "endpoint_port" })
+        assertTrue(result.issues.any { it.code == "member_name" })
     }
 
     @Test

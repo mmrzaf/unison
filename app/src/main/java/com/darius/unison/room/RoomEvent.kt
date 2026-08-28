@@ -7,12 +7,14 @@ import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportCommandPhase
+import com.darius.unison.model.TransferPriority
 import com.darius.unison.model.UserCommand
 import com.darius.unison.network.ConnectedControl
 import com.darius.unison.network.ControlConnection
 import com.darius.unison.playback.PlayerState
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.ProtocolBody
+import com.darius.unison.transfer.TransferFailure
 import com.darius.unison.sync.PlaybackSyncProfile
 import kotlinx.coroutines.CompletableDeferred
 
@@ -98,6 +100,8 @@ internal sealed interface RoomEvent {
         val peerId: PeerId,
         val trackId: TrackId,
         val available: Boolean,
+        val priority: TransferPriority = TransferPriority.BACKGROUND,
+        val neededByCoordinatorNs: Long? = null,
         val completion: CompletableDeferred<Unit>,
     ) : RoomEvent
 
@@ -132,22 +136,20 @@ internal sealed interface RoomEvent {
         val message: String?,
     ) : RoomEvent
 
+
+    data class LocalTrackAvailabilityProbed(
+        val generation: Long,
+        val trackId: TrackId,
+        val available: Boolean,
+    ) : RoomEvent
+
+
     data class PendingTrackAvailabilityProbed(
         val generation: Long,
         val commandId: String,
         val queueItemId: QueueItemId,
         val trackId: TrackId,
         val available: Boolean,
-    ) : RoomEvent
-
-    data class PendingTrackTransitionTimedOut(
-        val generation: Long,
-        val commandId: String,
-    ) : RoomEvent
-
-    data class PendingPlayTimedOut(
-        val generation: Long,
-        val commandId: String,
     ) : RoomEvent
 
     data class TransportWatchdogExpired(
@@ -157,21 +159,38 @@ internal sealed interface RoomEvent {
         val reconciliationAttempted: Boolean,
     ) : RoomEvent
 
+    data class TransportWatchdogAlignmentObserved(
+        val generation: Long,
+        val commandId: String,
+        val ticket: TransportCommandTracker.Ticket,
+        val graceAttempted: Boolean,
+        val aligned: Boolean,
+    ) : RoomEvent
+
     data object HeartbeatTick : RoomEvent
 
-    data object ClockSyncTick : RoomEvent
 
-    data object PlaybackSyncTick : RoomEvent
+    /** Low-frequency room/network consequence of the independent local playback sync loop. */
+    data class LocalPlaybackStatusDue(val generation: Long) : RoomEvent
+
+    /** Coordinator reference broadcast requested by the independent local playback sync loop. */
+    data class PlaybackReferenceBroadcastDue(val generation: Long) : RoomEvent
 
     data class PlaybackSyncProfileChanged(val profile: PlaybackSyncProfile) : RoomEvent
 
     data class TransferCompleted(val descriptor: TrackDescriptor) : RoomEvent
 
-    data class TransferFailed(
-        val trackId: TrackId,
-        val sourcePeerId: PeerId?,
-        val reason: String,
+    data class TransferAuthorizationTimedOut(
+        val generation: Long,
+        val authorizationToken: String,
     ) : RoomEvent
+
+    data class TransferRetryDue(
+        val generation: Long,
+        val trackId: TrackId,
+    ) : RoomEvent
+
+    data class TransferFailed(val failure: TransferFailure) : RoomEvent
 }
 
 internal fun RoomEvent.completionOrNull(): CompletableDeferred<Unit>? =

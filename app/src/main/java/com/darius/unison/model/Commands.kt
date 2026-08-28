@@ -162,6 +162,7 @@ sealed interface UserCommand {
         override val commandId: String = UUID.randomUUID().toString(),
         override val requestedBy: PeerId,
         val shuffleSeed: Long,
+        val preserveNextQueueItemId: QueueItemId? = null,
     ) : UserCommand
 
     @Serializable

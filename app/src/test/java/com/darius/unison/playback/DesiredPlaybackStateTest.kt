@@ -51,7 +51,8 @@ class DesiredPlaybackStateTest {
     @Test
     fun desiredStateContainsReconstructibleCanonicalIntent() {
         val snapshot = snapshot()
-        val desired = DesiredPlaybackState.from(snapshot)
+        val desired =
+            DesiredPlaybackState.from(snapshot, setOf(snapshot.queue.first().queueItemId))
 
         assertEquals(snapshot.queue.map { it.queueItemId }, desired.queueItemIds)
         assertEquals(snapshot.playback.queueItemId, desired.currentQueueItemId)
@@ -70,7 +71,6 @@ class DesiredPlaybackStateTest {
             term = CoordinatorTerm(1, peer),
             sequence = sequence,
             queue = listOf(first, second),
-            preparedQueueItemIds = setOf(first.queueItemId),
             playback =
                 CanonicalPlaybackState(
                     queueItemId = first.queueItemId,

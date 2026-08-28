@@ -3,75 +3,52 @@ package com.darius.unison.playback
 import com.darius.unison.model.QueueItemId
 
 /**
- * Stateful interpreter for Media3 observations. It owns callback revision tracking, end-of-item
- * deduplication, and automatic-transition loop detection so room orchestration receives explicit
- * domain decisions instead of inferring intent from raw player state.
+ * Converts Media3 observations into boundary events. Canonical room state -- never Media3's newly
+ * selected playlist item -- decides the successor. Programmatic item transitions remain telemetry.
  */
-class PlayerEventInterpreter(
-    private val transitionCircuitBreaker: PlayerTransitionCircuitBreaker =
-        PlayerTransitionCircuitBreaker()
-) {
+class PlayerEventInterpreter {
     sealed interface Action {
         data object None : Action
-
-        data class NaturalRepeat(val queueItemId: QueueItemId, val positionMs: Long) : Action
-
-        data class NaturalAdvance(val queueItemId: QueueItemId, val positionMs: Long) : Action
 
         data class PlaybackEnded(
             val queueItemId: QueueItemId,
             val positionMs: Long,
             val durationMs: Long,
         ) : Action
-
-        data object TransitionLoopDetected : Action
     }
 
-    private var lastObservedPlayerItem: QueueItemId? = null
-    private var lastHandledEndedItem: QueueItemId? = null
-    private var lastObservedSeekRevision = 0L
-    private var lastObservedItemTransitionRevision = 0L
+    private var lastHandledBoundaryRevision = 0L
+    private var lastHandledFinalEndedItem: QueueItemId? = null
 
     fun observe(state: PlayerState, coordinator: Boolean, nowNs: Long): Action {
-        if (state.seekRevision > lastObservedSeekRevision) {
-            lastObservedSeekRevision = state.seekRevision
+        @Suppress("UNUSED_VARIABLE") val observedAtNs = nowNs
+        if (!coordinator) {
+            lastHandledBoundaryRevision =
+                maxOf(lastHandledBoundaryRevision, state.itemBoundaryRevision)
+            return Action.None
         }
-        val previous = lastObservedPlayerItem
-        lastObservedPlayerItem = state.queueItemId
-        val transition =
-            PlayerItemTransitionPolicy.evaluate(lastObservedItemTransitionRevision, state)
-        lastObservedItemTransitionRevision = transition.handledRevision
-        if (previous != state.queueItemId || !state.ended) lastHandledEndedItem = null
 
-        if (!coordinator) return Action.None
-        val itemId = state.queueItemId ?: return Action.None
-        return when {
-            transition.action == PlayerItemTransitionPolicy.Action.NATURAL_REPEAT ->
-                Action.NaturalRepeat(itemId, state.positionMs)
-
-            transition.action == PlayerItemTransitionPolicy.Action.NATURAL_ADVANCE &&
-                state.playWhenReady ->
-                when (transitionCircuitBreaker.record(nowNs)) {
-                    PlayerTransitionCircuitBreaker.Result.ALLOW ->
-                        Action.NaturalAdvance(itemId, state.positionMs)
-                    PlayerTransitionCircuitBreaker.Result.TRIPPED -> Action.TransitionLoopDetected
-                    PlayerTransitionCircuitBreaker.Result.BLOCKED -> Action.None
-                }
-
-            state.ended && lastHandledEndedItem != itemId -> {
-                lastHandledEndedItem = itemId
-                Action.PlaybackEnded(itemId, state.positionMs, state.durationMs)
+        if (state.itemBoundaryRevision > lastHandledBoundaryRevision) {
+            lastHandledBoundaryRevision = state.itemBoundaryRevision
+            val ended = state.boundaryEndedQueueItemId
+            if (ended != null) {
+                lastHandledFinalEndedItem = ended
+                return Action.PlaybackEnded(
+                    queueItemId = ended,
+                    positionMs = state.boundaryEndedPositionMs,
+                    durationMs = state.boundaryEndedDurationMs,
+                )
             }
-
-            else -> Action.None
         }
+
+        val itemId = state.queueItemId
+        if (!state.ended || itemId == null || lastHandledFinalEndedItem == itemId) return Action.None
+        lastHandledFinalEndedItem = itemId
+        return Action.PlaybackEnded(itemId, state.positionMs, state.durationMs)
     }
 
     fun reset(currentState: PlayerState) {
-        lastObservedPlayerItem = null
-        lastHandledEndedItem = null
-        lastObservedSeekRevision = currentState.seekRevision
-        lastObservedItemTransitionRevision = currentState.itemTransitionRevision
-        transitionCircuitBreaker.reset()
+        lastHandledBoundaryRevision = currentState.itemBoundaryRevision
+        lastHandledFinalEndedItem = null
     }
 }

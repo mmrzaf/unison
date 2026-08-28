@@ -100,4 +100,22 @@ class SerializedEventLoopTest {
             scope.cancel()
         }
     }
+    @Test
+    fun reportsHandlerDurationAfterProcessing() = runBlocking {
+        val handled = CompletableDeferred<Pair<Int, Long>>()
+        val loop =
+            SerializedEventLoop<Int>(
+                scope = this,
+                capacity = 1,
+                handler = { delay(2) },
+                onHandled = { value, durationNs -> handled.complete(value to durationNs) },
+            )
+
+        loop.submit(7)
+        val (value, durationNs) = handled.await()
+        assertEquals(7, value)
+        assertTrue(durationNs > 0L)
+        loop.close()
+    }
+
 }

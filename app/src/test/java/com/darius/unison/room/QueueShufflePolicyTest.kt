@@ -46,6 +46,21 @@ class QueueShufflePolicyTest {
         assertEquals(queue.map { it.queueItemId }.toSet(), order.toSet())
     }
 
+    @Test
+    fun canPreservePreparedImmediateSuccessorAsRunway() {
+        val queue = queue(8)
+        val order =
+            QueueShufflePolicy.shuffledOrder(
+                queue = queue,
+                currentId = queue[2].queueItemId,
+                seed = 42L,
+                preserveNextQueueItemId = queue[3].queueItemId,
+            )!!
+
+        assertEquals(queue.take(4).map { it.queueItemId }, order.take(4))
+        assertEquals(queue.map { it.queueItemId }.toSet(), order.toSet())
+    }
+
     private fun queue(count: Int): List<QueueItem> =
         List(count) { index ->
             QueueItem.create(

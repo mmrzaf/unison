@@ -33,7 +33,7 @@ class PlaybackQueuePolicyTest {
     private val second = QueueItem.create(track('b', "Second"), peer)
     private val third = QueueItem.create(track('c', "Third"), peer)
 
-    private fun snapshot(wait: Boolean = false, prepared: Set<QueueItemId> = emptySet()) =
+    private fun snapshot(wait: Boolean = false) =
         RoomSnapshot(
             roomId = "room",
             roomName = "Room",
@@ -42,7 +42,6 @@ class PlaybackQueuePolicyTest {
             options = RoomOptions(waitAtTrackBoundary = wait),
             members = listOf(MemberSnapshot(peer, "Peer")),
             queue = listOf(first, second, third),
-            preparedQueueItemIds = prepared,
             playback = CanonicalPlaybackState(first.queueItemId, 0, 1, isPlaying = true),
         )
 
@@ -69,17 +68,18 @@ class PlaybackQueuePolicyTest {
     }
 
     @Test
-    fun boundaryModeOnlyExposesPreparedItemsAndCurrent() {
+    fun boundaryModeStopsAtFirstUnpreparedFutureItem() {
         val playable =
             PlaybackQueuePolicy.playableItems(
-                snapshot(wait = true, prepared = setOf(first.queueItemId, third.queueItemId)),
+                snapshot(wait = true),
                 setOf(first.track.trackId, second.track.trackId, third.track.trackId),
+                setOf(first.queueItemId, third.queueItemId),
             )
-        assertEquals(listOf(first.queueItemId, third.queueItemId), playable.map { it.queueItemId })
+        assertEquals(listOf(first.queueItemId), playable.map { it.queueItemId })
     }
 
     @Test
-    fun naturalEndWaitsOnUnpreparedNextTrack() {
+    fun naturalEndKeepsCanonicalCurrentUntilUnpreparedNextTrackIsExecutable() {
         val plan =
             PlaybackQueuePolicy.planNaturalEnd(
                 snapshot(),
@@ -88,9 +88,9 @@ class PlaybackQueuePolicyTest {
                 180_000,
                 5_000,
             )!!
-        val change = plan.mutation as ProtocolBody.CurrentItemChanged
-        assertEquals(second.queueItemId, change.queueItemId)
-        assertFalse(change.resumePlayback)
+        val pause = plan.mutation as ProtocolBody.PauseScheduled
+        assertEquals(first.queueItemId, pause.queueItemId)
+        assertEquals(180_000, pause.positionMs)
         assertEquals(second.queueItemId, plan.waitForQueueItemId)
     }
 
@@ -98,7 +98,8 @@ class PlaybackQueuePolicyTest {
     fun naturalEndSchedulesPreparedNextTrack() {
         val plan =
             PlaybackQueuePolicy.planNaturalEnd(
-                snapshot(prepared = setOf(second.queueItemId)),
+                snapshot(),
+                setOf(second.queueItemId),
                 first.queueItemId,
                 180_000,
                 180_000,
@@ -148,10 +149,11 @@ class PlaybackQueuePolicyTest {
 
     @Test
     fun repeatOneRestartsCurrentTrack() {
-        val room = snapshot(prepared = setOf(first.queueItemId)).copy(repeatMode = RepeatMode.ONE)
+        val room = snapshot().copy(repeatMode = RepeatMode.ONE)
         val plan =
             PlaybackQueuePolicy.planNaturalEnd(
                 room,
+                setOf(first.queueItemId),
                 first.queueItemId,
                 180_000,
                 180_000,
@@ -166,7 +168,7 @@ class PlaybackQueuePolicyTest {
     @Test
     fun repeatOneCanonicalizesAMiddleTrackPlayerLoop() {
         val room =
-            snapshot(prepared = setOf(second.queueItemId))
+            snapshot()
                 .copy(
                     playback = CanonicalPlaybackState(second.queueItemId, 0, 1, true),
                     repeatMode = RepeatMode.ONE,
@@ -189,7 +191,7 @@ class PlaybackQueuePolicyTest {
     @Test
     fun repeatAllWrapsAtQueueEnd() {
         val room =
-            snapshot(prepared = setOf(first.queueItemId))
+            snapshot()
                 .copy(
                     playback = CanonicalPlaybackState(third.queueItemId, 0, 1, true),
                     repeatMode = RepeatMode.ALL,
@@ -197,6 +199,7 @@ class PlaybackQueuePolicyTest {
         val plan =
             PlaybackQueuePolicy.planNaturalEnd(
                 room,
+                setOf(first.queueItemId),
                 third.queueItemId,
                 180_000,
                 180_000,

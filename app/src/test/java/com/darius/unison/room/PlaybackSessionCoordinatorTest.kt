@@ -28,7 +28,6 @@ class PlaybackSessionCoordinatorTest {
     private fun coordinator() =
         PlaybackSessionCoordinator(
             playbackStatusReportIntervalNs = 1_000,
-            lifecycleDiscontinuityNs = 5_000,
             clockQualityReportIntervalNs = 10_000,
             convergence = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0),
         )
@@ -104,19 +103,16 @@ class PlaybackSessionCoordinatorTest {
     }
 
     @Test
-    fun cadenceAndDiscontinuityStateResetTogether() {
+    fun playbackStatusCadenceIsIndependentOfLocalSchedulerDelay() {
         val coordinator = coordinator()
 
         assertTrue(coordinator.shouldReportPlaybackStatus(1_000))
         assertFalse(coordinator.shouldReportPlaybackStatus(1_999))
         assertTrue(coordinator.shouldReportPlaybackStatus(2_000))
 
-        assertFalse(coordinator.beginSynchronizationTick(10_000))
-        assertFalse(coordinator.beginSynchronizationTick(14_000))
-        assertTrue(coordinator.beginSynchronizationTick(20_001))
-
-        coordinator.suspendSynchronizationTicks()
-        assertFalse(coordinator.beginSynchronizationTick(100_000))
+        // There is deliberately no scheduler-delay discontinuity detector here. Local playback
+        // Synchronization owns its cadence outside the room actor.
+        assertTrue(coordinator.shouldReportPlaybackStatus(100_000))
     }
 
     @Test
@@ -134,12 +130,10 @@ class PlaybackSessionCoordinatorTest {
         val room = snapshot()
         coordinator.seedCanonical(room.playback.copy(revision = 99))
         coordinator.shouldReportPlaybackStatus(10_000)
-        coordinator.beginSynchronizationTick(10_000)
 
         coordinator.resetSession()
 
         assertEquals(room.playback, coordinator.canonicalForTick(room, coordinator = false))
         assertTrue(coordinator.shouldReportPlaybackStatus(10_000))
-        assertFalse(coordinator.beginSynchronizationTick(50_000))
     }
 }

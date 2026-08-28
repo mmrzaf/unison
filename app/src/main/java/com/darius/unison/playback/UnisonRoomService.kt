@@ -137,21 +137,17 @@ class UnisonRoomService : MediaSessionService() {
                     scheduleStopWhenIdle()
                 }
         }
-        // Transport intent needs concurrent debounce entrants so newer Play/Pause/Seek commands can
-        // supersede older ones before canonical mutation. General commands use one ordered ingress;
-        // terminal completion is observed without blocking that ingress, so Clear queue and Leave
-        // room remain responsive without allowing command reordering or spawning waiter coroutines.
-        repeat(TRANSPORT_COMMAND_WORKERS) {
-            runtimeScope.launch {
-                unisonContainer.roomCommandBus.transportFlow.collect(::processRoomCommand)
-            }
+        // Transport has one ordered ingress. Debounce/supersession is owned by RoomRuntime's
+        // single transport-intent processor rather than manufactured through concurrent collectors.
+        runtimeScope.launch {
+            unisonContainer.roomCommandBus.transportFlow.collect(::submitRoomCommand)
         }
         runtimeScope.launch {
-            unisonContainer.roomCommandBus.generalFlow.collect(::submitGeneralRoomCommand)
+            unisonContainer.roomCommandBus.generalFlow.collect(::submitRoomCommand)
         }
     }
 
-    private suspend fun submitGeneralRoomCommand(command: AppCommand) {
+    private suspend fun submitRoomCommand(command: AppCommand) {
         try {
             runtime.submit(command).invokeOnCompletion { cause ->
                 if (cause != null && cause !is CancellationException) {
@@ -166,19 +162,6 @@ class UnisonRoomService : MediaSessionService() {
             throw cancelled
         } catch (error: Exception) {
             reportRoomCommandFailure(command, error)
-            unisonContainer.roomCommandBus.complete()
-            scheduleStopWhenIdle()
-        }
-    }
-
-    private suspend fun processRoomCommand(command: AppCommand) {
-        try {
-            runtime.handle(command)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            reportRoomCommandFailure(command, error)
-        } finally {
             unisonContainer.roomCommandBus.complete()
             scheduleStopWhenIdle()
         }
@@ -366,7 +349,6 @@ class UnisonRoomService : MediaSessionService() {
         private const val TAG = "UnisonRoomService"
         private const val CHANNEL_ID = "unison_room"
         private const val NOTIFICATION_ID = 4102
-        private const val TRANSPORT_COMMAND_WORKERS = 32
         private const val IDLE_STOP_DELAY_MS = 1_000L
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 300L
         private const val FOREGROUND_START_RETRY_INTERVAL_MS = 1_000L

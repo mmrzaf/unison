@@ -2,7 +2,6 @@ package com.darius.unison.room
 
 import android.os.SystemClock
 import com.darius.unison.model.LocalIdentity
-import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.network.ControlConnection
@@ -266,7 +265,7 @@ internal class ControlAdmissionController(
             val identity = localIdentity()
             val isKnownPeer = current.members.any { it.peerId == hello.peerId }
             if (
-                !isKnownPeer && current.members.count(MemberSnapshot::connected) >= MAX_ROOM_MEMBERS
+                !isKnownPeer && current.members.size >= MAX_ROOM_MEMBERS
             ) {
                 return rejected(HandshakeRejectionCode.ROOM_FULL, "Room is full")
             }

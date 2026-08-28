@@ -54,9 +54,14 @@ class RoomReducerTest {
     fun playIsScheduledInFuture() {
         val item = QueueItem.create(track, peer)
         val now = 5_000_000_000L
-        val ready = snapshot(listOf(item)).copy(preparedQueueItemIds = setOf(item.queueItemId))
+        val ready = snapshot(listOf(item))
         val result =
-            RoomReducer.decide(ready, UserCommand.Play(requestedBy = peer), now)
+            RoomReducer.decide(
+                ready,
+                UserCommand.Play(requestedBy = peer),
+                now,
+                preparedQueueItemIds = setOf(item.queueItemId),
+            )
                 as RoomReducer.Decision.Accepted
         val body = result.mutations.single().body as ProtocolBody.PlayScheduled
         assertEquals(item.queueItemId, body.queueItemId)
@@ -84,9 +89,14 @@ class RoomReducerTest {
             snapshot(listOf(item))
                 .copy(
                     members = listOf(MemberSnapshot(peer, "A"), MemberSnapshot(guest, "B")),
-                    preparedQueueItemIds = setOf(item.queueItemId),
                 )
-        val result = RoomReducer.decide(room, UserCommand.Play(requestedBy = guest), 0)
+        val result =
+            RoomReducer.decide(
+                room,
+                UserCommand.Play(requestedBy = guest),
+                0,
+                preparedQueueItemIds = setOf(item.queueItemId),
+            )
         assertTrue(result is RoomReducer.Decision.Accepted)
     }
 
@@ -114,7 +124,6 @@ class RoomReducerTest {
                 .copy(
                     playback =
                         CanonicalPlaybackState(first.queueItemId, 30_000, 1_000, isPlaying = true),
-                    preparedQueueItemIds = setOf(first.queueItemId, second.queueItemId),
                 )
         val result =
             RoomReducer.decide(
@@ -141,7 +150,6 @@ class RoomReducerTest {
         val room =
             snapshot(listOf(item))
                 .copy(
-                    preparedQueueItemIds = setOf(item.queueItemId),
                     playback =
                         CanonicalPlaybackState(
                             queueItemId = item.queueItemId,
@@ -418,7 +426,6 @@ class RoomReducerTest {
             snapshot(queue)
                 .copy(
                     playback = CanonicalPlaybackState(queue.first().queueItemId, 8_000, 1, true),
-                    preparedQueueItemIds = queue.mapTo(mutableSetOf()) { it.queueItemId },
                 )
         val result =
             RoomReducer.decide(
@@ -428,6 +435,7 @@ class RoomReducerTest {
                     queueItemId = queue.last().queueItemId,
                 ),
                 2,
+                preparedQueueItemIds = queue.mapTo(mutableSetOf()) { it.queueItemId },
             ) as RoomReducer.Decision.Accepted
         val mutation = result.mutations.single()
         val body = mutation.body as ProtocolBody.CurrentItemChanged
@@ -451,7 +459,6 @@ class RoomReducerTest {
             snapshot(listOf(first, target))
                 .copy(
                     playback = CanonicalPlaybackState(first.queueItemId, 8_000, 1, true),
-                    preparedQueueItemIds = setOf(first.queueItemId, target.queueItemId),
                 )
         val result =
             RoomReducer.decide(
@@ -462,6 +469,7 @@ class RoomReducerTest {
                     resumePlayback = false,
                 ),
                 2,
+                preparedQueueItemIds = setOf(first.queueItemId, target.queueItemId),
             ) as RoomReducer.Decision.Accepted
         val body = result.mutations.single().body as ProtocolBody.CurrentItemChanged
 
@@ -482,13 +490,13 @@ class RoomReducerTest {
             snapshot(listOf(first, target))
                 .copy(
                     playback = CanonicalPlaybackState(first.queueItemId, 8_000, 1, true),
-                    preparedQueueItemIds = setOf(first.queueItemId),
                 )
         val result =
             RoomReducer.decide(
                 room,
                 UserCommand.PlayQueueItem(requestedBy = peer, queueItemId = target.queueItemId),
                 2,
+                preparedQueueItemIds = setOf(first.queueItemId),
             ) as RoomReducer.Decision.Rejected
 
         assertEquals("The selected song is still preparing", result.reason)
@@ -544,7 +552,6 @@ class RoomReducerTest {
                 .copy(
                     members = listOf(MemberSnapshot(peer, "A"), MemberSnapshot(member, "B")),
                     playback = CanonicalPlaybackState(queue[1].queueItemId, 5_000, 1, true),
-                    preparedQueueItemIds = queue.mapTo(mutableSetOf()) { it.queueItemId },
                     repeatMode = RepeatMode.ALL,
                 )
 
@@ -559,7 +566,6 @@ class RoomReducerTest {
         assertTrue(result.mutations.single().body is ProtocolBody.QueueCleared)
         val cleared = result.mutations.single().snapshot
         assertTrue(cleared.queue.isEmpty())
-        assertTrue(cleared.preparedQueueItemIds.isEmpty())
         assertEquals(RepeatMode.OFF, cleared.repeatMode)
         assertEquals(null, cleared.playback.queueItemId)
         assertFalse(cleared.playback.isPlaying)

@@ -5,6 +5,7 @@ import com.darius.unison.model.PeerId
 
 internal enum class PeerPlaybackHealthState {
     WARMING_UP,
+    CATCHING_UP,
     READY,
     DEGRADED,
 }
@@ -17,9 +18,8 @@ internal data class PeerClockHealth(
 )
 
 /**
- * Coordinator-owned playback-health leases. A peer is allowed to influence synchronized room
- * timing only while it has a fresh positive clock-quality lease. Stale or explicitly unhealthy
- * peers repair locally without slowing the healthy playback cohort.
+ * Coordinator-owned playback-health/admission leases. Clock health alone is not enough to join the
+ * blocking playback cohort: a peer must also have the current playback runway locally available.
  */
 internal class PeerPlaybackHealthRegistry(
     private val readyLeaseNs: Long,
@@ -31,6 +31,7 @@ internal class PeerPlaybackHealthRegistry(
     private data class Entry(
         var synchronized: Boolean = false,
         var everReady: Boolean = false,
+        var contentReady: Boolean = false,
         var roundTripNs: Long? = null,
         var uncertaintyNs: Long? = null,
         var participation: LocalPlaybackParticipation? = null,
@@ -39,7 +40,6 @@ internal class PeerPlaybackHealthRegistry(
 
     private val entries = mutableMapOf<PeerId, Entry>()
 
-    /** Returns true when the peer enters or leaves the READY playback cohort. */
     fun updateClock(
         peerId: PeerId,
         synchronized: Boolean,
@@ -56,7 +56,6 @@ internal class PeerPlaybackHealthRegistry(
         entry.synchronized = synchronized
         entry.updatedAtNs = nowNs
         if (synchronized) {
-            entry.everReady = true
             entry.roundTripNs = roundTripNs
             entry.uncertaintyNs = uncertaintyNs
         } else {
@@ -64,10 +63,10 @@ internal class PeerPlaybackHealthRegistry(
             entry.uncertaintyNs = null
         }
         val isReady = health(peerId, nowNs).state == PeerPlaybackHealthState.READY
+        if (isReady) entry.everReady = true
         return wasReady != isReady
     }
 
-    /** Returns true when playback participation changes READY cohort membership. */
     fun updateParticipation(
         peerId: PeerId,
         participation: LocalPlaybackParticipation,
@@ -78,29 +77,46 @@ internal class PeerPlaybackHealthRegistry(
         val entry = entries.getOrPut(peerId) { Entry() }
         entry.participation = participation
         val isReady = health(peerId, nowNs).state == PeerPlaybackHealthState.READY
+        if (isReady) entry.everReady = true
         return wasReady != isReady
+    }
+
+    fun updateContentReady(peerId: PeerId, contentReady: Boolean, nowNs: Long): Boolean {
+        require(nowNs >= 0L)
+        val wasReady = health(peerId, nowNs).state == PeerPlaybackHealthState.READY
+        val entry = entries.getOrPut(peerId) { Entry() }
+        entry.contentReady = contentReady
+        val isReady = health(peerId, nowNs).state == PeerPlaybackHealthState.READY
+        if (isReady) entry.everReady = true
+        return wasReady != isReady
+    }
+
+    fun isClockReady(peerId: PeerId, nowNs: Long): Boolean {
+        require(nowNs >= 0L)
+        val entry = entries[peerId] ?: return false
+        val leaseFresh = nowNs >= entry.updatedAtNs && nowNs - entry.updatedAtNs <= readyLeaseNs
+        return entry.synchronized && leaseFresh
     }
 
     fun health(peerId: PeerId, nowNs: Long): PeerClockHealth {
         val entry = entries[peerId]
             ?: return PeerClockHealth(PeerPlaybackHealthState.WARMING_UP)
         val leaseFresh = nowNs >= entry.updatedAtNs && nowNs - entry.updatedAtNs <= readyLeaseNs
+        val transportReady =
+            entry.synchronized &&
+                leaseFresh &&
+                entry.participation == LocalPlaybackParticipation.ACTIVE
         val state =
-            if (
-                entry.synchronized &&
-                    leaseFresh &&
-                    entry.participation == LocalPlaybackParticipation.ACTIVE
-            ) {
-                PeerPlaybackHealthState.READY
-            } else if (entry.everReady) {
-                PeerPlaybackHealthState.DEGRADED
-            } else {
-                PeerPlaybackHealthState.WARMING_UP
+            when {
+                transportReady && entry.contentReady -> PeerPlaybackHealthState.READY
+                transportReady -> PeerPlaybackHealthState.CATCHING_UP
+                entry.everReady -> PeerPlaybackHealthState.DEGRADED
+                else -> PeerPlaybackHealthState.WARMING_UP
             }
         return PeerClockHealth(
             state = state,
-            roundTripNs = entry.roundTripNs.takeIf { state == PeerPlaybackHealthState.READY },
-            uncertaintyNs = entry.uncertaintyNs.takeIf { state == PeerPlaybackHealthState.READY },
+            roundTripNs = entry.roundTripNs.takeIf { transportReady },
+            uncertaintyNs = entry.uncertaintyNs.takeIf { transportReady },
             updatedAtNs = entry.updatedAtNs,
         )
     }

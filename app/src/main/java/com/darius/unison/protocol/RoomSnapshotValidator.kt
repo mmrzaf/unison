@@ -1,7 +1,6 @@
 package com.darius.unison.protocol
 
 import com.darius.unison.model.MemberSnapshot
-import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomSnapshot
@@ -82,12 +81,11 @@ class RoomSnapshotValidator(
         if (queueIds.distinct().size != queueIds.size)
             reject("duplicate_queue_item", "Duplicate queue item identity")
         val queueIdSet = queueIds.toSet()
-        val memberIdSet = memberIds.toSet()
         snapshot.queue.forEachIndexed { index, item ->
             if (!item.queueItemId.isValidQueueItemId())
                 reject("queue_item_id", "Invalid queue item at index $index")
-            if (!item.addedByPeerId.isValidPeerId() || item.addedByPeerId !in memberIdSet) {
-                reject("queue_added_by", "Queue item references an unknown member")
+            if (!item.addedByPeerId.isValidPeerId()) {
+                reject("queue_added_by", "Queue item has an invalid contributor identity")
             }
             if (item.addedAtSequence !in 0..snapshot.sequence) {
                 reject("queue_sequence", "Queue item has an invalid creation sequence")
@@ -111,9 +109,6 @@ class RoomSnapshotValidator(
             }
         }
 
-        if (!queueIdSet.containsAll(snapshot.preparedQueueItemIds)) {
-            reject("prepared_items", "Prepared-item set contains an item outside the queue")
-        }
         val playbackItem = snapshot.playback.queueItemId
         if (playbackItem != null && playbackItem !in queueIdSet) {
             reject("playback_item", "Playback item is not present in the queue")
@@ -149,29 +144,6 @@ class RoomSnapshotValidator(
         if (!member.displayName.isBoundedText(1, MAX_DISPLAY_NAME_LENGTH)) {
             reject("member_name", "Invalid member display name at index $index")
         }
-        member.endpoint?.let { endpoint ->
-            validateEndpoint(endpoint, member.peerId, reject)
-        }
-    }
-
-    private fun validateEndpoint(
-        endpoint: PeerEndpoint,
-        expectedPeerId: PeerId,
-        reject: (String, String) -> Unit,
-    ) {
-        if (endpoint.peerId != expectedPeerId)
-            reject("endpoint_peer", "Endpoint identity does not match its member")
-        if (!endpoint.displayName.isBoundedText(1, MAX_DISPLAY_NAME_LENGTH)) {
-            reject("endpoint_name", "Invalid endpoint display name")
-        }
-        if (!endpoint.hostAddress.isBoundedText(1, MAX_HOST_LENGTH))
-            reject("endpoint_host", "Invalid endpoint host")
-        if (endpoint.port !in 1..65535) reject("endpoint_port", "Invalid endpoint port")
-        if (!endpoint.appVersion.isBoundedText(1, MAX_APP_VERSION_LENGTH)) {
-            reject("endpoint_version", "Invalid endpoint application version")
-        }
-        if (endpoint.lastSeenElapsedMs < 0)
-            reject("endpoint_last_seen", "Invalid endpoint timestamp")
     }
 
     companion object {
@@ -184,8 +156,6 @@ class RoomSnapshotValidator(
 
         private const val MAX_ROOM_NAME_LENGTH = 80
         private const val MAX_DISPLAY_NAME_LENGTH = 80
-        private const val MAX_HOST_LENGTH = 255
-        private const val MAX_APP_VERSION_LENGTH = 64
         private const val MAX_METADATA_LENGTH = 256
         private const val MAX_FILENAME_LENGTH = 512
         private const val MAX_MIME_LENGTH = 128

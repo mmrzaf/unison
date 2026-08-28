@@ -1,2 +1,2 @@
 package com.darius.unison.protocol
-const val PROTOCOL_VERSION: Int = 1
+const val PROTOCOL_VERSION: Int = 2

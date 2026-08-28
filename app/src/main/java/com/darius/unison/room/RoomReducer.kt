@@ -37,29 +37,31 @@ object RoomReducer {
         command: UserCommand,
         coordinatorNowNs: Long,
         leadNs: Long = DEFAULT_COMMAND_LEAD_NS,
+        preparedQueueItemIds: Set<QueueItemId> = emptySet(),
     ): Decision {
         if (command.commandId.length !in 1..MAX_COMMAND_ID_LENGTH) {
             return Decision.Rejected("Invalid command")
         }
-        val memberExists = snapshot.members.any { it.peerId == command.requestedBy && it.connected }
+        val memberExists = snapshot.members.any { it.peerId == command.requestedBy }
         if (!memberExists) return Decision.Rejected("You are no longer connected to this room")
         return when (command) {
-            is UserCommand.Play -> play(snapshot, coordinatorNowNs, leadNs, command.commandId)
+            is UserCommand.Play -> play(snapshot, preparedQueueItemIds, coordinatorNowNs, leadNs, command.commandId)
             is UserCommand.Pause -> pause(snapshot, coordinatorNowNs, leadNs, command.commandId)
             is UserCommand.Seek ->
                 seek(snapshot, command.positionMs, coordinatorNowNs, leadNs, command.commandId)
             is UserCommand.SkipNext ->
-                changeItem(snapshot, +1, coordinatorNowNs, leadNs, command.commandId)
+                changeItem(snapshot, preparedQueueItemIds, +1, coordinatorNowNs, leadNs, command.commandId)
             is UserCommand.SkipPrevious -> {
                 val currentPosition = snapshot.playback.projectedPositionMs(coordinatorNowNs)
                 if (currentPosition > 4_000)
                     seek(snapshot, 0, coordinatorNowNs, leadNs, command.commandId)
-                else changeItem(snapshot, -1, coordinatorNowNs, leadNs, command.commandId)
+                else changeItem(snapshot, preparedQueueItemIds, -1, coordinatorNowNs, leadNs, command.commandId)
             }
 
             is UserCommand.PlayQueueItem ->
                 playQueueItem(
                     snapshot,
+                    preparedQueueItemIds,
                     command.queueItemId,
                     command.resumePlayback,
                     coordinatorNowNs,
@@ -82,7 +84,8 @@ object RoomReducer {
             is UserCommand.QueueMoveAfterCurrent -> moveAfterCurrent(snapshot, command.queueItemId)
             is UserCommand.QueueClearPlayed -> clearPlayed(snapshot)
             is UserCommand.QueueClear -> clearQueue(snapshot)
-            is UserCommand.QueueShuffle -> shuffleQueue(snapshot, command.shuffleSeed)
+            is UserCommand.QueueShuffle ->
+                shuffleQueue(snapshot, command.shuffleSeed, command.preserveNextQueueItemId)
             is UserCommand.RepeatModeChange -> changeRepeatMode(snapshot, command.repeatMode)
             is UserCommand.OptionsChange -> changeOptions(snapshot, command.options)
         }
@@ -118,7 +121,6 @@ object RoomReducer {
                     snapshot.copy(
                         queue = snapshot.queue.filterNot { it.queueItemId in removed },
                         queueRevision = sequence,
-                        preparedQueueItemIds = snapshot.preparedQueueItemIds - removed,
                         // When the audible item is removed, the following CurrentItemChanged
                         // mutation owns
                         // the scheduled transition. Keeping the old canonical playback reference
@@ -142,18 +144,9 @@ object RoomReducer {
                 ProtocolBody.QueueCleared ->
                     snapshot.copy(
                         queue = emptyList(),
-                        preparedQueueItemIds = emptySet(),
                         repeatMode = RepeatMode.OFF,
                         playback = CanonicalPlaybackState(revision = sequence),
                         queueRevision = sequence,
-                    )
-
-                is ProtocolBody.QueuePreparedSetChanged ->
-                    snapshot.copy(
-                        preparedQueueItemIds =
-                            body.preparedQueueItemIds.intersect(
-                                snapshot.queue.mapTo(hashSetOf()) { it.queueItemId }
-                            )
                     )
 
                 is ProtocolBody.RoomOptionsChanged ->
@@ -223,19 +216,20 @@ object RoomReducer {
                 is ProtocolBody.PeerUpdated ->
                     snapshot.copy(members = upsertMember(snapshot.members, body.member))
                 is ProtocolBody.PeerLeft ->
-                    snapshot.copy(
-                        members =
-                            snapshot.members.map {
-                                if (it.peerId == body.peerId) it.copy(connected = false) else it
-                            }
-                    )
+                    snapshot.copy(members = snapshot.members.filterNot { it.peerId == body.peerId })
 
                 else -> snapshot
             }
         return updated.copy(sequence = sequence)
     }
 
-    private fun play(snapshot: RoomSnapshot, now: Long, lead: Long, commandId: String): Decision {
+    private fun play(
+        snapshot: RoomSnapshot,
+        preparedQueueItemIds: Set<QueueItemId>,
+        now: Long,
+        lead: Long,
+        commandId: String,
+    ): Decision {
         val queueItem =
             snapshot.playback.queueItemId?.let { id ->
                 snapshot.queue.firstOrNull { it.queueItemId == id }
@@ -244,7 +238,7 @@ object RoomReducer {
                 ?: return Decision.Rejected("Add music before playing")
         if (
             snapshot.options.waitAtTrackBoundary &&
-                queueItem.queueItemId !in snapshot.preparedQueueItemIds
+                queueItem.queueItemId !in preparedQueueItemIds
         ) {
             return Decision.Rejected("Getting this song ready")
         }
@@ -304,6 +298,7 @@ object RoomReducer {
 
     private fun changeItem(
         snapshot: RoomSnapshot,
+        preparedQueueItemIds: Set<QueueItemId>,
         delta: Int,
         now: Long,
         lead: Long,
@@ -322,7 +317,7 @@ object RoomReducer {
         val target = snapshot.queue[newIndex]
         if (
             snapshot.options.waitAtTrackBoundary &&
-                target.queueItemId !in snapshot.preparedQueueItemIds
+                target.queueItemId !in preparedQueueItemIds
         ) {
             return Decision.Rejected("The next song is not ready yet")
         }
@@ -340,6 +335,7 @@ object RoomReducer {
 
     private fun playQueueItem(
         snapshot: RoomSnapshot,
+        preparedQueueItemIds: Set<QueueItemId>,
         id: QueueItemId,
         resumePlayback: Boolean,
         now: Long,
@@ -349,7 +345,7 @@ object RoomReducer {
         val target =
             snapshot.queue.firstOrNull { it.queueItemId == id }
                 ?: return Decision.Rejected("That song is no longer in the queue")
-        val ready = target.queueItemId in snapshot.preparedQueueItemIds
+        val ready = target.queueItemId in preparedQueueItemIds
         if (snapshot.options.waitAtTrackBoundary && !ready) {
             return Decision.Rejected("The selected song is still preparing")
         }
@@ -480,9 +476,18 @@ object RoomReducer {
         return mutation(snapshot, ProtocolBody.RepeatModeChanged(repeatMode))
     }
 
-    private fun shuffleQueue(snapshot: RoomSnapshot, seed: Long): Decision {
+    private fun shuffleQueue(
+        snapshot: RoomSnapshot,
+        seed: Long,
+        preserveNextQueueItemId: QueueItemId?,
+    ): Decision {
         val orderedIds =
-            QueueShufflePolicy.shuffledOrder(snapshot.queue, snapshot.playback.queueItemId, seed)
+            QueueShufflePolicy.shuffledOrder(
+                snapshot.queue,
+                snapshot.playback.queueItemId,
+                seed,
+                preserveNextQueueItemId,
+            )
                 ?: return Decision.Rejected("Add at least two upcoming songs before shuffling")
         return mutation(snapshot, ProtocolBody.QueueShuffled(orderedIds))
     }

@@ -56,6 +56,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/room/QueueSearchIndex.kt
   app/src/main/java/com/darius/unison/room/QueueDragPolicy.kt
   app/src/main/java/com/darius/unison/room/QueueShufflePolicy.kt
+  app/src/main/java/com/darius/unison/room/TransferDemandScheduler.kt
   app/src/main/java/com/darius/unison/room/TrackPrefetchPolicy.kt
   app/src/main/java/com/darius/unison/room/TransportIntentCoordinator.kt
   app/src/main/java/com/darius/unison/room/PendingTrackTransitionRegistry.kt
@@ -84,12 +85,9 @@ SOURCES=(
   app/src/main/java/com/darius/unison/playback/PlayerPort.kt
   app/src/main/java/com/darius/unison/playback/ExpectedPlayerIntentTracker.kt
   app/src/main/java/com/darius/unison/playback/PlaybackPausePolicy.kt
-  app/src/main/java/com/darius/unison/playback/PlayerMutationCoordinator.kt
-  app/src/main/java/com/darius/unison/playback/ScheduledPlaybackController.kt
+  app/src/main/java/com/darius/unison/playback/PlayerExecutor.kt
   app/src/main/java/com/darius/unison/playback/PlayerStateEventPolicy.kt
   app/src/main/java/com/darius/unison/playback/PlayerEventInterpreter.kt
-  app/src/main/java/com/darius/unison/playback/PlayerItemTransitionPolicy.kt
-  app/src/main/java/com/darius/unison/playback/PlayerTransitionCircuitBreaker.kt
   app/src/main/java/com/darius/unison/sync/ClockSyncEngine.kt
   app/src/main/java/com/darius/unison/sync/PlaybackSyncTuning.kt
   app/src/main/java/com/darius/unison/sync/PlaybackSyncEngine.kt
@@ -152,8 +150,6 @@ SOURCES=(
   app/src/test/java/com/darius/unison/playback/CanonicalPlaybackDispatcherTest.kt
   app/src/test/java/com/darius/unison/playback/PlayerStateEventPolicyTest.kt
   app/src/test/java/com/darius/unison/playback/PlayerEventInterpreterTest.kt
-  app/src/test/java/com/darius/unison/playback/PlayerItemTransitionPolicyTest.kt
-  app/src/test/java/com/darius/unison/playback/PlayerTransitionCircuitBreakerTest.kt
   app/src/test/java/com/darius/unison/room/RoomReducerTest.kt
   app/src/test/java/com/darius/unison/room/RoomEngineValidationTest.kt
   app/src/test/java/com/darius/unison/room/PeerPlaybackHealthRegistryTest.kt
@@ -171,14 +167,14 @@ SOURCES=(
   app/src/test/java/com/darius/unison/room/QueueSearchIndexTest.kt
   app/src/test/java/com/darius/unison/room/QueueDragPolicyTest.kt
   app/src/test/java/com/darius/unison/room/QueueShufflePolicyTest.kt
+  app/src/test/java/com/darius/unison/room/TransferDemandSchedulerTest.kt
   app/src/test/java/com/darius/unison/room/TrackPrefetchPolicyTest.kt
   app/src/test/java/com/darius/unison/room/TransportIntentCoordinatorTest.kt
   app/src/test/java/com/darius/unison/room/PendingTrackTransitionRegistryTest.kt
   app/src/test/java/com/darius/unison/room/TransportLeadTimePolicyTest.kt
   app/src/test/java/com/darius/unison/room/TransportTargetPolicyTest.kt
   app/src/test/java/com/darius/unison/room/TransportCommandTrackerTest.kt
-  app/src/test/java/com/darius/unison/playback/PlayerMutationCoordinatorTest.kt
-  app/src/test/java/com/darius/unison/playback/ScheduledPlaybackControllerTest.kt
+  app/src/test/java/com/darius/unison/playback/PlayerExecutorTest.kt
   app/src/test/java/com/darius/unison/playback/ExpectedPlayerIntentTrackerTest.kt
   app/src/test/java/com/darius/unison/playback/PlaybackPausePolicyTest.kt
   app/src/test/java/com/darius/unison/sync/ClockSyncEngineTest.kt

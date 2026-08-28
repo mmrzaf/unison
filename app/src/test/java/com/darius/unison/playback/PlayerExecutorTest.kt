@@ -12,6 +12,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,12 +20,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-class ScheduledPlaybackControllerTest {
+class PlayerExecutorTest {
     @get:Rule val temporaryFolder = TemporaryFolder()
 
     private val itemId = QueueItemId("queue-item")
@@ -245,10 +247,9 @@ class ScheduledPlaybackControllerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val controller =
-                ScheduledPlaybackController(
+                PlayerExecutor(
                     player = player,
-                    mutations = PlayerMutationCoordinator(player),
-                    clock = clock,
+                            clock = clock,
                     clockSync = clockSync,
                     scope = scope,
                     log = testLog(),
@@ -299,10 +300,9 @@ class ScheduledPlaybackControllerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val clock = MonotonicClock { 0L }
-            ScheduledPlaybackController(
+            PlayerExecutor(
                     player = player,
-                    mutations = PlayerMutationCoordinator(player),
-                    clock = clock,
+                            clock = clock,
                     clockSync = ClockSyncEngine(clock),
                     scope = scope,
                     log = testLog(),
@@ -333,10 +333,9 @@ class ScheduledPlaybackControllerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val clock = MonotonicClock { 0L }
-            ScheduledPlaybackController(
+            PlayerExecutor(
                     player = player,
-                    mutations = PlayerMutationCoordinator(player),
-                    clock = clock,
+                            clock = clock,
                     clockSync = ClockSyncEngine(clock),
                     scope = scope,
                     log = testLog(),
@@ -386,6 +385,119 @@ class ScheduledPlaybackControllerTest {
         }
     }
 
+
+    @Test
+    fun cancelWhileReservationWaitsCannotResurrectScheduledCommand() = runBlocking {
+        val player = FakePlayer(PlayerState(queueItemId = itemId, positionMs = 0L, prepared = true))
+        val maintenanceStarted = CompletableDeferred<Unit>()
+        val releaseMaintenance = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val clock = MonotonicClock { 0L }
+            val controller =
+                PlayerExecutor(
+                    player = player,
+                    clock = clock,
+                    clockSync = ClockSyncEngine(clock),
+                    scope = scope,
+                    log = testLog(),
+                    onError = {},
+                    usesLocalCoordinatorClock = { true },
+                )
+            val maintenance =
+                async {
+                    controller.maintenance {
+                        maintenanceStarted.complete(Unit)
+                        releaseMaintenance.await()
+                    }
+                }
+
+            maintenanceStarted.await()
+            val scheduling = async { controller.schedulePlay(itemId, 0L, 0L, "cancelled") }
+            delay(20L)
+            controller.cancel("Queue cleared")
+            releaseMaintenance.complete(Unit)
+            maintenance.await()
+            scheduling.await()
+            delay(50L)
+
+            assertEquals(0, player.playCalls)
+            assertFalse(controller.hasPendingTransport)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun newerScheduleWinsEvenWhenBothWaitBehindMaintenance() = runBlocking {
+        val player =
+            FakePlayer(
+                PlayerState(
+                    queueItemId = itemId,
+                    positionMs = 0L,
+                    prepared = true,
+                    playWhenReady = true,
+                    isPlaying = true,
+                )
+            )
+        val maintenanceStarted = CompletableDeferred<Unit>()
+        val releaseMaintenance = CompletableDeferred<Unit>()
+        val settled = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val controller = controller(player, scope) { id, phase, _ ->
+                if (id == "new" && phase == TransportCommandPhase.SETTLED) settled.complete(Unit)
+            }
+            val maintenance = async {
+                controller.maintenance {
+                    maintenanceStarted.complete(Unit)
+                    releaseMaintenance.await()
+                }
+            }
+            maintenanceStarted.await()
+
+            val old = async { controller.schedulePlay(itemId, 0L, 0L, "old") }
+            delay(10L)
+            val new = async { controller.schedulePause(itemId, 0L, 0L, "new") }
+            delay(10L)
+            releaseMaintenance.complete(Unit)
+            maintenance.await()
+            old.await()
+            new.await()
+
+            withTimeout(2_000L) { settled.await() }
+            assertEquals(0, player.playCalls)
+            assertEquals(1, player.pauseCalls)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun immediateTransportInvalidatesOlderDelayedSchedule() = runBlocking {
+        val player = FakePlayer(PlayerState(queueItemId = itemId, positionMs = 0L, prepared = true))
+        val phases = mutableListOf<Pair<String, TransportCommandPhase>>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val controller = controller(player, scope) { id, phase, _ ->
+                synchronized(phases) { phases += id to phase }
+            }
+            controller.schedulePlay(itemId, 0L, 10_000_000_000L, "old")
+            val immediate = controller.executeImmediateTransport("now") {
+                pause(PlaybackPauseCause.SCHEDULED_TRANSPORT)
+                true
+            }
+            delay(80L)
+
+            assertEquals(PlayerExecutor.ExecutionResult.SUCCESS, immediate.result)
+            assertEquals("old", immediate.supersededCommandId)
+            assertEquals(0, player.playCalls)
+            assertEquals(1, player.pauseCalls)
+            assertFalse(controller.hasPendingTransport)
+        } finally {
+            scope.cancel()
+        }
+    }
 
     @Test
     fun scheduledPlayAlignsSilentlyWhileOutputIsInhibited() = runBlocking {
@@ -447,11 +559,10 @@ class ScheduledPlaybackControllerTest {
         player: FakePlayer,
         scope: CoroutineScope,
         onPhase: (String, TransportCommandPhase, String?) -> Unit,
-    ): ScheduledPlaybackController {
+    ): PlayerExecutor {
         val clock = MonotonicClock { 0L }
-        return ScheduledPlaybackController(
+        return PlayerExecutor(
             player = player,
-            mutations = PlayerMutationCoordinator(player),
             clock = clock,
             clockSync = ClockSyncEngine(clock),
             scope = scope,

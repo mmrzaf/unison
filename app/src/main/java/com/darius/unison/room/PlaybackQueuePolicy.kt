@@ -18,30 +18,33 @@ object PlaybackQueuePolicy {
      * Returns a player timeline that can never jump over a missing song. Readable history remains
      * available for Previous, while the future is a contiguous run from the canonical current item.
      */
-    fun playableItems(snapshot: RoomSnapshot, readableTrackIds: Set<TrackId>): List<QueueItem> {
+    fun playableItems(snapshot: RoomSnapshot, readableTrackIds: Set<TrackId>): List<QueueItem> =
+        playableItems(snapshot, readableTrackIds, emptySet())
+
+    fun playableItems(
+        snapshot: RoomSnapshot,
+        readableTrackIds: Set<TrackId>,
+        preparedQueueItemIds: Set<QueueItemId>,
+    ): List<QueueItem> {
         if (snapshot.queue.isEmpty()) return emptyList()
         val currentIndex =
             snapshot.queue
                 .indexOfFirst { it.queueItemId == snapshot.playback.queueItemId }
                 .let { if (it < 0) 0 else it }
-        val roomAllowed =
-            if (snapshot.options.waitAtTrackBoundary) {
-                snapshot.queue.filter {
-                    it.queueItemId == snapshot.playback.queueItemId ||
-                        it.queueItemId in snapshot.preparedQueueItemIds
-                }
-            } else {
-                val history =
-                    snapshot.queue.take(currentIndex).filter {
-                        it.track.trackId in readableTrackIds
-                    }
-                val future =
-                    snapshot.queue.drop(currentIndex).takeWhile {
-                        it.track.trackId in readableTrackIds
-                    }
-                history + future
+        val history =
+            snapshot.queue.take(currentIndex).filter {
+                it.track.trackId in readableTrackIds
             }
-        return roomAllowed.filter { it.track.trackId in readableTrackIds }
+        val future =
+            snapshot.queue.drop(currentIndex).takeWhile { item ->
+                item.track.trackId in readableTrackIds &&
+                    (
+                        !snapshot.options.waitAtTrackBoundary ||
+                            item.queueItemId == snapshot.playback.queueItemId ||
+                            item.queueItemId in preparedQueueItemIds
+                    )
+            }
+        return history + future
     }
 
     fun playerWindow(
@@ -62,6 +65,19 @@ object PlaybackQueuePolicy {
 
     fun planNaturalEnd(
         snapshot: RoomSnapshot,
+        endedQueueItemId: QueueItemId,
+        positionMs: Long,
+        durationMs: Long,
+        coordinatorNowNs: Long,
+        leadNs: Long = RoomReducer.DEFAULT_COMMAND_LEAD_NS,
+    ): NaturalEndPlan? =
+        planNaturalEnd(
+            snapshot, emptySet(), endedQueueItemId, positionMs, durationMs, coordinatorNowNs, leadNs
+        )
+
+    fun planNaturalEnd(
+        snapshot: RoomSnapshot,
+        preparedQueueItemIds: Set<QueueItemId>,
         endedQueueItemId: QueueItemId,
         positionMs: Long,
         durationMs: Long,
@@ -89,18 +105,31 @@ object PlaybackQueuePolicy {
                     )
             )
         }
-        val ready = next.queueItemId in snapshot.preparedQueueItemIds
-        return NaturalEndPlan(
-            mutation =
-                ProtocolBody.CurrentItemChanged(
-                    queueItemId = next.queueItemId,
-                    positionMs = 0,
-                    executeAtCoordinatorNs =
-                        if (ready) coordinatorNowNs + leadNs else coordinatorNowNs,
-                    resumePlayback = ready,
-                ),
-            waitForQueueItemId = next.queueItemId.takeUnless { ready },
-        )
+        val ready = next.queueItemId in preparedQueueItemIds
+        return if (ready) {
+            NaturalEndPlan(
+                mutation =
+                    ProtocolBody.CurrentItemChanged(
+                        queueItemId = next.queueItemId,
+                        positionMs = 0,
+                        executeAtCoordinatorNs = coordinatorNowNs + leadNs,
+                        resumePlayback = true,
+                    )
+            )
+        } else {
+            // Do not lie in canonical state by naming an item that no participant can execute yet.
+            // The ended item remains canonical/paused while runtime readiness tracks the intended
+            // successor; once ready, one CurrentItemChanged commits the real transition.
+            NaturalEndPlan(
+                mutation =
+                    ProtocolBody.PauseScheduled(
+                        queueItemId = endedQueueItemId,
+                        positionMs = maxOf(positionMs, durationMs).coerceAtLeast(0),
+                        executeAtCoordinatorNs = coordinatorNowNs,
+                    ),
+                waitForQueueItemId = next.queueItemId,
+            )
+        }
     }
 
     fun planRepeatTransition(

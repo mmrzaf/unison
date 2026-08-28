@@ -14,7 +14,7 @@ import com.darius.unison.playback.AudioOutputRoute
 import com.darius.unison.playback.LocalPlayableItem
 import com.darius.unison.playback.PlaybackActivityState
 import com.darius.unison.playback.PlaybackSample
-import com.darius.unison.playback.PlayerMutationCoordinator
+import com.darius.unison.playback.PlayerExecutor
 import com.darius.unison.playback.PlayerPort
 import com.darius.unison.playback.PlaybackPauseCause
 import com.darius.unison.playback.PlayerState
@@ -49,9 +49,18 @@ class LocalPlaybackParticipationCoordinatorTest {
                     inhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
                 )
             )
-        val mutations = PlayerMutationCoordinator(player)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val log = DiagnosticLog(File.createTempFile("unison-rejoin-test", ".ndjson"))
+        val executor =
+            PlayerExecutor(
+                player = player,
+                clock = clock,
+                clockSync = ClockSyncEngine(clock),
+                scope = scope,
+                log = log,
+                onError = {},
+                usesLocalCoordinatorClock = { true },
+            )
         val syncDiagnostics = SynchronizationDiagnostics(scope, log)
         val published = mutableListOf<ProtocolBody.PlaybackStatusReport>()
         val refreshed = mutableListOf<Pair<QueueItemId, Long>>()
@@ -60,21 +69,18 @@ class LocalPlaybackParticipationCoordinatorTest {
             val coordinator =
                 LocalPlaybackParticipationCoordinator(
                     player = player,
-                    playerMutations = mutations,
+                    playerExecutor = executor,
                     clock = clock,
                     clockSync = ClockSyncEngine(clock),
-                    playbackSession = PlaybackSessionCoordinator(1L, 1L, 1L),
+                    playbackSession = PlaybackSessionCoordinator(1L, 1L),
                     isCoordinator = { true },
                     refreshPlayerQueue = { _, itemId, positionMs ->
                         refreshed += itemId to positionMs
                     },
                     executeImmediatePlay = { commandId, block ->
-                        val (ticket, _) = mutations.beginTransport(commandId)
-                        mutations.executeTransport(ticket, block)
+                        executor.executeImmediateTransport(commandId, block)
                     },
-                    playbackSynchronization = PlaybackSynchronizationRuntime(),
-                    syncDiagnostics = syncDiagnostics,
-                    clearLocalDrift = { clearedDrift++ },
+                    resetLocalSynchronization = { clearedDrift++ },
                     publishStatus = { published += it },
                     onCoordinatorCohortChanged = {},
                     setError = { error(it) },
@@ -115,24 +121,31 @@ class LocalPlaybackParticipationCoordinatorTest {
                     inhibitionReason = LocalPlaybackInhibitionReason.BECOMING_NOISY,
                 )
             )
-        val mutations = PlayerMutationCoordinator(player)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val log = DiagnosticLog(File.createTempFile("unison-session-reset-test", ".ndjson"))
+        val executor =
+            PlayerExecutor(
+                player = player,
+                clock = clock,
+                clockSync = ClockSyncEngine(clock),
+                scope = scope,
+                log = log,
+                onError = {},
+                usesLocalCoordinatorClock = { true },
+            )
         val syncDiagnostics = SynchronizationDiagnostics(scope, log)
         try {
             val coordinator =
                 LocalPlaybackParticipationCoordinator(
                     player = player,
-                    playerMutations = mutations,
+                    playerExecutor = executor,
                     clock = clock,
                     clockSync = ClockSyncEngine(clock),
-                    playbackSession = PlaybackSessionCoordinator(1L, 1L, 1L),
+                    playbackSession = PlaybackSessionCoordinator(1L, 1L),
                     isCoordinator = { true },
                     refreshPlayerQueue = { _, _, _ -> },
                     executeImmediatePlay = { _, _ -> error("reset must not start playback") },
-                    playbackSynchronization = PlaybackSynchronizationRuntime(),
-                    syncDiagnostics = syncDiagnostics,
-                    clearLocalDrift = {},
+                    resetLocalSynchronization = {},
                     publishStatus = {},
                     onCoordinatorCohortChanged = {},
                     setError = { error(it) },

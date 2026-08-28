@@ -88,27 +88,34 @@ class ClockSyncEngine(
     private var lastGoodSampleLocalNs: Long? = null
     private var rejected = 0
 
+    @get:Synchronized
     val state: ClockSyncState
         get() = estimate().state
 
+    @get:Synchronized
     val synchronized: Boolean
         get() = state == ClockSyncState.LOCKED
 
+    @get:Synchronized
     val offsetNs: Long
         get() {
             val now = clock.nowNs()
             return toCoordinatorTime(now) - now
         }
 
+    @get:Synchronized
     val rate: Double
         get() = fittedRate
 
+    @get:Synchronized
     val roundTripNs: Long
         get() = fittedRttNs
 
+    @get:Synchronized
     val uncertaintyNs: Long
         get() = estimate().uncertaintyNs
 
+    @Synchronized
     fun createPing(): PendingPing {
         val ping = PendingPing(UUID.randomUUID().toString(), clock.nowNs())
         pending[ping.pingId] = ping.localSendNs
@@ -116,6 +123,7 @@ class ClockSyncEngine(
         return ping
     }
 
+    @Synchronized
     fun recordPong(
         pingId: String,
         echoedGuestSendNs: Long,
@@ -177,20 +185,24 @@ class ClockSyncEngine(
         return sample
     }
 
+    @Synchronized
     fun toCoordinatorTime(localTimeNs: Long): Long {
         if (anchorLocalNs == 0L && anchorCoordinatorNs == 0L) return localTimeNs
         val delta = localTimeNs - anchorLocalNs
         return anchorCoordinatorNs + (delta.toDouble() * fittedRate).toLong()
     }
 
+    @Synchronized
     fun toLocalTime(coordinatorTimeNs: Long): Long {
         if (anchorLocalNs == 0L && anchorCoordinatorNs == 0L) return coordinatorTimeNs
         val delta = coordinatorTimeNs - anchorCoordinatorNs
         return anchorLocalNs + (delta.toDouble() / fittedRate).toLong()
     }
 
+    @Synchronized
     fun coordinatorNowNs(): Long = toCoordinatorTime(clock.nowNs())
 
+    @Synchronized
     fun toCoordinatorTimeWithUncertainty(localTimeNs: Long): ClockConversion {
         val estimate = estimate(localTimeNs)
         return ClockConversion(
@@ -200,12 +212,14 @@ class ClockSyncEngine(
         )
     }
 
+    @Synchronized
     fun toLocalTimeWithUncertainty(coordinatorTimeNs: Long): ClockConversion {
         val local = toLocalTime(coordinatorTimeNs)
         val estimate = estimate(local)
         return ClockConversion(local, estimate.uncertaintyNs, estimate.state)
     }
 
+    @Synchronized
     fun estimate(atLocalNs: Long = clock.nowNs()): ClockEstimate {
         val last = lastGoodSampleLocalNs
         val age = last?.let { (atLocalNs - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE
@@ -238,6 +252,7 @@ class ClockSyncEngine(
         )
     }
 
+    @Synchronized
     fun reset() {
         pending.clear()
         samples.clear()

@@ -11,7 +11,7 @@ import java.util.UUID
 /**
  * Length-delimited, directionally encrypted control frames.
  *
- * Protocol 1 uses AES-GCM. The fixed header is authenticated as associated data and the message
+ * Protocol 2 uses AES-GCM. The fixed header is authenticated as associated data and the message
  * UUID remains available before JSON decoding for replay accounting and framing validation.
  */
 class FrameCodec(

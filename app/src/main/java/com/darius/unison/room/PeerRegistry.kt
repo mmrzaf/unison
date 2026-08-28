@@ -14,7 +14,6 @@ internal class PeerRegistry<C> {
     val waitingForSource = ConcurrentHashMap<TrackId, MutableSet<PeerId>>()
     val lastSeenElapsedMs = ConcurrentHashMap<PeerId, Long>()
     val announcedTrackIds = ConcurrentHashMap.newKeySet<TrackId>()
-    val transferFailureCounts = ConcurrentHashMap<String, Int>()
     val pendingTransferAssignments = ConcurrentHashMap<String, ProtocolBody.TrackSourceAssigned>()
 
     fun markAvailable(peerId: PeerId, trackId: TrackId) {
@@ -32,7 +31,6 @@ internal class PeerRegistry<C> {
         lastSeenElapsedMs.remove(peerId)
         availability.values.forEach { it.remove(peerId) }
         waitingForSource.values.forEach { it.remove(peerId) }
-        transferFailureCounts.keys.removeAll { it.contains(":$peerId") }
     }
 
     fun clearSession(closeConnection: (C) -> Unit) {
@@ -43,7 +41,6 @@ internal class PeerRegistry<C> {
         waitingForSource.clear()
         lastSeenElapsedMs.clear()
         announcedTrackIds.clear()
-        transferFailureCounts.clear()
         pendingTransferAssignments.clear()
     }
 }

@@ -17,7 +17,9 @@ class PeerPlaybackHealthRegistryTest {
         assertEquals(PeerPlaybackHealthState.WARMING_UP, registry.health(guest, 0L).state)
 
         assertFalse(registry.updateClock(guest, true, 20L, 5L, nowNs = 100L))
-        assertTrue(registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L))
+        assertFalse(registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L))
+        assertEquals(PeerPlaybackHealthState.CATCHING_UP, registry.health(guest, 100L).state)
+        assertTrue(registry.updateContentReady(guest, true, 150L))
         assertFalse(registry.updateClock(guest, true, 25L, 6L, nowNs = 200L))
 
         assertEquals(PeerPlaybackHealthState.READY, registry.health(guest, 500L).state)
@@ -29,6 +31,7 @@ class PeerPlaybackHealthRegistryTest {
         val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
         registry.updateClock(guest, true, 20L, 5L, nowNs = 100L)
         registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L)
+        registry.updateContentReady(guest, true, 100L)
         registry.updateClock(guest, false, null, null, nowNs = 200L)
 
         assertEquals(PeerPlaybackHealthState.DEGRADED, registry.health(guest, 200L).state)
@@ -40,6 +43,7 @@ class PeerPlaybackHealthRegistryTest {
         val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 1_000L)
         registry.updateClock(guest, true, 20L, 5L, nowNs = 100L)
         registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L)
+        registry.updateContentReady(guest, true, 100L)
         val connected = setOf(coordinator, guest)
 
         assertTrue(guest in registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.ACTIVE, nowNs = 1_000L))
@@ -63,6 +67,7 @@ class PeerPlaybackHealthRegistryTest {
         val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
         registry.updateClock(guest, true, 20L, 5L, nowNs = 100L)
         registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L)
+        registry.updateContentReady(guest, true, 100L)
         assertEquals(PeerPlaybackHealthState.READY, registry.health(guest, 200L).state)
 
         assertTrue(
@@ -72,6 +77,38 @@ class PeerPlaybackHealthRegistryTest {
 
         assertTrue(registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 300L))
         assertEquals(PeerPlaybackHealthState.READY, registry.health(guest, 300L).state)
+    }
+
+    @Test
+    fun synchronizedGuestDoesNotJoinBlockingCohortUntilContentRunwayIsReady() {
+        val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
+        val connected = setOf(coordinator, guest)
+        registry.updateClock(guest, true, 20L, 5L, 100L)
+        registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L)
+
+        assertEquals(PeerPlaybackHealthState.CATCHING_UP, registry.health(guest, 200L).state)
+        assertEquals(
+            setOf(coordinator),
+            registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.ACTIVE, 200L),
+        )
+
+        assertTrue(registry.updateContentReady(guest, true, 250L))
+        assertEquals(
+            setOf(coordinator, guest),
+            registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.ACTIVE, 250L),
+        )
+    }
+
+    @Test
+    fun clockReadinessIsIndependentFromPlaybackAdmission() {
+        val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
+        registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L)
+
+        assertFalse(registry.isClockReady(guest, 100L))
+        registry.updateClock(guest, true, 20L, 5L, 150L)
+
+        assertTrue(registry.isClockReady(guest, 150L))
+        assertEquals(PeerPlaybackHealthState.CATCHING_UP, registry.health(guest, 150L).state)
     }
 
 }

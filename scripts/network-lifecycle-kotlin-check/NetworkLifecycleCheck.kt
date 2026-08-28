@@ -12,6 +12,7 @@ import android.net.nsd.NsdServiceInfo
 import android.net.wifi.SoftApConfiguration
 import android.net.wifi.WifiManager
 import android.os.Build
+import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.util.DiagnosticLog
 import java.net.InetAddress
 import java.net.Socket
@@ -324,7 +325,7 @@ private fun serviceInfo(host: String) = NsdServiceInfo().apply {
     port = 4567
     this.host = InetAddress.getByName(host)
     setAttribute("rid", "deadbeef1234")
-    setAttribute("v", "1")
+    setAttribute("v", PROTOCOL_VERSION.toString())
     setAttribute("term", "1")
 }
 

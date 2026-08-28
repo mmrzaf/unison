@@ -5,9 +5,9 @@ import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RoomSnapshot
 
 /**
- * Reconstructible playback intent derived only from the latest canonical snapshot.
- * [contentRevision] excludes room membership and telemetry, so unrelated room mutations do not
- * force Media3 timeline work.
+ * Reconstructible playback intent derived from canonical playback plus the current runtime
+ * readiness projection. [contentRevision] excludes membership and telemetry, so unrelated room
+ * mutations do not force Media3 timeline work.
  */
 data class DesiredPlaybackState(
     val canonicalSequence: Long,
@@ -25,9 +25,14 @@ data class DesiredPlaybackState(
     val waitAtTrackBoundary: Boolean,
 ) {
     companion object {
-        fun from(snapshot: RoomSnapshot): DesiredPlaybackState {
+        fun from(snapshot: RoomSnapshot): DesiredPlaybackState = from(snapshot, emptySet())
+
+        fun from(
+            snapshot: RoomSnapshot,
+            preparedQueueItemIds: Set<QueueItemId>,
+        ): DesiredPlaybackState {
             val queueIds = snapshot.queue.map { it.queueItemId }
-            val preparedIds = snapshot.preparedQueueItemIds.toSet()
+            val preparedIds = preparedQueueItemIds.toSet()
             return DesiredPlaybackState(
                 canonicalSequence = snapshot.sequence,
                 queueRevision = snapshot.queueRevision,

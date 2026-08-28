@@ -8,13 +8,13 @@ import com.darius.unison.model.RoomSnapshot
 internal object RoomTransportTiming {
     fun leadNs(
         snapshot: RoomSnapshot,
+        connectedPeers: Set<PeerId>,
         peerHealth: PeerPlaybackHealthRegistry,
         localCoordinatorPeerId: PeerId,
         localParticipation: LocalPlaybackParticipation,
         nowNs: Long,
         reconnecting: Boolean,
     ): Long {
-        val connectedPeers = snapshot.members.filter { it.connected }.mapTo(hashSetOf()) { it.peerId }
         val readyPeers =
             peerHealth.readyPeers(
                 connectedPeers = connectedPeers,

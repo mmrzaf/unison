@@ -35,7 +35,7 @@ class TransportTargetPolicyTest {
     fun nextToUnreadyTrackBecomesPendingWithoutChangingCurrentItem() {
         val snapshot = snapshot(prepared = setOf(items[0].queueItemId))
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.SkipNext("next", peer),
                 snapshot,
                 coordinatorNowNs = 0,
@@ -51,7 +51,7 @@ class TransportTargetPolicyTest {
     fun repeatedNextAdvancesFromPendingAbsoluteTarget() {
         val snapshot = snapshot(prepared = setOf(items[0].queueItemId, items[2].queueItemId))
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.SkipNext("next-2", peer),
                 snapshot,
                 coordinatorNowNs = 0,
@@ -71,7 +71,7 @@ class TransportTargetPolicyTest {
                 isPlaying = false,
             )
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.SkipNext("next-paused", peer),
                 snapshot,
                 coordinatorNowNs = 0,
@@ -89,7 +89,7 @@ class TransportTargetPolicyTest {
                 isPlaying = false,
             )
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.SkipNext("next-paused-ready", peer),
                 snapshot,
                 coordinatorNowNs = 0,
@@ -103,7 +103,7 @@ class TransportTargetPolicyTest {
     fun explicitPendingSelectionPreservesRequestedResumeIntent() {
         val snapshot = snapshot(prepared = setOf(items[0].queueItemId))
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.PlayQueueItem(
                     commandId = "select-paused",
                     requestedBy = peer,
@@ -128,7 +128,7 @@ class TransportTargetPolicyTest {
             )
 
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.PlayQueueItem(
                     commandId = "same-playing",
                     requestedBy = peer,
@@ -153,7 +153,7 @@ class TransportTargetPolicyTest {
             )
 
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.PlayQueueItem(
                     commandId = "same-paused",
                     requestedBy = peer,
@@ -176,7 +176,7 @@ class TransportTargetPolicyTest {
                 positionMs = 5_000,
             )
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.SkipPrevious("previous", peer),
                 snapshot,
                 coordinatorNowNs = 0,
@@ -189,7 +189,7 @@ class TransportTargetPolicyTest {
     fun readyNextResolvesToStableAbsoluteTarget() {
         val snapshot = snapshot(prepared = items.mapTo(hashSetOf()) { it.queueItemId })
         val result =
-            TransportTargetPolicy.resolve(
+            resolve(
                 UserCommand.SkipNext("next", peer),
                 snapshot,
                 coordinatorNowNs = 0,
@@ -199,19 +199,29 @@ class TransportTargetPolicyTest {
         assertTrue(result.rejection == null)
     }
 
+    private val readiness = java.util.IdentityHashMap<RoomSnapshot, Set<com.darius.unison.model.QueueItemId>>()
+
+    private fun resolve(
+        command: UserCommand,
+        snapshot: RoomSnapshot,
+        coordinatorNowNs: Long,
+        pendingTarget: com.darius.unison.model.QueueItemId? = null,
+    ) = TransportTargetPolicy.resolve(
+        command, snapshot, coordinatorNowNs, pendingTarget, readiness[snapshot].orEmpty()
+    )
+
     private fun snapshot(
         prepared: Set<com.darius.unison.model.QueueItemId>,
         positionMs: Long = 0L,
         isPlaying: Boolean = true,
-    ) =
-        RoomSnapshot(
+    ): RoomSnapshot {
+        val snapshot = RoomSnapshot(
             roomId = "room",
             roomName = "Room",
             term = CoordinatorTerm(1, peer),
             sequence = 0,
             members = listOf(MemberSnapshot(peer, "Friend")),
             queue = items,
-            preparedQueueItemIds = prepared,
             playback =
                 CanonicalPlaybackState(
                     queueItemId = items[0].queueItemId,
@@ -221,4 +231,7 @@ class TransportTargetPolicyTest {
                 ),
             options = RoomOptions(waitAtTrackBoundary = true),
         )
+        readiness[snapshot] = prepared
+        return snapshot
+    }
 }
