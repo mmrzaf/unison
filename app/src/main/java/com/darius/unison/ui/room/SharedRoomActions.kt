@@ -18,6 +18,7 @@ import com.darius.unison.util.DiagnosticEvent
 @Immutable
 internal class SharedRoomActions(
     val loadRoomLogs: () -> List<DiagnosticEvent>,
+    val onClearRoomLogs: () -> Unit,
     val onPickerQueryChange: (String) -> Unit,
     val onPlay: () -> Unit,
     val onPause: () -> Unit,

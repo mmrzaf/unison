@@ -3,6 +3,7 @@ package com.darius.unison.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -40,10 +41,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.content.FileProvider
+import java.io.File
 import java.util.ArrayDeque
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticEvent
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class RoomLogSeverityFilter(
     val label: String,
@@ -59,9 +65,11 @@ private enum class RoomLogSeverityFilter(
 internal fun RoomLogsDialog(
     revision: StateFlow<Long>,
     loadEvents: () -> List<DiagnosticEvent>,
+    onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val observedRevision by revision.collectAsStateWithLifecycle()
     val events = remember(observedRevision) { loadEvents() }
     var query by rememberSaveable { mutableStateOf("") }
@@ -112,7 +120,7 @@ internal fun RoomLogsDialog(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            "Room logs",
+                            "Diagnostics",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                         )
@@ -143,6 +151,32 @@ internal fun RoomLogsDialog(
                         )
                         Text(if (copied) "Copied" else "Copy", modifier = Modifier.padding(start = 6.dp))
                     }
+                    TextButton(
+                        enabled = filtered.isNotEmpty(),
+                        onClick = {
+                            scope.launch {
+                                val uri =
+                                    withContext(Dispatchers.IO) {
+                                        writeFilteredRoomLogs(context, filtered)
+                                    }
+                                val shareIntent =
+                                    Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/x-ndjson"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        clipData = ClipData.newRawUri("Unison diagnostics", uri)
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share diagnostics"))
+                            }
+                        },
+                    ) { Text("Share") }
+                    TextButton(
+                        enabled = events.isNotEmpty(),
+                        onClick = {
+                            onClear()
+                            copied = false
+                        },
+                    ) { Text("Clear") }
                     TextButton(onClick = onDismiss) { Text("Done") }
                 }
 
@@ -204,7 +238,7 @@ internal fun RoomLogsDialog(
                     ) {
                         Text("No matching room logs", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "Logs appear here live while this room is active.",
+                            "Room diagnostics appear here live while this room is active.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -236,6 +270,20 @@ private fun roomLogClipboardText(newestFirst: List<DiagnosticEvent>): String {
 }
 
 private const val MAX_ROOM_LOG_CLIPBOARD_CHARS = 400_000
+
+private fun writeFilteredRoomLogs(
+    context: Context,
+    newestFirst: List<DiagnosticEvent>,
+): android.net.Uri {
+    val directory = File(context.cacheDir, "diagnostics").apply { mkdirs() }
+    val file = File(directory, "unison-diagnostics.ndjson")
+    file.bufferedWriter(Charsets.UTF_8).use { writer ->
+        newestFirst.asReversed().forEach { event ->
+            writer.appendLine(event.toJsonLine())
+        }
+    }
+    return FileProvider.getUriForFile(context, "${context.packageName}.diagnostics", file)
+}
 
 @Composable
 private fun RoomLogRow(event: DiagnosticEvent) {

@@ -11,19 +11,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,7 +45,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.paging.PagingData
-import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.LocalPlaybackInhibitionReason
 import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
@@ -68,8 +66,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * The complete in-room experience. Room identity, code, participants and the canonical player are
- * the first viewport; the same vertical surface becomes the queue as the user scrolls.
+ * The complete music-first in-room experience. Healthy networking and transfer machinery stay out
+ * of the primary surface; the player, queue and user intent dominate the room.
  */
 @Composable
 internal fun SharedRoomScreen(
@@ -152,7 +150,7 @@ internal fun SharedRoomScreen(
         queueItemId: QueueItemId? = null,
         command: () -> Unit,
     ) {
-        if (!enabled || optimisticAction != null) return
+        if (!enabled) return
         optimisticAction = action
         optimisticQueueItemId = queueItemId
         command()
@@ -191,22 +189,28 @@ internal fun SharedRoomScreen(
         }
     }
 
-    val activeTransfers =
-        remember(room.transfers) {
-            room.transfers.values
-                .filter {
-                    it.state == MemberTrackState.RECEIVING ||
-                        it.state == MemberTrackState.VERIFYING ||
-                        it.state == MemberTrackState.CANCELLED ||
-                        it.state == MemberTrackState.FAILED
-                }
-                .sortedBy { it.trackId.value }
+    val transitionPresentation =
+        remember(snapshot, room.lifecycle, transportStatus, room.transfers) {
+            RoomPlaybackUiPolicy.transition(
+                snapshot = snapshot,
+                lifecycle = room.lifecycle,
+                status = transportStatus,
+                transfers = room.transfers,
+            )
+        }
+    val currentIndex =
+        remember(snapshot.queueRevision, displayedQueueItemId) {
+            snapshot.queue.indexOfFirst { it.queueItemId == displayedQueueItemId }
+        }
+    val immediateNext =
+        remember(snapshot.queueRevision, currentIndex) {
+            snapshot.queue.getOrNull(currentIndex + 1)
         }
 
     val listState = rememberLazyListState()
     val compactPlayerVisible by remember {
         derivedStateOf {
-            listState.firstVisibleItemIndex > 1 &&
+            listState.firstVisibleItemIndex > 0 &&
                 listState.layoutInfo.visibleItemsInfo.none { it.key == "room-player" }
         }
     }
@@ -326,40 +330,128 @@ internal fun SharedRoomScreen(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item(key = "room-header") {
                 RoomHeader(
                     roomName = snapshot.roomName,
-                    connectedListeners = snapshot.members.count { it.connected },
+                    connectedListeners = snapshot.members.size,
                     canShowRoomCode = localRoomCode != null,
-                    canSaveQueue = snapshot.queue.isNotEmpty(),
-                    canClearPlayed =
-                        snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId } > 0,
                     onShowRoomCode = { showRoomCode = true },
                     onShowListeners = { showListeners = true },
                     onShowLogs = { showLogs = true },
-                    onSaveQueue = { saveQueueOpen = true },
-                    onClearPlayed = actions.onClearPlayed,
                     onShowSettings = { showOptions = true },
                     onShowAbout = actions.onShowAbout,
                     onLeave = { confirmLeave = true },
                 )
             }
 
-            item(key = "participants") {
-                LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(horizontal = 2.dp),
+            item(key = "room-player") {
+                Column(
+                    Modifier.fillMaxWidth().padding(start = 6.dp, top = 24.dp, end = 6.dp, bottom = 28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    items(snapshot.members, key = { it.peerId.value }) { member ->
-                        ParticipantStatus(
-                            member.displayName,
-                            member.connected,
-                            member.currentTrackState,
+                    if (nowPlaying != null) {
+                        Text(
+                            "NOW PLAYING",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
                         )
+                    }
+                    Text(
+                        nowPlaying?.track?.displayTitle ?: "Nothing playing",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        nowPlaying?.track?.artist?.takeIf(String::isNotBlank)
+                            ?: if (snapshot.queue.isEmpty()) "Add music to start listening together"
+                            else "Choose a song from the queue",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                    )
+                    transitionPresentation?.let { PlaybackTransitionStatus(it) }
+                    immediateNext?.let { next ->
+                        if (transitionPresentation?.queueItemId != next.queueItemId) {
+                            UpNextStatus(next.track, room.transfers[next.track.trackId])
+                        }
+                    }
+                    if (localOutputInhibited && snapshot.playback.isPlaying) {
+                        Text(
+                            when (room.localPlaybackInhibitionReason) {
+                                LocalPlaybackInhibitionReason.BECOMING_NOISY ->
+                                    "Your audio output disconnected · The room kept playing"
+                                LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
+                                    "Your audio was interrupted · The room kept playing"
+                                LocalPlaybackInhibitionReason.UNSUITABLE_OUTPUT ->
+                                    "Your audio output is unavailable · The room kept playing"
+                                LocalPlaybackInhibitionReason.SYSTEM_POLICY ->
+                                    "Your phone paused audio · The room kept playing"
+                                null -> "Audio is paused on this phone · The room kept playing"
+                            },
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    if (nowPlaying != null) {
+                        RoomSeekSlider(
+                            playbackPositionFlow = playbackPositionFlow,
+                            durationMs = duration,
+                            enabled = transportControls.canSeek,
+                            transportStatus = transportStatus,
+                            onSeek = actions.onSeek,
+                        )
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        ) {
+                            TransportControlButton(
+                                active = feedbackAction == TransportAction.PREVIOUS,
+                                enabled = transportControls.canNavigate,
+                                onClick = requestPrevious,
+                                contentDescription = "Previous",
+                            ) {
+                                Icon(Icons.Default.SkipPrevious, null, Modifier.size(32.dp))
+                            }
+                            TransportPlayPauseButton(
+                                isPlaying = displayedPlaying,
+                                pending =
+                                    feedbackAction == TransportAction.PLAY ||
+                                        feedbackAction == TransportAction.PAUSE,
+                                enabled = transportControls.canPlayPause,
+                                onClick = requestPlayPause,
+                            )
+                            TransportControlButton(
+                                active = feedbackAction == TransportAction.NEXT,
+                                enabled = transportControls.canNavigate,
+                                onClick = requestNext,
+                                contentDescription = "Next",
+                            ) {
+                                Icon(Icons.Default.SkipNext, null, Modifier.size(32.dp))
+                            }
+                        }
+                    } else if (snapshot.queue.isNotEmpty()) {
+                        FilledTonalButton(
+                            onClick = { requestQueueItem(snapshot.queue.first().queueItemId) }
+                        ) {
+                            Text("Play first song")
+                        }
+                    } else {
+                        FilledTonalButton(onClick = ::openAddMusic) {
+                            Icon(Icons.Default.Add, null)
+                            Text("Add music", modifier = Modifier.padding(start = 6.dp))
+                        }
                     }
                 }
             }
@@ -377,97 +469,22 @@ internal fun SharedRoomScreen(
                 }
             }
 
-            item(key = "room-player") {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(7.dp),
-                    ) {
-                        Text(
-                            nowPlaying?.track?.displayTitle ?: "Nothing playing",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                        )
-                        Text(
-                            nowPlaying?.track?.artist?.takeIf(String::isNotBlank)
-                                ?: if (snapshot.queue.isEmpty()) "Add music from the queue below"
-                                else "Choose a song from the queue",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (localOutputInhibited && snapshot.playback.isPlaying) {
-                            Text(
-                                when (room.localPlaybackInhibitionReason) {
-                                    LocalPlaybackInhibitionReason.BECOMING_NOISY ->
-                                        "Audio output disconnected · Room playback continued"
-                                    LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
-                                        "Audio interrupted · Room playback continued"
-                                    LocalPlaybackInhibitionReason.UNSUITABLE_OUTPUT ->
-                                        "Audio output unavailable · Room playback continued"
-                                    LocalPlaybackInhibitionReason.SYSTEM_POLICY ->
-                                        "Playback interrupted by the system · Room playback continued"
-                                    null -> "Local audio paused · Room playback continued"
-                                },
-                                color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.labelLarge,
-                                textAlign = TextAlign.Center,
-                            )
+            item(key = "queue-title") {
+                SectionHeader(
+                    title = "Queue",
+                    subtitle =
+                        if (queueQuery.isBlank()) {
+                            "${snapshot.queue.size} ${if (snapshot.queue.size == 1) "song" else "songs"}"
+                        } else {
+                            "${filteredQueue.size} matching"
+                        },
+                    modifier = Modifier.padding(top = 6.dp),
+                    action = {
+                        IconButton(onClick = ::openAddMusic) {
+                            Icon(Icons.Default.Add, "Add music")
                         }
-                        if (nowPlaying != null) {
-                            RoomSeekSlider(
-                                playbackPositionFlow = playbackPositionFlow,
-                                durationMs = duration,
-                                enabled = transportControls.canSeek,
-                                transportStatus = transportStatus,
-                                onSeek = actions.onSeek,
-                            )
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                            ) {
-                                TransportControlButton(
-                                    active = feedbackAction == TransportAction.PREVIOUS,
-                                    enabled =
-                                        transportControls.canNavigate && optimisticAction == null,
-                                    onClick = requestPrevious,
-                                    contentDescription = "Previous",
-                                ) {
-                                    Icon(Icons.Default.SkipPrevious, null, Modifier.size(32.dp))
-                                }
-                                TransportPlayPauseButton(
-                                    isPlaying = displayedPlaying,
-                                    pending =
-                                        feedbackAction == TransportAction.PLAY ||
-                                            feedbackAction == TransportAction.PAUSE,
-                                    enabled =
-                                        transportControls.canPlayPause && optimisticAction == null,
-                                    onClick = requestPlayPause,
-                                )
-                                TransportControlButton(
-                                    active = feedbackAction == TransportAction.NEXT,
-                                    enabled =
-                                        transportControls.canNavigate && optimisticAction == null,
-                                    onClick = requestNext,
-                                    contentDescription = "Next",
-                                ) {
-                                    Icon(Icons.Default.SkipNext, null, Modifier.size(32.dp))
-                                }
-                            }
-                        } else if (snapshot.queue.isNotEmpty()) {
-                            TextButton(
-                                onClick = { requestQueueItem(snapshot.queue.first().queueItemId) }
-                            ) {
-                                Text("Play first song")
-                            }
-                        }
-                    }
-                }
+                    },
+                )
             }
 
             item(key = "queue-toolbar") {
@@ -477,72 +494,27 @@ internal fun SharedRoomScreen(
                     queueEnabled = snapshot.queue.isNotEmpty(),
                     shuffleAvailable =
                         QueueShufflePolicy.canShuffle(snapshot.queue, displayedQueueItemId),
+                    canSaveQueue = snapshot.queue.isNotEmpty(),
+                    canClearPlayed =
+                        snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId } > 0,
                     onQueryChange = { queueQuery = it },
                     onShuffle = actions.onShuffle,
                     onRepeat = { actions.onRepeat(snapshot.repeatMode.next()) },
-                    onClear = { confirmClearQueue = true },
+                    onSaveQueue = { saveQueueOpen = true },
+                    onClearPlayed = actions.onClearPlayed,
+                    onClearQueue = { confirmClearQueue = true },
                 )
-            }
-
-            if (room.lifecycle == RoomLifecycleState.RECONNECTING) {
-                item(key = "room-reconnecting") {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text(
-                            "Reconnecting…",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-
-            if (activeTransfers.isNotEmpty()) {
-                item(key = "room-transfers") {
-                    TransferStatusCard(
-                        transfers = activeTransfers,
-                        titles =
-                            snapshot.queue.associate { it.track.trackId to it.track.displayTitle },
-                    )
-                }
-            }
-
-            item(key = "queue-title") {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            "Up next",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            if (queueQuery.isBlank()) {
-                                "${snapshot.queue.size} ${if (snapshot.queue.size == 1) "song" else "songs"}"
-                            } else {
-                                "${filteredQueue.size} matching"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = { openAddMusic() }) {
-                        Icon(Icons.Default.Add, "Add music")
-                    }
-                }
             }
 
             when {
                 snapshot.queue.isEmpty() ->
                     item(key = "queue-empty") {
-                        Text(
-                            "Nothing queued",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
-                            textAlign = TextAlign.Center,
+                        EmptyState(
+                            title = "Queue is empty",
+                            text = "Add songs and everyone in the room will follow the same queue.",
+                            icon = Icons.Default.LibraryMusic,
+                            actionLabel = "Add music",
+                            onAction = ::openAddMusic,
                         )
                     }
                 queueQuery.isNotBlank() && filteredQueue.isEmpty() ->
@@ -568,6 +540,7 @@ internal fun SharedRoomScreen(
                             playing = item.queueItemId == displayedQueueItemId && displayedPlaying,
                             temporary = item.track.trackId in temporaryTrackIds,
                             pending = item.queueItemId == feedbackQueueItemId,
+                            transfer = room.transfers[item.track.trackId],
                             canReorder = true,
                             draggedIndex = draggedQueueIndex,
                             dragTargetIndex = dragTargetIndex,
@@ -582,7 +555,7 @@ internal fun SharedRoomScreen(
                             },
                             onMove = { actions.onMoveQueueItem(item.queueItemId, it) },
                             playEnabled =
-                                transportControls.canSelectItem && optimisticAction == null,
+                                transportControls.canSelectItem,
                             onPlay = { requestQueueItem(item.queueItemId) },
                             onMoveNext = { actions.onMoveQueueItemNext(item.queueItemId) },
                             onRemove = { actions.onRemoveQueueItem(item.queueItemId) },
@@ -604,6 +577,7 @@ internal fun SharedRoomScreen(
                             playing = item.queueItemId == displayedQueueItemId && displayedPlaying,
                             temporary = item.track.trackId in temporaryTrackIds,
                             pending = item.queueItemId == feedbackQueueItemId,
+                            transfer = room.transfers[item.track.trackId],
                             canReorder = false,
                             draggedIndex = null,
                             dragTargetIndex = null,
@@ -614,7 +588,7 @@ internal fun SharedRoomScreen(
                             onDragEnd = {},
                             onMove = { actions.onMoveQueueItem(item.queueItemId, it) },
                             playEnabled =
-                                transportControls.canSelectItem && optimisticAction == null,
+                                transportControls.canSelectItem,
                             onPlay = { requestQueueItem(item.queueItemId) },
                             onMoveNext = { actions.onMoveQueueItemNext(item.queueItemId) },
                             onRemove = { actions.onRemoveQueueItem(item.queueItemId) },
@@ -629,16 +603,21 @@ internal fun SharedRoomScreen(
                 track = nowPlaying.track,
                 isPlaying = displayedPlaying,
                 pendingAction = feedbackAction,
+                statusText = transitionPresentation?.let { transition ->
+                    transition.progressFraction?.let {
+                        "${transition.message} · ${(it * 100).toInt()}%"
+                    } ?: transition.message
+                },
                 onPrevious = requestPrevious,
                 onPlayPause = requestPlayPause,
                 onNext = requestNext,
-                navigationEnabled = transportControls.canNavigate && optimisticAction == null,
-                playPauseEnabled = transportControls.canPlayPause && optimisticAction == null,
+                navigationEnabled = transportControls.canNavigate,
+                playPauseEnabled = transportControls.canPlayPause,
                 modifier =
                     Modifier.align(Alignment.TopCenter)
                         .zIndex(2f)
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
     }
@@ -672,8 +651,12 @@ internal fun SharedRoomScreen(
     }
 
     if (showListeners) {
-        RoomListenersDialog(
+        RoomListenersSheet(
             members = snapshot.members,
+            memberRuntime = room.memberRuntime,
+            localPeerId = room.localIdentity?.peerId,
+            isCoordinator = room.isCoordinator,
+            lifecycle = room.lifecycle,
             onDismiss = { showListeners = false },
         )
     }
@@ -682,6 +665,7 @@ internal fun SharedRoomScreen(
         RoomLogsDialog(
             revision = diagnosticRevision,
             loadEvents = actions.loadRoomLogs,
+            onClear = actions.onClearRoomLogs,
             onDismiss = { showLogs = false },
         )
     }

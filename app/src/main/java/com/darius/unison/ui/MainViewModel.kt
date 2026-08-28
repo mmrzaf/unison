@@ -63,7 +63,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     private val pendingM3uResolution = importCoordinator.pendingM3uResolution
     private val selectedPlaylist = playlistActions.selectedPlaylist
-    private val pendingShare = importCoordinator.pendingShare
+    private val pendingMusicImport = importCoordinator.pendingMusicImport
     private val libraryQuery = MutableStateFlow("")
     private val librarySort = MutableStateFlow(LibrarySort.RECENT)
     private val _pickerQuery = MutableStateFlow("")
@@ -102,6 +102,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return container.diagnostics.snapshot(sessionId)
     }
 
+    fun clearRoomLogs() {
+        container.diagnostics.currentRoomSessionId()?.let(container.diagnostics::clearRoom)
+    }
+
     private val operation = combine(busy, importProgress, ::OperationState)
     private val transient =
         combine(
@@ -109,14 +113,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             message,
             pendingM3uResolution,
             selectedPlaylist,
-            pendingShare,
-        ) { operationState, notice, pending, playlist, share ->
+            pendingMusicImport,
+        ) { operationState, notice, pending, playlist, musicImport ->
             TransientUiState(
                 operationState,
                 notice,
                 pending,
                 playlist,
-                share,
+                musicImport,
             )
         }
     private val preferences =
@@ -184,7 +188,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     message = transientState.message,
                     pendingM3uResolution = transientState.pendingM3uResolution,
                     selectedPlaylist = transientState.selectedPlaylist,
-                    pendingShare = transientState.pendingShare,
+                    pendingMusicImport = transientState.pendingMusicImport,
                 )
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState())
@@ -367,8 +371,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun handleIntent(intent: Intent?) = importCoordinator.handleIntent(intent)
 
-    fun resolvePendingShare(destination: ShareDestination?) =
-        importCoordinator.resolvePendingShare(destination)
+    fun resolvePendingImport(destination: MusicDestination?) =
+        importCoordinator.resolvePendingImport(destination)
 
     fun createPlaylist(name: String, trackIds: List<TrackId>) =
         playlistActions.create(name, trackIds)
@@ -384,6 +388,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addTracksToPlaylist(playlistId: String, trackIds: List<TrackId>) =
         playlistActions.addTracks(playlistId, trackIds)
+
+    fun addTracksToPlaylists(
+        playlistIds: Set<String>,
+        trackIds: List<TrackId>,
+        newPlaylistName: String?,
+    ) = playlistActions.addTracksToPlaylists(playlistIds, trackIds, newPlaylistName)
 
     fun movePlaylistTrack(playlistId: String, fromIndex: Int, toIndex: Int) =
         playlistActions.moveTrack(playlistId, fromIndex, toIndex)
