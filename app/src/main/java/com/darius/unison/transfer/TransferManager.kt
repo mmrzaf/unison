@@ -72,6 +72,7 @@ class TransferManager(
     private val onProgress: (TransferProgress) -> Unit,
     private val onCompleted: suspend (TrackDescriptor) -> Unit,
     private val onFailed: suspend (TransferFailure) -> Unit,
+    private val capacityPolicy: TransferCapacityPolicy = TransferCapacityPolicy.DEFAULT,
     private val onActiveTransferCountChanged: (Int) -> Unit = {},
 ) {
     private val authorizations =
@@ -86,8 +87,12 @@ class TransferManager(
                 )
             },
         )
-    private val uploadGate = TransferUploadGate(MAX_CONCURRENT_UPLOADS)
-    private val incomingSemaphore = Semaphore(MAX_CONCURRENT_DOWNLOADS)
+    private val uploadGate =
+        TransferUploadGate(
+            maxConcurrentUploads = capacityPolicy.maxOutboundPerSource,
+            maxConcurrentPerDestination = capacityPolicy.maxPerSourceDestinationPair,
+        )
+    private val incomingSemaphore = Semaphore(capacityPolicy.maxInboundPerDestination)
     private val cancellationRegistry = TransferCancellationRegistry()
     private val activeUploadSockets = ConcurrentHashMap<String, Socket>()
 
@@ -114,15 +119,28 @@ class TransferManager(
     }
 
     suspend fun handleIncomingFileSocket(socket: Socket, hello: HandshakeMessage.FileClientHello) {
-        // Independent listeners can download concurrently, while duplicate requests from one
-        // destination are serialized and cannot occupy every global upload slot.
-        uploadGate.withPermit(hello.peerId) {
+        // Coordinator admission should already guarantee capacity. Keep a non-blocking transport
+        // guard so stale/duplicate sockets fail fast instead of waiting until the client handshake
+        // timeout and masquerading as network instability.
+        val admitted = uploadGate.tryWithPermit(hello.peerId) {
             val request = hello.request
             val uploadOperationId = request.requestId
             activeUploadSockets.put(uploadOperationId, socket)?.let { previous ->
                 runCatching { previous.close() }
             }
             notifyActiveTransferCount()
+            log.debug(
+                TAG,
+                DiagnosticCategory.TRANSFER,
+                "transfer.upload.started",
+                attributes = mapOf(
+                    "transfer.operation_id" to uploadOperationId,
+                    "transfer.assignment_id" to request.authorizationId.take(16),
+                    "track.id" to request.trackId.value.take(12),
+                    "peer.id" to hello.peerId.value.take(12),
+                    "transfer.offset" to request.offset,
+                ),
+            )
             val lastProgressMs = AtomicLong(0L)
             var watchdog: kotlinx.coroutines.Job? = null
             try {
@@ -134,7 +152,7 @@ class TransferManager(
                             HandshakeRejectionCode.WRONG_ROOM,
                         ),
                     )
-                    return@withPermit
+                    return@tryWithPermit
                 }
                 val authorization =
                     authorizations.findMatching(
@@ -151,7 +169,7 @@ class TransferManager(
                             HandshakeRejectionCode.AUTHENTICATION_FAILED,
                         ),
                     )
-                    return@withPermit
+                    return@tryWithPermit
                 }
 
                 val serverNonce = Crypto.randomBase64(18)
@@ -185,85 +203,108 @@ class TransferManager(
                             HandshakeRejectionCode.AUTHENTICATION_FAILED,
                         ),
                     )
-                    return@withPermit
+                    return@tryWithPermit
                 }
 
-                // Validate the source before consuming the one-use authorization. Temporary file
-                // unavailability and invalid resume offsets must remain retryable.
-                val file = trackRepository.requireReadableFile(request.trackId)
-                if (file == null) {
+                // The proof establishes an authenticated transfer session. From this point on,
+                // represent file-level rejection with the typed encrypted response header rather
+                // than English handshake text. This keeps retry/blame decisions independent of
+                // user-facing wording while remaining inside Protocol 2.
+                val sessionKey =
+                    Crypto.deriveFileTransferSessionKey(
+                        authorization.token,
+                        request.roomId,
+                        request.trackId.value,
+                        hello.clientNonce,
+                        serverNonce,
+                    )
+                val associatedData =
+                    Crypto.fileTransferAssociatedData(
+                        request.roomId,
+                        request.trackId.value,
+                        request.requestId,
+                        localIdentity.peerId.value,
+                        hello.peerId.value,
+                        request.offset,
+                        hello.clientNonce,
+                        serverNonce,
+                    )
+                val baseNonce = Crypto.randomBytes(12)
+                try {
                     HandshakeCodec.write(
                         socket.getOutputStream(),
-                        HandshakeMessage.Rejected(
-                            "File unavailable",
-                            HandshakeRejectionCode.INVALID_REQUEST,
+                        HandshakeMessage.FileReady(
+                            request.requestId,
+                            Base64.getUrlEncoder().withoutPadding().encodeToString(baseNonce),
                         ),
                     )
-                    return@withPermit
-                }
-                val uploadLease =
-                    fileStore.acquireLease(
-                        request.trackId,
-                        ManagedFileLeaseReason.TRANSFER_UPLOAD,
-                    )
-                try {
-                    if (request.offset !in 0..file.length()) {
-                        HandshakeCodec.write(
-                            socket.getOutputStream(),
-                            HandshakeMessage.Rejected(
-                                "Invalid transfer offset",
-                                HandshakeRejectionCode.INVALID_REQUEST,
-                            ),
-                        )
-                        return@withPermit
-                    }
-                    if (!authorizations.consume(request.authorizationId, authorization)) {
-                        HandshakeCodec.write(
-                            socket.getOutputStream(),
-                            HandshakeMessage.Rejected(
-                                "Transfer authorization already used",
-                                HandshakeRejectionCode.AUTHENTICATION_FAILED,
-                            ),
-                        )
-                        return@withPermit
-                    }
-
-                    val sessionKey =
-                        Crypto.deriveFileTransferSessionKey(
-                            authorization.token,
-                            request.roomId,
-                            request.trackId.value,
-                            hello.clientNonce,
-                            serverNonce,
-                        )
-                    val associatedData =
-                        Crypto.fileTransferAssociatedData(
-                            request.roomId,
-                            request.trackId.value,
-                            request.requestId,
-                            localIdentity.peerId.value,
-                            hello.peerId.value,
-                            request.offset,
-                            hello.clientNonce,
-                            serverNonce,
-                        )
-                    val baseNonce = Crypto.randomBytes(12)
-                    try {
-                        HandshakeCodec.write(
-                            socket.getOutputStream(),
-                            HandshakeMessage.FileReady(
-                                request.requestId,
-                                Base64.getUrlEncoder().withoutPadding().encodeToString(baseNonce),
-                            ),
-                        )
+                    val file = trackRepository.requireReadableFile(request.trackId)
+                    if (file == null) {
                         FileWireCodec.writeEncryptedHeader(
                             socket.getOutputStream(),
                             FileResponseHeader(
-                                request.requestId,
-                                FileResponseStatus.OK,
-                                request.trackId,
-                                file.length(),
-                                request.offset,
+                                requestId = request.requestId,
+                                status = FileResponseStatus.NOT_FOUND,
+                                trackId = request.trackId,
+                                totalSize = 0L,
+                                acceptedOffset = 0L,
+                                message = "File unavailable",
+                            ),
+                            sessionKey,
+                            baseNonce,
+                            associatedData,
+                        )
+                        return@tryWithPermit
+                    }
+                    if (request.offset !in 0..file.length()) {
+                        FileWireCodec.writeEncryptedHeader(
+                            socket.getOutputStream(),
+                            FileResponseHeader(
+                                requestId = request.requestId,
+                                status = FileResponseStatus.INVALID_OFFSET,
+                                trackId = request.trackId,
+                                totalSize = file.length(),
+                                acceptedOffset = 0L,
+                                message = "Resume offset rejected",
+                            ),
+                            sessionKey,
+                            baseNonce,
+                            associatedData,
+                        )
+                        return@tryWithPermit
+                    }
+                    if (!authorizations.consume(request.authorizationId, authorization)) {
+                        FileWireCodec.writeEncryptedHeader(
+                            socket.getOutputStream(),
+                            FileResponseHeader(
+                                requestId = request.requestId,
+                                status = FileResponseStatus.UNAUTHORIZED,
+                                trackId = request.trackId,
+                                totalSize = file.length(),
+                                acceptedOffset = request.offset,
+                                message = "Transfer authorization already used",
+                            ),
+                            sessionKey,
+                            baseNonce,
+                            associatedData,
+                        )
+                        return@tryWithPermit
+                    }
+
+                    val uploadLease =
+                        fileStore.acquireLease(
+                            request.trackId,
+                            ManagedFileLeaseReason.TRANSFER_UPLOAD,
+                        )
+                    try {
+                        FileWireCodec.writeEncryptedHeader(
+                            socket.getOutputStream(),
+                            FileResponseHeader(
+                                requestId = request.requestId,
+                                status = FileResponseStatus.OK,
+                                trackId = request.trackId,
+                                totalSize = file.length(),
+                                acceptedOffset = request.offset,
                             ),
                             sessionKey,
                             baseNonce,
@@ -282,7 +323,12 @@ class TransferManager(
                                             TAG,
                                             DiagnosticCategory.TRANSFER,
                                             "transfer.upload.stalled",
-                                            attributes = mapOf("peer.id" to hello.peerId.value.take(12)),
+                                            attributes = mapOf(
+                                                "transfer.operation_id" to uploadOperationId,
+                                                "transfer.assignment_id" to request.authorizationId.take(16),
+                                                "track.id" to request.trackId.value.take(12),
+                                                "peer.id" to hello.peerId.value.take(12),
+                                            ),
                                         )
                                         runCatching { socket.close() }
                                         break
@@ -294,25 +340,38 @@ class TransferManager(
                             fileInput
                                 .buffered(AuthenticatedFileStreamCodec.MAX_CHUNK_BYTES)
                                 .use { input ->
-                                FileWireCodec.writeEncryptedBody(
-                                    input = input,
-                                    output = socket.getOutputStream(),
-                                    byteCount = file.length() - request.offset,
-                                    key = sessionKey,
-                                    baseNonce = baseNonce,
-                                    associatedData = associatedData,
-                                ) {
-                                    lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+                                    FileWireCodec.writeEncryptedBody(
+                                        input = input,
+                                        output = socket.getOutputStream(),
+                                        byteCount = file.length() - request.offset,
+                                        key = sessionKey,
+                                        baseNonce = baseNonce,
+                                        associatedData = associatedData,
+                                    ) {
+                                        lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+                                    }
                                 }
-                                }
-                            }
+                        }
+                        log.info(
+                            TAG,
+                            DiagnosticCategory.TRANSFER,
+                            "transfer.upload.completed",
+                            attributes = mapOf(
+                                "transfer.operation_id" to uploadOperationId,
+                                "transfer.assignment_id" to request.authorizationId.take(16),
+                                "track.id" to request.trackId.value.take(12),
+                                "peer.id" to hello.peerId.value.take(12),
+                                "transfer.offset" to request.offset,
+                                "transfer.bytes" to (file.length() - request.offset),
+                            ),
+                        )
                     } finally {
-                        sessionKey.fill(0)
-                        associatedData.fill(0)
-                        baseNonce.fill(0)
+                        uploadLease.close()
                     }
                 } finally {
-                    uploadLease.close()
+                    sessionKey.fill(0)
+                    associatedData.fill(0)
+                    baseNonce.fill(0)
                 }
             } finally {
                 watchdog?.cancelAndJoin()
@@ -320,6 +379,29 @@ class TransferManager(
                 notifyActiveTransferCount()
                 runCatching { socket.close() }
             }
+        }
+        if (!admitted) {
+            runCatching {
+                HandshakeCodec.write(
+                    socket.getOutputStream(),
+                    HandshakeMessage.Rejected(
+                        "Transfer source busy; retry",
+                        HandshakeRejectionCode.RATE_LIMITED,
+                    ),
+                )
+            }
+            runCatching { socket.close() }
+            log.debug(
+                TAG,
+                DiagnosticCategory.TRANSFER,
+                "transfer.upload.capacity_rejected",
+                attributes = mapOf(
+                    "transfer.operation_id" to hello.request.requestId,
+                    "transfer.assignment_id" to hello.request.authorizationId.take(16),
+                    "track.id" to hello.request.trackId.value.take(12),
+                    "peer.id" to hello.peerId.value.take(12),
+                ),
+            )
         }
     }
 
@@ -329,7 +411,8 @@ class TransferManager(
         source: PeerEndpoint,
         authorizationToken: String,
     ) {
-        cancel(track.trackId)
+        val operationId = UUID.randomUUID().toString()
+        val assignmentId = Crypto.fileTransferAuthorizationId(authorizationToken).take(16)
         val job =
             scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
                 try {
@@ -365,7 +448,14 @@ class TransferManager(
                                 onCompleted(track)
                             } else {
                                 incomingSemaphore.withPermit {
-                                    performDownload(roomId, track, source, authorizationToken)
+                                    performDownload(
+                                        roomId,
+                                        track,
+                                        source,
+                                        authorizationToken,
+                                        operationId,
+                                        assignmentId,
+                                    )
                                 }
                             }
                         } finally {
@@ -373,6 +463,19 @@ class TransferManager(
                         }
                     }
                 } catch (cancelled: CancellationException) {
+                    val reason = cancelled.message ?: "Transfer cancelled"
+                    log.debug(
+                        TAG,
+                        DiagnosticCategory.TRANSFER,
+                        "transfer.download.cancelled",
+                        attributes = mapOf(
+                            "transfer.operation_id" to operationId,
+                            "transfer.assignment_id" to assignmentId,
+                            "track.id" to track.trackId.value.take(12),
+                            "peer.id" to source.peerId.value.take(12),
+                            "transfer.reason" to reason,
+                        ),
+                    )
                     onProgress(
                         TransferProgress(
                             track.trackId,
@@ -381,11 +484,14 @@ class TransferManager(
                             source.peerId,
                             localIdentity.peerId,
                             MemberTrackState.CANCELLED,
-                            "Cancelled",
+                            reason,
                         )
                     )
                     throw cancelled
                 } catch (error: Exception) {
+                    // Closing a socket is how cancellation wakes blocking I/O. Re-check coroutine
+                    // cancellation before interpreting the resulting IOException as route failure.
+                    currentCoroutineContext().ensureActive()
                     val staged = error as? TransferStageException
                     val userMessage = staged?.cause?.message ?: error.message ?: "Transfer failed"
                     log.warn(
@@ -393,6 +499,8 @@ class TransferManager(
                         DiagnosticCategory.TRANSFER,
                         "transfer.track.failed",
                         attributes = mapOf(
+                            "transfer.operation_id" to operationId,
+                            "transfer.assignment_id" to assignmentId,
                             "track.id" to track.trackId.value.take(12),
                             "peer.id" to source.peerId.value.take(12),
                             "transfer.phase" to staged?.stage,
@@ -413,7 +521,21 @@ class TransferManager(
                     onFailed(classifyFailure(track.trackId, source.peerId, staged, error, userMessage))
                 }
             }
-        cancellationRegistry.registerJob(track.trackId, job)
+        if (!cancellationRegistry.tryRegisterJob(track.trackId, job)) {
+            job.cancel(CancellationException("Duplicate transfer assignment ignored"))
+            log.debug(
+                TAG,
+                DiagnosticCategory.TRANSFER,
+                "transfer.download.duplicate_ignored",
+                attributes = mapOf(
+                    "transfer.operation_id" to operationId,
+                    "transfer.assignment_id" to assignmentId,
+                    "track.id" to track.trackId.value.take(12),
+                    "peer.id" to source.peerId.value.take(12),
+                ),
+            )
+            return
+        }
         job.invokeOnCompletion { notifyActiveTransferCount() }
         notifyActiveTransferCount()
         job.start()
@@ -425,9 +547,15 @@ class TransferManager(
         track: TrackDescriptor,
         source: PeerEndpoint,
         authorizationToken: String,
+        operationId: String,
+        assignmentId: String,
     ) {
         var phase = "VALIDATE"
-        var routeAttributes: Map<String, Any?> = emptyMap()
+        var routeAttributes: Map<String, Any?> =
+            mapOf(
+                "transfer.operation_id" to operationId,
+                "transfer.assignment_id" to assignmentId,
+            )
         var socket: Socket? = null
         try {
             require(track.sizeBytes in 1..MAX_TRACK_SIZE_BYTES) { "Unsupported track size" }
@@ -442,8 +570,13 @@ class TransferManager(
                 offset = 0
             }
             val remaining = track.sizeBytes - offset
-            require(partial.parentFile?.usableSpace ?: 0L >= remaining + MIN_FREE_SPACE_BYTES) {
-                "Not enough storage space"
+            if ((partial.parentFile?.usableSpace ?: 0L) < remaining + MIN_FREE_SPACE_BYTES) {
+                throw TransferProblemException(
+                    code = TransferFailureCode.DESTINATION_STORAGE,
+                    blame = TransferFailureBlame.DESTINATION,
+                    retryable = false,
+                    message = "Not enough storage space",
+                )
             }
 
             phase = "CONNECT"
@@ -485,7 +618,7 @@ class TransferManager(
             val clientNonce = Crypto.randomBase64(18)
             val request =
                 FileRequest(
-                    requestId = UUID.randomUUID().toString(),
+                    requestId = operationId,
                     roomId = roomId,
                     trackId = track.trackId,
                     offset = offset,
@@ -506,7 +639,7 @@ class TransferManager(
             )
             val challenge =
                 when (val response = HandshakeCodec.read(socket.getInputStream())) {
-                    is HandshakeMessage.Rejected -> error(response.reason)
+                    is HandshakeMessage.Rejected -> throw transferProblemForHandshakeRejection(response)
                     is HandshakeMessage.FileChallenge -> response
                     else -> error("Unexpected file handshake challenge")
                 }
@@ -529,12 +662,8 @@ class TransferManager(
             )
             val ready =
                 when (val response = HandshakeCodec.read(socket.getInputStream())) {
-                    is HandshakeMessage.Rejected -> {
-                        if (offset > 0 && response.reason.contains("offset", ignoreCase = true)) {
-                            partial.delete()
-                        }
-                        error(response.reason)
-                    }
+                    is HandshakeMessage.Rejected ->
+                        throw transferProblemForHandshakeRejection(response)
                     is HandshakeMessage.FileReady -> response
                     else -> error("Unexpected file handshake completion")
                 }
@@ -569,12 +698,11 @@ class TransferManager(
                         associatedData,
                     )
                 check(header.requestId == request.requestId) { "Mismatched transfer response" }
-                if (header.status == FileResponseStatus.INVALID_OFFSET && offset > 0) {
-                    partial.delete()
-                    error("Resume offset rejected; retry the transfer from the beginning")
-                }
-                check(header.status == FileResponseStatus.OK) {
-                    header.message ?: "File source rejected request"
+                if (header.status != FileResponseStatus.OK) {
+                    if (header.status == FileResponseStatus.INVALID_OFFSET && offset > 0) {
+                        partial.delete()
+                    }
+                    throw transferProblemForFileResponse(header)
                 }
                 check(header.trackId == track.trackId && header.totalSize == track.sizeBytes) {
                     "Track descriptor changed"
@@ -644,7 +772,12 @@ class TransferManager(
                     )
                 ) {
                     fileStore.discardPartial(track.trackId)
-                    error("SHA-256 verification failed")
+                    throw TransferProblemException(
+                        code = TransferFailureCode.INTEGRITY,
+                        blame = TransferFailureBlame.SOURCE,
+                        retryable = true,
+                        message = "SHA-256 verification failed",
+                    )
                 }
 
                 phase = "REGISTER"
@@ -698,6 +831,82 @@ class TransferManager(
         }
     }
 
+    private class TransferProblemException(
+        val code: TransferFailureCode,
+        val blame: TransferFailureBlame,
+        val retryable: Boolean,
+        message: String,
+    ) : Exception(message)
+
+    private fun transferProblemForHandshakeRejection(
+        rejection: HandshakeMessage.Rejected,
+    ): TransferProblemException =
+        when (rejection.code) {
+            HandshakeRejectionCode.AUTHENTICATION_FAILED ->
+                TransferProblemException(
+                    TransferFailureCode.AUTHENTICATION,
+                    TransferFailureBlame.ROUTE,
+                    true,
+                    rejection.reason,
+                )
+            HandshakeRejectionCode.RATE_LIMITED ->
+                TransferProblemException(
+                    TransferFailureCode.IO,
+                    TransferFailureBlame.UNKNOWN,
+                    true,
+                    rejection.reason,
+                )
+            else ->
+                TransferProblemException(
+                    TransferFailureCode.PROTOCOL,
+                    TransferFailureBlame.ROUTE,
+                    true,
+                    rejection.reason,
+                )
+        }
+
+    private fun transferProblemForFileResponse(
+        header: FileResponseHeader,
+    ): TransferProblemException =
+        when (header.status) {
+            FileResponseStatus.NOT_FOUND ->
+                TransferProblemException(
+                    TransferFailureCode.SOURCE_UNAVAILABLE,
+                    TransferFailureBlame.SOURCE,
+                    true,
+                    header.message ?: "File unavailable",
+                )
+            FileResponseStatus.UNAUTHORIZED ->
+                TransferProblemException(
+                    TransferFailureCode.AUTHENTICATION,
+                    TransferFailureBlame.ROUTE,
+                    true,
+                    header.message ?: "Transfer authorization rejected",
+                )
+            FileResponseStatus.INVALID_OFFSET ->
+                TransferProblemException(
+                    TransferFailureCode.PROTOCOL,
+                    TransferFailureBlame.UNKNOWN,
+                    true,
+                    header.message ?: "Resume offset rejected",
+                )
+            FileResponseStatus.BUSY ->
+                TransferProblemException(
+                    TransferFailureCode.IO,
+                    TransferFailureBlame.UNKNOWN,
+                    true,
+                    header.message ?: "Transfer source busy",
+                )
+            FileResponseStatus.ERROR ->
+                TransferProblemException(
+                    TransferFailureCode.UNKNOWN,
+                    TransferFailureBlame.UNKNOWN,
+                    true,
+                    header.message ?: "File source rejected request",
+                )
+            FileResponseStatus.OK -> error("OK is not a transfer problem")
+        }
+
     private fun classifyFailure(
         trackId: TrackId,
         sourcePeerId: PeerId?,
@@ -715,22 +924,15 @@ class TransferManager(
                 "REGISTER" -> TransferFailureStage.REGISTER
                 else -> TransferFailureStage.UNKNOWN
             }
-        val lower = message.lowercase()
+        val problem = (staged?.cause as? TransferProblemException) ?: (error as? TransferProblemException)
         val (code, blame, retryable) =
             when {
-                "not enough storage" in lower ->
-                    Triple(TransferFailureCode.DESTINATION_STORAGE, TransferFailureBlame.DESTINATION, false)
-                "file unavailable" in lower ->
-                    Triple(TransferFailureCode.SOURCE_UNAVAILABLE, TransferFailureBlame.SOURCE, true)
-                "sha-256 verification failed" in lower ->
-                    Triple(TransferFailureCode.INTEGRITY, TransferFailureBlame.SOURCE, true)
+                problem != null -> Triple(problem.code, problem.blame, problem.retryable)
                 stage == TransferFailureStage.CONNECT ->
                     Triple(TransferFailureCode.CONNECT_FAILED, TransferFailureBlame.ROUTE, true)
-                "authorization" in lower || "proof" in lower || "authentication" in lower ->
-                    Triple(TransferFailureCode.AUTHENTICATION, TransferFailureBlame.ROUTE, true)
                 stage == TransferFailureStage.HANDSHAKE ->
                     Triple(TransferFailureCode.PROTOCOL, TransferFailureBlame.ROUTE, true)
-                error is java.io.IOException ->
+                (staged?.cause ?: error) is java.io.IOException ->
                     Triple(TransferFailureCode.IO, TransferFailureBlame.ROUTE, true)
                 else -> Triple(TransferFailureCode.UNKNOWN, TransferFailureBlame.UNKNOWN, true)
             }
@@ -745,8 +947,8 @@ class TransferManager(
         )
     }
 
-    fun cancel(trackId: TrackId) {
-        cancellationRegistry.cancel(trackId)
+    fun cancel(trackId: TrackId, reason: String = "Transfer cancelled") {
+        cancellationRegistry.cancel(trackId, reason)
         notifyActiveTransferCount()
     }
 
@@ -790,8 +992,6 @@ class TransferManager(
 
     companion object {
         private const val TAG = "TransferManager"
-        private const val MAX_CONCURRENT_DOWNLOADS = 2
-        private const val MAX_CONCURRENT_UPLOADS = 3
         private const val MAX_TRACK_SIZE_BYTES = 1_073_741_824L // 1 GiB
         private const val MAX_TRACKED_AUTHORIZATIONS = 512
         private const val MIN_FREE_SPACE_BYTES = 32L * 1024L * 1024L

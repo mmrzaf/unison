@@ -28,7 +28,7 @@ class TransferCancellationRegistryTest {
         val closed = AtomicBoolean(false)
         val socket = Closeable { closed.set(true) }
 
-        registry.registerJob(trackId, job)
+        assertTrue(registry.tryRegisterJob(trackId, job))
         registry.attachSocket(trackId, socket)
         registry.cancel(trackId)
 
@@ -67,8 +67,8 @@ class TransferCancellationRegistryTest {
         val firstClosed = AtomicBoolean(false)
         val secondClosed = AtomicBoolean(false)
 
-        registry.registerJob(firstTrack, firstJob)
-        registry.registerJob(secondTrack, secondJob)
+        assertTrue(registry.tryRegisterJob(firstTrack, firstJob))
+        assertTrue(registry.tryRegisterJob(secondTrack, secondJob))
         registry.attachSocket(firstTrack, Closeable { firstClosed.set(true) })
         registry.attachSocket(secondTrack, Closeable { secondClosed.set(true) })
 
@@ -94,7 +94,7 @@ class TransferCancellationRegistryTest {
                 started.complete(Unit)
                 withContext(NonCancellable) { release.await() }
             }
-        registry.registerJob(trackId, job)
+        assertTrue(registry.tryRegisterJob(trackId, job))
         started.await()
 
         assertFalse(registry.cancelAllAndJoin(timeoutMs = 1))
@@ -146,11 +146,40 @@ class TransferCancellationRegistryTest {
     }
 
     @Test
+    fun duplicateRegistrationNeverCancelsOrReplacesHealthyWork() {
+        val registry = TransferCancellationRegistry()
+        val trackId = TrackId("2".repeat(64))
+        val first = Job()
+        val duplicate = Job()
+
+        assertTrue(registry.tryRegisterJob(trackId, first))
+        assertFalse(registry.tryRegisterJob(trackId, duplicate))
+        assertFalse(first.isCancelled)
+        assertTrue(registry.hasActiveJob(trackId))
+        registry.cancel(trackId)
+    }
+
+    @Test
+    fun cancellationIsVisibleToJobBeforeBlockingResourceIsClosed() {
+        val registry = TransferCancellationRegistry()
+        val trackId = TrackId("3".repeat(64))
+        val job = Job()
+        var cancelledWhenClosed = false
+        val socket = Closeable { cancelledWhenClosed = job.isCancelled }
+
+        assertTrue(registry.tryRegisterJob(trackId, job))
+        registry.attachSocket(trackId, socket)
+        registry.cancel(trackId, "Policy cancelled")
+
+        assertTrue(cancelledWhenClosed)
+    }
+
+    @Test
     fun activeCountRepresentsLogicalTransfersNotAttachedSockets() {
         val registry = TransferCancellationRegistry()
         val trackId = TrackId("1".repeat(64))
         val job = Job()
-        registry.registerJob(trackId, job)
+        assertTrue(registry.tryRegisterJob(trackId, job))
         registry.attachSocket(trackId, Closeable {})
 
         assertEquals(1, registry.activeCount)

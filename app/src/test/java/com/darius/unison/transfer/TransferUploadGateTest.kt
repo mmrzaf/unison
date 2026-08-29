@@ -40,6 +40,29 @@ class TransferUploadGateTest {
     }
 
     @Test
+    fun defensiveTryAdmissionRejectsBusyPairWithoutWaiting() = runTest {
+        val gate = TransferUploadGate(maxConcurrentUploads = 3, maxConcurrentPerDestination = 1)
+        val release = CompletableDeferred<Unit>()
+        val firstEntered = CompletableDeferred<Unit>()
+        val first = async {
+            gate.withPermit(PeerId("peer-a")) {
+                firstEntered.complete(Unit)
+                release.await()
+            }
+        }
+        firstEntered.await()
+
+        var duplicateRan = false
+        val admitted = gate.tryWithPermit(PeerId("peer-a")) { duplicateRan = true }
+
+        assertFalse(admitted)
+        assertFalse(duplicateRan)
+        release.complete(Unit)
+        first.await()
+        assertEquals(0, gate.trackedPeerCount)
+    }
+
+    @Test
     fun duplicateRequestsForOnePeerAreSerializedAndEntriesAreReleased() = runTest {
         val gate = TransferUploadGate(maxConcurrentUploads = 3)
         val releaseFirst = CompletableDeferred<Unit>()
