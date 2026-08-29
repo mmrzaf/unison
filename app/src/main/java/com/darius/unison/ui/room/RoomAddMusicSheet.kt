@@ -25,6 +25,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,7 +68,7 @@ internal fun RoomAddMusicSheet(
     onChooseFiles: () -> Unit,
     onImportM3u: () -> Unit,
     onSelectAllTracks: (String, (Set<TrackId>) -> Unit) -> Unit,
-    onAddSelection: (Boolean, List<String>, List<TrackId>) -> Unit,
+    onAddSelection: (Boolean, List<String>, List<TrackId>, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -430,24 +431,38 @@ internal fun RoomAddMusicSheet(
             }
 
             HorizontalDivider()
-            Button(
-                onClick = {
-                    onAddSelection(
-                        allMusicSelected,
-                        selectedPlaylistIds.toList(),
-                        selectedTracks.toList(),
-                    )
-                },
-                enabled = hasSelection,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(
-                    addSelectionButtonLabel(
-                        allMusicSelected,
-                        selectedPlaylistIds.size,
-                        selectedTracks.size,
-                    )
-                )
+                FilledTonalButton(
+                    onClick = {
+                        onAddSelection(
+                            allMusicSelected,
+                            selectedPlaylistIds.toList(),
+                            selectedTracks.toList(),
+                            true,
+                        )
+                    },
+                    enabled = hasSelection,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Add next")
+                }
+                Button(
+                    onClick = {
+                        onAddSelection(
+                            allMusicSelected,
+                            selectedPlaylistIds.toList(),
+                            selectedTracks.toList(),
+                            false,
+                        )
+                    },
+                    enabled = hasSelection,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Add to queue")
+                }
             }
         }
     }
@@ -495,22 +510,6 @@ private fun buildSelectionSummary(
             }
         }
         .joinToString(" · ")
-
-private fun addSelectionButtonLabel(
-    allMusicSelected: Boolean,
-    selectedPlaylistCount: Int,
-    selectedTrackCount: Int,
-): String =
-    when {
-        allMusicSelected -> "Add All Music"
-        selectedPlaylistCount == 0 && selectedTrackCount == 0 -> "Add to queue"
-        selectedPlaylistCount == 1 && selectedTrackCount == 0 -> "Add playlist"
-        selectedPlaylistCount > 1 && selectedTrackCount == 0 ->
-            "Add $selectedPlaylistCount playlists"
-        selectedPlaylistCount == 0 ->
-            "Add $selectedTrackCount ${if (selectedTrackCount == 1) "song" else "songs"}"
-        else -> "Add selection"
-    }
 
 private sealed interface QueuePlaylistOption {
     val key: String
