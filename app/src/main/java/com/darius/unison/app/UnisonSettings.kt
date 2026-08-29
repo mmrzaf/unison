@@ -10,7 +10,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RetentionPolicy
-import com.darius.unison.sync.PlaybackSyncProfile
 import java.io.IOException
 import java.security.SecureRandom
 import java.util.Locale
@@ -34,7 +33,6 @@ class UnisonSettings(private val context: Context) {
         val peerId = stringPreferencesKey("peer_id")
         val displayName = stringPreferencesKey("display_name")
         val retention = stringPreferencesKey("retention_policy")
-        val playbackSyncProfile = stringPreferencesKey("playback_sync_profile")
         val onboardingComplete = booleanPreferencesKey("onboarding_complete")
     }
 
@@ -58,14 +56,6 @@ class UnisonSettings(private val context: Context) {
             )
         }.getOrDefault(RetentionPolicy.TEMPORARY_24_HOURS)
     }
-    val playbackSyncProfile: Flow<PlaybackSyncProfile> = data.map { prefs ->
-        runCatching {
-            PlaybackSyncProfile.valueOf(
-                prefs[Keys.playbackSyncProfile] ?: PlaybackSyncProfile.BALANCED.name
-            )
-        }.getOrDefault(PlaybackSyncProfile.BALANCED)
-    }
-
     suspend fun ensureIdentity(): LocalIdentity = identityMutex.withLock {
         val prefs = data.first()
         val existing = prefs[Keys.peerId]?.takeIf(::isValidPeerId)
@@ -110,7 +100,5 @@ class UnisonSettings(private val context: Context) {
         context.dataStore.edit { it[Keys.retention] = policy.name }
     }
 
-    suspend fun setPlaybackSyncProfile(profile: PlaybackSyncProfile) {
-        context.dataStore.edit { it[Keys.playbackSyncProfile] = profile.name }
-    }
+
 }

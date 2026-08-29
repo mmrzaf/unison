@@ -31,7 +31,12 @@ internal class RoomSessionActions(
                 "command.type" to command::class.simpleName,
                 "command.id" to transport?.commandId?.take(12),
                 "transport.action" to transport?.transportAction()?.name,
-                "queue.item_id" to (command as? AppCommand.PlayQueueItem)?.queueItemId?.value?.take(12),
+                "queue.item_id" to
+                    when (command) {
+                        is AppCommand.PlayQueueItem -> command.queueItemId.value.take(12)
+                        is AppCommand.PrepareQueueItem -> command.queueItemId.value.take(12)
+                        else -> null
+                    },
             )
         log.debug("app.command.submitted", attributes = commandAttributes)
         if (!UnisonRoomService.ensureStarted(application)) {
@@ -98,7 +103,7 @@ internal class RoomSessionActions(
             AppCommand.AddTracks(selectedTracks, insertAfterCurrent),
             feedback =
                 when {
-                    insertAfterCurrent -> "Playing next"
+                    insertAfterCurrent -> "Added next"
                     selectedTracks.size < trackIds.size ->
                         "Adding ${selectedTracks.size} songs; the queue holds up to ${RoomReducer.MAX_QUEUE_ITEMS}"
 
@@ -169,6 +174,7 @@ internal fun AppCommand.feedbackMessage(): String? =
         is AppCommand.SkipNext,
         is AppCommand.SkipPrevious,
         is AppCommand.PlayQueueItem -> null
+        is AppCommand.PrepareQueueItem -> "Preparing song…"
 
         AppCommand.ShuffleQueue,
         is AppCommand.SetRepeat,
@@ -182,7 +188,7 @@ internal fun AppCommand.feedbackMessage(): String? =
         is AppCommand.AddTracks ->
             when {
                 trackIds.isEmpty() -> null
-                insertAfterCurrent -> "Playing next"
+                insertAfterCurrent -> "Added next"
                 trackIds.size == 1 -> "Added to the queue"
                 else -> "Adding ${trackIds.size} songs"
             }
