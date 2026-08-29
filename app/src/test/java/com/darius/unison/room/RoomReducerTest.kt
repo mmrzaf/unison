@@ -705,4 +705,33 @@ class RoomReducerTest {
         assertTrue(mutation.snapshot.queue.isEmpty())
         assertFalse(mutation.snapshot.playback.isPlaying)
     }
+    @Test
+    fun roomOptionCannotBypassReadinessForSelectedPlayback() {
+        val first = QueueItem.create(track, peer)
+        val target =
+            QueueItem.create(
+                track.copy(trackId = TrackId("d".repeat(64)), title = "Needs preparation"),
+                peer,
+            )
+        val room =
+            snapshot(listOf(first, target)).copy(
+                options = RoomOptions(waitAtTrackBoundary = false),
+                playback = CanonicalPlaybackState(first.queueItemId, 0, 0, false),
+            )
+
+        val result =
+            RoomReducer.decide(
+                room,
+                UserCommand.PlayQueueItem(
+                    commandId = "select-unready-nonblocking",
+                    requestedBy = peer,
+                    queueItemId = target.queueItemId,
+                ),
+                coordinatorNowNs = 0,
+                preparedQueueItemIds = setOf(first.queueItemId),
+            )
+
+        assertTrue(result is RoomReducer.Decision.Rejected)
+    }
+
 }

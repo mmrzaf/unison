@@ -219,6 +219,47 @@ class ManagedFileStoreTest {
     }
 
     @Test
+    fun repeatedInterruptedTransferResumesWithoutLosingUsefulBytes() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(1_200_000) { (it % 251).toByte() }
+            val expected = store.hash(ByteArrayInputStream(bytes)).trackId
+            var offset = 0
+            val chunk = 37_777
+
+            while (offset + chunk < bytes.size) {
+                var interrupted = false
+                try {
+                    store.receivePartialAndHash(
+                        trackId = expected,
+                        offset = offset.toLong(),
+                        expectedSize = bytes.size.toLong(),
+                        input = ByteArrayInputStream(bytes, offset, chunk),
+                    )
+                } catch (_: IllegalStateException) {
+                    interrupted = true
+                }
+                assertTrue(interrupted)
+                offset += chunk
+                assertEquals(offset.toLong(), store.partialFile(expected).length())
+            }
+
+            val result =
+                store.receivePartialAndHash(
+                    trackId = expected,
+                    offset = offset.toLong(),
+                    expectedSize = bytes.size.toLong(),
+                    input = ByteArrayInputStream(bytes, offset, bytes.size - offset),
+                )
+            assertTrue(store.commitPartialWithDigest(expected, bytes.size.toLong(), result.sha256Hex))
+            assertTrue(store.finalFile(expected).readBytes().contentEquals(bytes))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun completedTransferCommitsUsingStreamingDigestWithoutSecondFullRead() = runBlocking {
         val root = createTempDirectory("unison-store-").toFile()
         try {

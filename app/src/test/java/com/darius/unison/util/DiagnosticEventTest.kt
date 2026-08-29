@@ -79,6 +79,40 @@ class DiagnosticEventTest {
     }
 
     @Test
+    fun logcatProjectionPreservesTransferCausalityAttributes() {
+        val event =
+            DiagnosticEvent(
+                sequence = 10,
+                timestamp = "2026-08-29T10:00:00Z",
+                observedTimestamp = "2026-08-29T10:00:00Z",
+                monotonicTimeNs = 1_000,
+                severity = DiagnosticSeverity.WARN,
+                eventName = "transfer.track.failed",
+                body = "x".repeat(4_096),
+                component = "TransferManager",
+                category = DiagnosticCategory.TRANSFER,
+                attributes =
+                    buildMap {
+                        repeat(32) { index -> put("extra.transfer_$index", "v".repeat(768)) }
+                        put("track.id", "abcdef123456")
+                        put("peer.id", "peer12345678")
+                        put("transfer.operation_id", "operation-123")
+                        put("transfer.assignment_id", "assignment-123")
+                        put("transfer.phase", "HANDSHAKE")
+                    },
+                error = DiagnosticError("java.net.SocketException", "Socket closed"),
+            )
+
+        val json = event.toLogcatJsonLine()
+
+        assertTrue(json.length <= 3_500)
+        assertTrue(json.contains("\"transfer.operation_id\":\"operation-123\""))
+        assertTrue(json.contains("\"transfer.assignment_id\":\"assignment-123\""))
+        assertTrue(json.contains("\"transfer.phase\":\"HANDSHAKE\""))
+        assertTrue(json.contains("\"track.id\":\"abcdef123456\""))
+    }
+
+    @Test
     fun `optional null fields are omitted from ndjson`() {
         val json =
             DiagnosticEvent(

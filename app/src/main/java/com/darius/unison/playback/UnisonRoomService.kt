@@ -121,11 +121,6 @@ class UnisonRoomService : MediaSessionService() {
         )
 
         runtime = RoomRuntime(this, unisonContainer, playerAdapter, runtimeScope)
-        runtimeScope.launch {
-            unisonContainer.settings.playbackSyncProfile
-                .distinctUntilChanged()
-                .collect(runtime::updatePlaybackSyncProfile)
-        }
         roomForegroundJob = lifecycleScope.launch {
             unisonContainer.roomStore.structure
                 .map { state -> state.sessionActive || state.hotspot != null }
@@ -254,9 +249,28 @@ class UnisonRoomService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Task removal can race a notification or UI command. Reuse the delayed, start-ID-bound
-        // shutdown path so an older task-removal callback can never stop newer accepted work.
-        scheduleStopWhenIdle()
+        // Removing Unison from recents is an explicit application exit. A room is a live shared
+        // session, not background audio that survives after the app is closed. End it cleanly so a
+        // healthy coordinator can remove this participant immediately and so a coordinator tells
+        // listeners that the room itself ended.
+        lifecycleScope.launch {
+            try {
+                if (::runtime.isInitialized && unisonContainer.roomStore.structure.value.sessionActive) {
+                    runtime.handle(AppCommand.LeaveRoom)
+                }
+            } catch (error: Exception) {
+                if (error !is CancellationException) {
+                    unisonContainer.diagnostics.warn(
+                        TAG,
+                        DiagnosticCategory.ROOM,
+                        "room.task_removed.leave_failed",
+                        throwable = error,
+                    )
+                }
+            } finally {
+                stopSelf()
+            }
+        }
         super.onTaskRemoved(rootIntent)
     }
 

@@ -3,7 +3,6 @@ package com.darius.unison.room
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.HotspotInfo
 import com.darius.unison.model.PeerId
-import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportCommandPhase
@@ -15,7 +14,6 @@ import com.darius.unison.playback.PlayerState
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.transfer.TransferFailure
-import com.darius.unison.sync.PlaybackSyncProfile
 import kotlinx.coroutines.CompletableDeferred
 
 /** Inputs accepted by the single serialized room actor. Producers never mutate room state. */
@@ -81,6 +79,15 @@ internal sealed interface RoomEvent {
         val lostCoordinatorPeerId: PeerId,
     ) : RoomEvent
 
+    /** Coordinator-local network disappeared and did not return inside the bounded grace window. */
+    data class LocalNetworkGraceExpired(val generation: Long) : RoomEvent
+
+    /** A disconnected participant did not reconnect before its canonical-membership grace expired. */
+    data class PeerDisconnectGraceExpired(
+        val generation: Long,
+        val peerId: PeerId,
+    ) : RoomEvent
+
     data class CoordinatorCommandReceived(
         val command: UserCommand,
         val completion: CompletableDeferred<Unit>,
@@ -143,15 +150,6 @@ internal sealed interface RoomEvent {
         val available: Boolean,
     ) : RoomEvent
 
-
-    data class PendingTrackAvailabilityProbed(
-        val generation: Long,
-        val commandId: String,
-        val queueItemId: QueueItemId,
-        val trackId: TrackId,
-        val available: Boolean,
-    ) : RoomEvent
-
     data class TransportWatchdogExpired(
         val generation: Long,
         val commandId: String,
@@ -176,8 +174,6 @@ internal sealed interface RoomEvent {
     /** Coordinator reference broadcast requested by the independent local playback sync loop. */
     data class PlaybackReferenceBroadcastDue(val generation: Long) : RoomEvent
 
-    data class PlaybackSyncProfileChanged(val profile: PlaybackSyncProfile) : RoomEvent
-
     data class TransferCompleted(val descriptor: TrackDescriptor) : RoomEvent
 
     data class TransferAuthorizationTimedOut(
@@ -188,6 +184,7 @@ internal sealed interface RoomEvent {
     data class TransferRetryDue(
         val generation: Long,
         val trackId: TrackId,
+        val destinationPeerId: PeerId,
     ) : RoomEvent
 
     data class TransferFailed(val failure: TransferFailure) : RoomEvent

@@ -13,4 +13,12 @@ class RoomReconnectPolicyTest {
         assertTrue(delays.last() <= 6_000L)
         assertTrue(delays.sum() < 15_000L)
     }
+    @Test
+    fun terminalRecoveryWindowsStayShortAndBounded() {
+        assertTrue(RoomReconnectPolicy.LOCAL_NETWORK_GRACE_MS in 1_000L..5_000L)
+        assertTrue(RoomReconnectPolicy.PEER_DISCONNECT_GRACE_MS in 1_000L..15_000L)
+        assertTrue(RoomReconnectPolicy.PEER_DISCONNECT_GRACE_MS >= RoomReconnectPolicy.LOCAL_NETWORK_GRACE_MS)
+        assertTrue(RoomReconnectPolicy.NETWORK_POLL_MS in 100L..1_000L)
+    }
+
 }
