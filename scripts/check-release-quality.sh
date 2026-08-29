@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 ./scripts/check-static.sh
 ./scripts/check-data.sh
 python3 ./scripts/analyze-playback-log.py --self-test
+python3 ./scripts/analyze-stability-log.py --self-test
 python3 ./scripts/benchmark-library-search.py --sizes 100000 --iterations 8 --max-p95-ms 50
 
 # These checks compile focused Kotlin components with the repository-pinned toolchain. They require

@@ -1,14 +1,14 @@
 [versions]
-appVersionName = "1.1.0"
-appVersionCode = "3"
+appVersionName = "1.2.0"
+appVersionCode = "4"
 agp = "8.13.2"
 kotlin = "2.3.21"
 compileSdk = "36"
 minSdk = "30"
 targetSdk = "33"
 composeBom = "2026.06.00"
-# 1.0 is a sideloaded APK qualified on Android 11, 13, and 16. compileSdk 36 supports
-# guarded current-platform APIs; targetSdk intentionally remains 33 for this release.
+# Unison is a sideloaded APK qualified on Android 11, 13, and 16. compileSdk 36 supports
+# guarded current-platform APIs; targetSdk intentionally remains 33 for the 1.2.0 release.
 coreKtx = "1.18.0"
 activityCompose = "1.13.0"
 lifecycle = "2.10.0"

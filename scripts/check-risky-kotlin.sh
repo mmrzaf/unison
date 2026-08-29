@@ -43,6 +43,7 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/transfer/TransferCancellationRegistry.kt \
   app/src/main/java/com/darius/unison/transfer/TransferAuthorizationRegistry.kt \
   app/src/main/java/com/darius/unison/transfer/TransferUploadGate.kt \
+  app/src/main/java/com/darius/unison/transfer/TransferCapacityPolicy.kt \
   app/src/main/java/com/darius/unison/transfer/TransferManager.kt \
   app/src/main/java/com/darius/unison/util/DiagnosticSanitizer.kt \
   app/src/main/java/com/darius/unison/util/DiagnosticEvent.kt \
