@@ -205,7 +205,6 @@ class RoomPlaybackUiPolicyTest {
         val retryIssue = issue(RoomRecoveryAction.RETRY)
         val filesIssue = issue(RoomRecoveryAction.READD_TRACK)
         val leaveIssue = issue(RoomRecoveryAction.LEAVE_ROOM)
-        val reconnectIssue = issue(RoomRecoveryAction.RECONNECT)
 
         assertEquals(
             RoomPlaybackUiPolicy.IssueAction.RETRY_TRANSPORT,
@@ -222,12 +221,27 @@ class RoomPlaybackUiPolicyTest {
             RoomPlaybackUiPolicy.IssueAction.LEAVE_ROOM,
             RoomPlaybackUiPolicy.issueAction(leaveIssue, null),
         )
-        assertNull(RoomPlaybackUiPolicy.issueAction(reconnectIssue, null))
         assertNotNull(
             status(TransportAction.PLAY, TransportCommandPhase.REJECTED).retryCommandOrNull()
         )
     }
 
+
+    @Test
+    fun roomEndedUsesTerminalHumanFacingIssueCopy() {
+        val issue =
+            RoomIssue(
+                code = RoomIssueCode.ROOM_ENDED,
+                message = "The room host ended the room",
+                recoveryAction = RoomRecoveryAction.NONE,
+            )
+
+        val presentation = RoomPlaybackUiPolicy.issuePresentation(issue)
+
+        assertEquals("Room ended", presentation.title)
+        assertEquals("The room host ended the room", presentation.message)
+        assertNull(RoomPlaybackUiPolicy.issueAction(issue, null))
+    }
 
     @Test
     fun unavailableTrackUsesHumanFacingIssueCopy() {

@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.darius.unison.model.MemberTrackState
+import com.darius.unison.model.RoomMediaReadiness
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TransferProgress
 import com.darius.unison.model.TransportAction
@@ -107,13 +108,16 @@ internal fun PlaybackTransitionStatus(
 internal fun UpNextStatus(
     track: TrackDescriptor,
     transfer: TransferProgress?,
+    readiness: RoomMediaReadiness,
 ) {
     val suffix =
-        when (transfer?.state) {
-            MemberTrackState.RECEIVING -> " · Getting ready"
-            MemberTrackState.VERIFYING,
-            MemberTrackState.PREPARING_PLAYER -> " · Almost ready"
-            MemberTrackState.FAILED -> " · Needs attention"
+        when {
+            transfer?.state == MemberTrackState.RECEIVING -> " · Preparing"
+            transfer?.state == MemberTrackState.VERIFYING ||
+                transfer?.state == MemberTrackState.PREPARING_PLAYER -> " · Almost ready"
+            transfer?.state == MemberTrackState.FAILED -> " · Needs attention"
+            readiness == RoomMediaReadiness.NEEDS_PREPARATION -> " · Not ready"
+            readiness == RoomMediaReadiness.PREPARING -> " · Preparing"
             else -> ""
         }
     val failed = transfer?.state == MemberTrackState.FAILED
@@ -383,6 +387,7 @@ internal fun QueueRow(
     temporary: Boolean,
     pending: Boolean,
     transfer: TransferProgress? = null,
+    readiness: RoomMediaReadiness = RoomMediaReadiness.NEEDS_PREPARATION,
     canReorder: Boolean,
     draggedIndex: Int?,
     dragTargetIndex: Int?,
@@ -399,6 +404,19 @@ internal fun QueueRow(
     onKeep: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
+    val mediaPresentation =
+        RoomQueueUiPolicy.mediaPresentation(
+            readiness = readiness,
+            transfer = transfer,
+            current = current,
+            playing = playing,
+        )
+    val primaryActionLabel =
+        when (mediaPresentation.tapAction) {
+            RoomQueueUiPolicy.TapAction.PLAY -> "Play song"
+            RoomQueueUiPolicy.TapAction.PREPARE -> "Prepare song"
+            RoomQueueUiPolicy.TapAction.NONE -> null
+        }
     val dragged = draggedIndex
     val target = dragTargetIndex
     val dragActive = dragged != null && target != null
@@ -448,7 +466,7 @@ internal fun QueueRow(
                             }
                         )
                     add(
-                        CustomAccessibilityAction("Play next") {
+                        CustomAccessibilityAction("Move next") {
                             onMoveNext()
                             true
                         }
@@ -468,7 +486,11 @@ internal fun QueueRow(
                     )
                 }
             }
-            .clickable(enabled = draggedIndex == null && playEnabled, onClick = onPlay)
+            .clickable(
+                enabled = draggedIndex == null && playEnabled && primaryActionLabel != null,
+                onClickLabel = primaryActionLabel,
+                onClick = onPlay,
+            )
             .padding(start = 4.dp, end = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -505,23 +527,14 @@ internal fun QueueRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val transferDetail =
-                when (transfer?.state) {
-                    MemberTrackState.RECEIVING -> "Getting ready · ${(transfer.fraction * 100).toInt()}%"
-                    MemberTrackState.VERIFYING,
-                    MemberTrackState.PREPARING_PLAYER -> "Almost ready"
-                    MemberTrackState.FAILED -> "Couldn't get ready"
-                    MemberTrackState.CANCELLED -> null
-                    else -> null
-                }
+            val readinessDetail = mediaPresentation.detail
             val detail =
-                remember(track.artist, temporary, transferDetail) {
+                remember(track.artist, readinessDetail) {
                     listOfNotNull(
-                            transferDetail,
                             track.artist?.takeIf(String::isNotBlank),
-                            "Temporary".takeIf { temporary },
+                            readinessDetail,
                         )
-                        .joinToString(" • ")
+                        .joinToString(" · ")
                 }
             if (detail.isNotEmpty()) {
                 Text(
@@ -563,8 +576,18 @@ internal fun QueueRow(
                 Icon(Icons.Default.MoreVert, "Queue actions", Modifier.size(20.dp))
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (primaryActionLabel != null) {
+                    DropdownMenuItem(
+                        text = { Text(primaryActionLabel) },
+                        enabled = playEnabled,
+                        onClick = {
+                            menu = false
+                            onPlay()
+                        },
+                    )
+                }
                 DropdownMenuItem(
-                    text = { Text("Play next") },
+                    text = { Text("Move next") },
                     onClick = {
                         menu = false
                         onMoveNext()

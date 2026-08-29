@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
@@ -37,14 +36,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.darius.unison.model.RoomLifecycleState
 
 /** Music-first room identity. Healthy listener presence stays compact; details live in a sheet. */
 @Composable
 internal fun RoomHeader(
     roomName: String,
+    roomCode: String?,
     connectedListeners: Int,
-    canShowRoomCode: Boolean,
-    onShowRoomCode: () -> Unit,
+    lifecycle: RoomLifecycleState,
     onShowListeners: () -> Unit,
     onShowLogs: () -> Unit,
     onShowSettings: () -> Unit,
@@ -62,13 +62,33 @@ internal fun RoomHeader(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                roomName,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                roomCode?.let { code ->
+                    Surface(
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                    ) {
+                        Text(
+                            text = code,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
+                Text(
+                    text = roomName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Surface(
                 shape = MaterialTheme.shapes.extraLarge,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -88,7 +108,7 @@ internal fun RoomHeader(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        if (connectedListeners == 1) "1 in room" else "$connectedListeners in room",
+                        RoomQueueUiPolicy.roomPresenceLabel(lifecycle, connectedListeners),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -98,13 +118,6 @@ internal fun RoomHeader(
         Box {
             IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Room actions") }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                if (canShowRoomCode) {
-                    DropdownMenuItem(
-                        text = { Text("Show room code") },
-                        leadingIcon = { Icon(Icons.Default.ContentCopy, null) },
-                        onClick = { runAndClose(onShowRoomCode) },
-                    )
-                }
                 DropdownMenuItem(
                     text = { Text("Diagnostics") },
                     leadingIcon = { Icon(Icons.Default.Info, null) },

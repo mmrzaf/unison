@@ -28,7 +28,7 @@ internal object RoomPlaybackUiPolicy {
     )
 
     enum class TransitionKind {
-        PREPARING,
+        TRANSITIONING,
         WAITING_FOR_CONTENT,
         RECOVERING,
         FAILED,
@@ -120,7 +120,7 @@ internal object RoomPlaybackUiPolicy {
                     kind = TransitionKind.WAITING_FOR_CONTENT,
                     queueItemId = target.queueItemId,
                     trackId = target.track.trackId,
-                    message = quotedTitle?.let { "Getting $it ready" } ?: "Getting music ready",
+                    message = quotedTitle?.let { "Preparing $it" } ?: "Preparing music",
                     progressFraction = transfer.fraction,
                 )
 
@@ -130,23 +130,25 @@ internal object RoomPlaybackUiPolicy {
                     kind = TransitionKind.WAITING_FOR_CONTENT,
                     queueItemId = target.queueItemId,
                     trackId = target.track.trackId,
-                    message = quotedTitle?.let { "Getting $it ready" } ?: "Getting music ready",
+                    message = quotedTitle?.let { "Preparing $it" } ?: "Preparing music",
                     progressFraction = transfer.fraction.takeIf { it > 0f },
                 )
 
             else ->
                 TransitionPresentation(
-                    kind = TransitionKind.PREPARING,
+                    kind = TransitionKind.TRANSITIONING,
                     queueItemId = target?.queueItemId ?: command.queueItemId,
                     trackId = target?.track?.trackId,
                     message =
-                        quotedTitle?.let { "Getting $it ready…" }
-                            ?: when (command.action) {
-                                TransportAction.SEEK -> "Seeking…"
-                                TransportAction.PLAY -> "Starting playback…"
-                                TransportAction.PAUSE -> "Pausing…"
-                                else -> "Getting playback ready…"
-                            },
+                        when (command.action) {
+                            TransportAction.PLAY_ITEM ->
+                                quotedTitle?.let { "Switching to $it…" } ?: "Switching songs…"
+                            TransportAction.NEXT -> "Skipping to next song…"
+                            TransportAction.PREVIOUS -> "Going to previous song…"
+                            TransportAction.SEEK -> "Seeking…"
+                            TransportAction.PLAY -> "Starting playback…"
+                            TransportAction.PAUSE -> "Pausing…"
+                        },
                 )
         }
     }
@@ -192,6 +194,12 @@ internal object RoomPlaybackUiPolicy {
                     message = issue.message,
                 )
 
+            RoomIssueCode.ROOM_ENDED ->
+                IssuePresentation(
+                    title = "Room ended",
+                    message = issue.message,
+                )
+
             RoomIssueCode.ROOM_QUEUE_FULL ->
                 IssuePresentation(
                     title = "Queue is full",
@@ -230,7 +238,6 @@ internal object RoomPlaybackUiPolicy {
             RoomRecoveryAction.READD_TRACK -> IssueAction.CHOOSE_FILES
             RoomRecoveryAction.LEAVE_ROOM -> IssueAction.LEAVE_ROOM
             RoomRecoveryAction.NONE,
-            RoomRecoveryAction.RECONNECT,
             null -> null
         }
 
