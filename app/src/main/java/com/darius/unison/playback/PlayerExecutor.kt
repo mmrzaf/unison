@@ -423,7 +423,16 @@ class PlayerExecutor(
                         val remainingNs = latestLocalTarget - clock.nowNs()
                         if (remainingNs <= 0) break
                         if (remainingNs > 2_000_000L) {
-                            delay(((remainingNs - 1_000_000L) / 1_000_000L).coerceAtLeast(1L))
+                            // Coordinator→local mapping is an estimate that can move while the
+                            // command waits (STALE → ACQUIRING → LOCKED, route changes, new RTT
+                            // samples). Never sleep almost the whole remaining interval using one
+                            // mapping; periodically recompute exactly like RoomRuntime's queue timer.
+                            delay(
+                                minOf(
+                                    CLOCK_RECHECK_INTERVAL_MS,
+                                    ((remainingNs - 1_000_000L) / 1_000_000L).coerceAtLeast(1L),
+                                )
+                            )
                         } else {
                             yield()
                         }

@@ -25,19 +25,19 @@ class PlaybackRequestPolicyTest {
     @Test
     fun `single connected source defers until its local track is prepared`() {
         val snapshot = snapshot(item, wait = true)
-        assertTrue(PlaybackRequestPolicy.shouldDeferPlay(snapshot, emptySet()))
+        assertTrue(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot, emptySet()))
     }
 
     @Test
     fun preparedCurrentTrackCanPlay() {
         val snapshot = snapshot(item, wait = true)
-        assertFalse(PlaybackRequestPolicy.shouldDeferPlay(snapshot, setOf(item.queueItemId)))
+        assertFalse(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot, setOf(item.queueItemId)))
     }
 
     @Test
-    fun nonBlockingRoomCanPlayBeforeGlobalPreparation() {
+    fun roomOptionCannotBypassMediaReadiness() {
         val snapshot = snapshot(item, wait = false)
-        assertFalse(PlaybackRequestPolicy.shouldDeferPlay(snapshot, emptySet()))
+        assertTrue(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot, emptySet()))
     }
 
     @Test
@@ -50,7 +50,7 @@ class PlaybackRequestPolicyTest {
                 sequence = 0,
                 members = listOf(MemberSnapshot(peer, "Friend")),
             )
-        assertFalse(PlaybackRequestPolicy.shouldDeferPlay(snapshot))
+        assertFalse(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot))
     }
 
     private fun snapshot(item: QueueItem, wait: Boolean): RoomSnapshot =

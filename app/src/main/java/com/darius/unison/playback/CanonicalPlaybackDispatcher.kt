@@ -38,7 +38,7 @@ class CanonicalPlaybackDispatcher(
 
     data class PlaybackReconciliation(
         val snapshot: RoomSnapshot,
-        val desired: DesiredPlaybackState,
+        val key: PlaybackReconciliationKey,
         val triggers: Set<Trigger>,
     )
 
@@ -57,7 +57,7 @@ class CanonicalPlaybackDispatcher(
 
     private data class PendingReconciliation(
         val snapshot: RoomSnapshot,
-        val desired: DesiredPlaybackState,
+        val key: PlaybackReconciliationKey,
         val triggers: Set<Trigger>,
     )
 
@@ -67,7 +67,7 @@ class CanonicalPlaybackDispatcher(
     private val pendingReconciliations = mutableMapOf<Long, PendingReconciliation>()
     private var openReconciliationBatchId: Long? = null
     private var nextReconciliationBatchId = 0L
-    private var lastAppliedContentRevision: Long? = null
+    private var lastAppliedKey: PlaybackReconciliationKey? = null
     private var exactSubmitted = 0L
     private var exactApplied = 0L
     private var reconciliationSubmitted = 0L
@@ -127,7 +127,7 @@ class CanonicalPlaybackDispatcher(
                     pendingReconciliations[existingBatchId] =
                         PendingReconciliation(
                             snapshot = snapshot,
-                            desired = DesiredPlaybackState.from(snapshot, preparedQueueItemIds()),
+                            key = PlaybackReconciliationKey.from(snapshot, preparedQueueItemIds()),
                             triggers = previous.triggers + trigger,
                         )
                     reconciliationCollapsed++
@@ -138,7 +138,7 @@ class CanonicalPlaybackDispatcher(
                     pendingReconciliations[batchId] =
                         PendingReconciliation(
                             snapshot = snapshot,
-                            desired = DesiredPlaybackState.from(snapshot, preparedQueueItemIds()),
+                            key = PlaybackReconciliationKey.from(snapshot, preparedQueueItemIds()),
                             triggers = setOf(trigger),
                         )
                     true
@@ -155,18 +155,18 @@ class CanonicalPlaybackDispatcher(
                 value
             } ?: return
 
-        if (lastAppliedContentRevision == pending.desired.contentRevision) {
+        if (lastAppliedKey == pending.key) {
             synchronized(stateLock) { reconciliationSkipped++ }
             return
         }
         reconcileLatest(
             PlaybackReconciliation(
                 snapshot = pending.snapshot,
-                desired = pending.desired,
+                key = pending.key,
                 triggers = pending.triggers,
             )
         )
-        lastAppliedContentRevision = pending.desired.contentRevision
+        lastAppliedKey = pending.key
         synchronized(stateLock) { reconciliationApplied++ }
     }
 

@@ -91,6 +91,8 @@ internal class PeerPlaybackHealthRegistry(
         return wasReady != isReady
     }
 
+    fun isContentReady(peerId: PeerId): Boolean = entries[peerId]?.contentReady == true
+
     fun isClockReady(peerId: PeerId, nowNs: Long): Boolean {
         require(nowNs >= 0L)
         val entry = entries[peerId] ?: return false

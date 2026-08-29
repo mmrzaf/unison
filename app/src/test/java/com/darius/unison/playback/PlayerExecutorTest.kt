@@ -172,6 +172,57 @@ class PlayerExecutorTest {
     }
 
     @Test
+    fun scheduledCommandRechecksLongWaitInsteadOfOversleeping() = runBlocking {
+        val player =
+            FakePlayer(
+                PlayerState(
+                    queueItemId = itemId,
+                    positionMs = 0L,
+                    prepared = true,
+                    playWhenReady = true,
+                    isPlaying = true,
+                )
+            )
+        val clock = MutableClock(0L)
+        val settled = CompletableDeferred<Unit>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val executor =
+                PlayerExecutor(
+                    player = player,
+                    clock = clock,
+                    clockSync = ClockSyncEngine(clock),
+                    scope = scope,
+                    log = testLog(),
+                    onError = {},
+                    onCommandPhase = { id, phase, _ ->
+                        if (id == "mapping-recheck" && phase == TransportCommandPhase.SETTLED) {
+                            settled.complete(Unit)
+                        }
+                    },
+                    usesLocalCoordinatorClock = { true },
+                )
+            executor.schedulePause(
+                queueItemId = itemId,
+                positionMs = 0L,
+                executeAtCoordinatorNs = 5_000_000_000L,
+                commandId = "mapping-recheck",
+            )
+
+            delay(100L)
+            // A target/clock relationship can move while a command is waiting (for participants
+            // the coordinator→local mapping moves during clock reacquisition). The scheduler must
+            // notice promptly instead of sleeping against one stale mapping for several seconds.
+            clock.value = 5_000_000_000L
+
+            withTimeout(1_000L) { settled.await() }
+            assertEquals(1, player.pauseCalls)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun commandLifecycleIsOrderedAndCorrelated() = runBlocking {
         val player = FakePlayer(PlayerState(queueItemId = itemId, positionMs = 0L, prepared = true))
         val phases = mutableListOf<TransportCommandPhase>()

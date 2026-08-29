@@ -38,11 +38,8 @@ object PlaybackQueuePolicy {
         val future =
             snapshot.queue.drop(currentIndex).takeWhile { item ->
                 item.track.trackId in readableTrackIds &&
-                    (
-                        !snapshot.options.waitAtTrackBoundary ||
-                            item.queueItemId == snapshot.playback.queueItemId ||
-                            item.queueItemId in preparedQueueItemIds
-                    )
+                    (item.queueItemId == snapshot.playback.queueItemId ||
+                        item.queueItemId in preparedQueueItemIds)
             }
         return history + future
     }

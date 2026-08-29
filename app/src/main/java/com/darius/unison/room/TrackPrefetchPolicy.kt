@@ -29,28 +29,6 @@ object TrackPrefetchPolicy {
     }
 
     /**
-     * Builds the active transfer window with an explicitly requested item first. A rapid series of
-     * Next/Previous actions therefore replaces obsolete speculative work instead of accumulating
-     * every intermediate target for the lifetime of the room.
-     */
-    fun prioritizedDesiredItems(
-        snapshot: RoomSnapshot,
-        priorityQueueItemId: QueueItemId?,
-        upcomingCount: Int = DEFAULT_UPCOMING_COUNT,
-    ): List<QueueItem> {
-        val regular = desiredItems(snapshot, upcomingCount)
-        val priority = priorityQueueItemId?.let { requestedId ->
-            snapshot.queue.firstOrNull { it.queueItemId == requestedId }
-        }
-        return buildList {
-            priority?.let(::add)
-            regular.forEach { candidate ->
-                if (none { it.track.trackId == candidate.track.trackId }) add(candidate)
-            }
-        }
-    }
-
-    /**
      * Converts queue look-ahead into playback-aware transfer demand. The next boundary gets a real
      * deadline; farther items are runway rather than pretending every prefetched file is equally
      * urgent.
@@ -111,10 +89,5 @@ object TrackPrefetchPolicy {
         }
         return result.values.toList()
     }
-
-    fun obsoleteTracks(
-        previousDesired: Set<TrackId>,
-        nextDesired: Set<TrackId>,
-    ): Set<TrackId> = previousDesired - nextDesired
 
 }
