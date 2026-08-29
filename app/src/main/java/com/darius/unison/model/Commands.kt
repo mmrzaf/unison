@@ -54,6 +54,12 @@ sealed interface AppCommand {
         override val commandId: String = UUID.randomUUID().toString(),
     ) : Transport
 
+    /** Explicitly asks the room to make this queue item playable; it never changes playback. */
+    data class PrepareQueueItem(
+        val queueItemId: QueueItemId,
+        val requestId: String = UUID.randomUUID().toString(),
+    ) : AppCommand
+
     data object ShuffleQueue : AppCommand
 
     data class SetRepeat(val mode: RepeatMode) : AppCommand

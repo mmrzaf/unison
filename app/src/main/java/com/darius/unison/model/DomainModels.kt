@@ -272,6 +272,13 @@ enum class UserFacingStatus {
     UNAVAILABLE,
 }
 
+/** Ephemeral queue-media state. It is never part of canonical room history. */
+enum class RoomMediaReadiness {
+    NEEDS_PREPARATION,
+    PREPARING,
+    READY,
+}
+
 data class TransferProgress(
     val trackId: TrackId,
     val bytesTransferred: Long,
@@ -319,6 +326,7 @@ data class RoomUiState(
     val localRoomPin: String? = null,
     val hotspot: HotspotInfo? = null,
     val memberRuntime: Map<PeerId, MemberRuntimeState> = emptyMap(),
+    val mediaReadiness: Map<QueueItemId, RoomMediaReadiness> = emptyMap(),
 ) {
     /** Any finite room operation that needs the service to remain alive. */
     val operationActive: Boolean

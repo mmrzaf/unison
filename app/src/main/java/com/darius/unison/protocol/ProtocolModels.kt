@@ -166,7 +166,10 @@ sealed interface ProtocolBody {
         val preparedQueueItemIds: Set<QueueItemId>,
     ) : ProtocolBody
 
-    /** Ephemeral priority hint. Never consumes canonical sequence/history. */
+    /**
+     * Ephemeral room Prepare intent for one queue item. It may travel participant→coordinator and
+     * coordinator→participants, but never consumes canonical sequence/history.
+     */
     @Serializable
     @SerialName("queue_item_preparation_requested")
     data class QueueItemPreparationRequested(

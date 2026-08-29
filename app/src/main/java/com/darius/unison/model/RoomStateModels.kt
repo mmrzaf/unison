@@ -21,6 +21,7 @@ data class RoomStructureState(
     val localRoomPin: String? = null,
     val hotspot: HotspotInfo? = null,
     val memberRuntime: Map<PeerId, MemberRuntimeState> = emptyMap(),
+    val mediaReadiness: Map<QueueItemId, RoomMediaReadiness> = emptyMap(),
 ) {
     val operationActive: Boolean
         get() = lifecycle != RoomLifecycleState.IDLE && lifecycle != RoomLifecycleState.FAILED
@@ -72,6 +73,7 @@ fun RoomUiState.toStructureState(): RoomStructureState =
         localRoomPin = localRoomPin,
         hotspot = hotspot,
         memberRuntime = memberRuntime,
+        mediaReadiness = mediaReadiness,
     )
 
 fun RoomUiState.toPlaybackTelemetry(): RoomPlaybackTelemetry =
@@ -116,5 +118,6 @@ fun RoomStructureState.toUiState(
         localRoomPin = localRoomPin,
         hotspot = hotspot,
         memberRuntime = memberRuntime,
+        mediaReadiness = mediaReadiness,
     )
 }

@@ -16,6 +16,7 @@ enum class RoomIssueCode {
     PARTIAL_TRACK_IMPORT,
     CONNECTION_FAILED,
     CONNECTION_INTERRUPTED,
+    ROOM_ENDED,
     COMMAND_REJECTED,
     INTERNAL_FAILURE,
 }
@@ -29,7 +30,6 @@ enum class RoomIssueSeverity {
 enum class RoomRecoveryAction {
     NONE,
     RETRY,
-    RECONNECT,
     READD_TRACK,
     LEAVE_ROOM,
 }
