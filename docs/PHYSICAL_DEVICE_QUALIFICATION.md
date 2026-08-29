@@ -14,14 +14,13 @@ without leaving and rejoining the room.
 
 1. Create a room, join two listeners, add at least twenty tracks and play for one hour.
 2. Rapidly alternate Play and Pause from different phones for two minutes.
-3. Select Next, Previous and arbitrary queue items while another listener is downloading.
+3. Rapidly use Next/Previous among READY items while another listener is preparing media; tap an unavailable item and verify it prepares without changing current playback, then play it only after READY.
 4. Reorder and clear the queue while imports and transfer preparation are active.
 5. Turn one screen off for five minutes, then wake it and verify automatic convergence.
 6. Background and foreground every phone while playback continues.
 7. Disable Wi-Fi on one listener for thirty seconds, restore it and verify full state repair.
-8. Disconnect the coordinator and verify bounded reconnection to that coordinator. If it cannot be
-   recovered, verify that the room ends cleanly without electing a replacement.
-9. Kill and restart a participant process, then rejoin the active room.
+8. Disconnect the coordinator or hosted network and verify bounded recovery. If it cannot be recovered, verify that playback stops and the room ends cleanly without electing a replacement or leaving zombie room UI.
+9. Kill and restart a participant process, verify the listener disappears after grace if it does not reconnect, then rejoin the active room.
 10. Repeat song changes with Bluetooth connected and while switching audio routes.
 11. On one non-controlling listener, trigger a real incoming call/audio-focus interruption, let the
     room advance by at least two songs, end the interruption, and verify that no automatic audio
@@ -36,6 +35,8 @@ without leaving and rejoining the room.
     restriction after the test.
 14. Interrupt and resume a large transfer across an API 30 ↔ API 36 pair and verify the final SHA-256
     matches before playback becomes eligible.
+
+15. Swipe Unison away / remove its task while in a room and verify that phone leaves the room and stops synchronized playback rather than keeping a hidden room service alive.
 
 ## Evidence to retain
 

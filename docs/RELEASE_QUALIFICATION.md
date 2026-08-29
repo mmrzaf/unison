@@ -14,13 +14,14 @@ gates all pass against the exact APK checksum.
 ```
 
 The generated Room schema must still contain exactly schema `1.json` and the four production tables.
-Protocol constants, NSD advertisement, handshakes, frames, and envelopes must all use protocol 2.
+Protocol constants, NSD advertisement, handshakes, frames, envelopes, and documentation must all use strict Protocol 2.
 
 ## Playback-log gate
 
 ```bash
 ./scripts/capture-playback-log.sh unison-playback.ndjson
 ./scripts/analyze-playback-log.py unison-playback.ndjson --strict
+./scripts/analyze-stability-log.py unison-playback.ndjson --strict
 ```
 
 Retain the trace, device details, source archive checksum, and APK checksum.
@@ -38,7 +39,8 @@ Android's active network, `NETWORK_BOUND` for a non-default owning `Network`, an
 
 - one-hour single-device playback with screen and app lifecycle changes;
 - 30-minute three-device room with controls issued from different phones;
-- rapid play/pause/seek/next/previous and queue-item selection;
+- rapid play/pause/seek/next/previous and READY queue-item selection;
+- explicitly Prepare unavailable queue items and verify preparation never changes current canonical playback;
 - uninterrupted natural song boundaries under active playback; verify no pause/restart hiccup is
   introduced by reconciliation or a stale transport watchdog;
 - song change while another listener downloads or reconnects;
@@ -66,9 +68,9 @@ Android's active network, `NETWORK_BOUND` for a non-default owning `Network`, an
 - detected state mismatch repairs automatically;
 - no stale scheduled command reaches Media3;
 - no queue/current-item oscillation or transition storm occurs;
-- unavailable content leaves the current playable song intact and exposes one actionable failure;
+- unavailable content leaves current canonical playback intact, exposes Prepare/Preparing truthfully, and never produces an unavailable-media mutation storm;
 - leaving releases player work, transfers, sockets, locks, jobs, and notification ownership;
 - memory, log volume, CPU, storage, and network activity remain bounded;
 - app-owned Logcat records are valid structured JSON and the room log viewer remains responsive
   while DEBUG diagnostics are enabled;
-- strict playback-log analysis passes for every soak trace.
+- strict playback and stability-log analysis pass for every retained candidate trace.

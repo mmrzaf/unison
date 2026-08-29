@@ -1,61 +1,83 @@
 # Testing
 
-## Complete repository gate
+Unison tests should be simpler than Unison itself. The goal is strong invariants and repeated abuse,
+not a custom distributed-systems test platform.
 
-After the pinned Gradle distribution and dependency cache are available:
+## Fast repository checks
+
+These checks do not require an Android device:
+
+```bash
+./scripts/check-static.sh
+./scripts/check-data.sh
+python3 ./scripts/analyze-playback-log.py --self-test
+python3 ./scripts/analyze-stability-log.py --self-test
+```
+
+With the repository-pinned Gradle/Kotlin dependency cache available:
+
+```bash
+./scripts/check-release-quality.sh
+```
+
+The release-quality gate includes focused Kotlin compilation, reducer/protocol/transfer/playback tests,
+diagnostics checks, and the 100,000-track library benchmark.
+
+## High-value stress coverage
+
+Normal JVM tests deliberately repeat the dangerous state transitions rather than inventing a separate
+simulation framework:
+
+- `ReliabilityStressTest`: 20,000 deterministic transfer mutations while continuously checking every
+  shared capacity invariant;
+- readiness/convergence stress: 10,000 repeated Prepare/unavailable-media reconciliation cycles with
+  zero futile playback repair until READY;
+- `ManagedFileStoreTest`: repeated interrupted writes with monotonic partial offsets, resume, final
+  SHA-256 commit, and byte equality;
+- focused tests for duplicate assignments, cancellation ordering, retry/backoff, same-pair admission,
+  room reconnect grace, and long scheduled-command clock remapping.
+
+A small Android instrumentation test repeats interrupted/resume/verified-commit behavior on the real
+Android filesystem. Contributors do not need a multi-device lab to run ordinary tests.
+
+## Stability invariants
+
+Keep [INVARIANTS.md](INVARIANTS.md) green. In particular:
+
+- unavailable content cannot become executable playback;
+- repeated Prepare/demand is idempotent;
+- same source→destination transfer capacity cannot be exceeded;
+- intentional cancellation is not network failure;
+- completed media is hash-verified;
+- a healthy steady room causes no player/transfer repair storm;
+- exhausted room recovery ends rather than leaving stale synchronized state.
+
+## Diagnostic trace analysis
+
+Capture a real candidate trace when doing final device validation:
+
+```bash
+./scripts/capture-playback-log.sh unison-playback.ndjson
+python3 ./scripts/analyze-playback-log.py unison-playback.ndjson --strict
+python3 ./scripts/analyze-stability-log.py unison-playback.ndjson --strict
+```
+
+The playback analyzer checks transition/player/convergence failures. The stability analyzer checks
+unavailable-media rejection, duplicate assignments, handshake timeouts, transfer reconnect/retry
+storms, materially late scheduled playback, malformed diagnostics, and unclean room teardown.
+
+## Android/build qualification
+
+When Android SDK 36 and the pinned Gradle/dependency cache are available:
 
 ```bash
 ./scripts/verify-offline-ready.sh
-./scripts/check-release-quality.sh
 ./gradlew --offline --no-daemon --stacktrace \
   testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
   :app:compileDebugAndroidTestKotlin
 ```
 
-`check-release-quality.sh` runs:
-
-- source-tree, protocol, schema, security, and architecture invariants;
-- Kotlin source sanity checks;
-- deterministic reducer, authentication, transfer, lifecycle, playback, and synchronization tests;
-- focused Media3/state-machine compilation checks;
-- Android network lifecycle tests against stubs;
-- playback-log analyzer self-test;
-- 100,000-track search benchmark.
-
-## Stability invariants
-
-Keep these green:
-
-- all READY peers converge on the latest queue revision, playback revision, queue item, and
-  play/pause intent;
-- a warming, stale-clock, or degraded peer cannot inflate transport timing or block healthy READY
-  listeners;
-- every release synchronization profile keeps long-play drift and player speed within its tested
-  bounds;
-- stale callbacks, packets, schedules, imports, and transfer results cannot mutate newer state;
-- wrong item and wrong play/pause are repaired before position drift;
-- coordinator and participant players use the same canonical application path;
-- clear and leave invalidate pending queue preparation;
-- control and file traffic reject tampering and replay;
-- active leases prevent deletion or replacement;
-- cancellation closes sockets and releases locks/jobs;
-- meaningful player transitions enter the actor, position telemetry does not;
-- one user action creates at most one effective canonical transition.
-
-## Device qualification
-
-Repository tests cannot prove real Wi-Fi scheduling, vendor Media3 behavior, Bluetooth buffering,
-foreground restrictions, process death, or power management. Complete
-[Physical-device qualification](PHYSICAL_DEVICE_QUALIFICATION.md) for every release candidate.
-
-## Playback trace
-
-Capture Logcat from before room creation until after leaving, then run:
-
-```bash
-./scripts/capture-playback-log.sh unison-playback.ndjson
-./scripts/analyze-playback-log.py unison-playback.ndjson --strict
-```
-
-Strict analysis rejects transition storms, unavailable-song failures, circuit-breaker activation,
-and playback-dispatch failures.
+Release candidates still get a final real-phone listening check because JVM/instrumentation tests do
+not reproduce every OEM Wi-Fi, Media3, Bluetooth, foreground-service, or power-management behavior.
+That real use is the last validation layer, not the first place basic state-machine regressions should
+be discovered.

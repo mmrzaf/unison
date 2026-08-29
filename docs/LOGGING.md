@@ -37,11 +37,16 @@ Event names describe what happened, for example:
 - `sync.speed_adjustment`;
 - `sync.hard_seek`;
 - `network.socket.route_selected`;
-- `transfer.track.failed`.
+- `transfer.track.failed`;
+- `transfer.assignment.created`;
+- `room.media.prepare_requested`;
+- `room.session.ended`.
 
 Important values such as command ID, queue item ID, phase, latency, drift, peer ID, retry number, and
-duration are attributes. This lets the room console and qualification scripts filter the same data
-without parsing prose.
+duration are attributes. Transfer attempts also carry `transfer.operation_id`; coordinator assignments
+carry a safe derived `transfer.assignment_id`. These IDs correlate coordinator/source/destination
+lifecycle without logging the single-use authorization token. This lets the room console and
+qualification scripts reconstruct causality without parsing prose.
 
 ## Room scope and privacy
 
@@ -108,8 +113,11 @@ Analyze a capture:
 
 ```bash
 ./scripts/analyze-playback-log.py unison-playback.ndjson --strict
+./scripts/analyze-stability-log.py unison-playback.ndjson --strict
 ```
 
-The analyzer understands schema 1 directly. It checks canonical item storms, queue/player switching,
-transport/preparation completion, scheduled-command lateness, playback failures, transition circuit
-breakers, structured-log validity, sync correction statistics, and diagnostic drops.
+The playback analyzer checks canonical/player convergence, transport/preparation completion,
+scheduled-command lateness, playback failures, structured-log validity, sync correction statistics,
+and diagnostic drops. The stability analyzer independently rejects unavailable-media mutation,
+duplicate transfer assignment, handshake timeout, reconnect/retry churn, materially late playback,
+malformed records, and unclean room teardown.

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0
+
+- Media readiness is explicit: unavailable queue items are prepared first and only verified room-ready items can be played.
+- Transfer orchestration has one capacity model and one coordinator-side lifecycle owner; same-peer admission, cancellation, retry/backoff, and duplicate demand are deterministic.
+- Active useful transfers are no longer blindly preempted by changing speculative demand; partial verified progress is preserved and genuine failures resume with bounded retry.
+- Playback execution gates unavailable media instead of repeatedly mutating Media3, eliminating the 1.1.0 unavailable-song repair storm.
+- Room lifecycle is truthful: app/task exit leaves the room, temporary connectivity loss enters bounded recovery, unrecoverable coordinator/network loss ends the room, and stale participants are removed after reconnect grace.
+- Scheduled playback rechecks changing coordinator clock mapping during long waits so clock reacquisition cannot leave stale multi-second timers.
+- Room UX distinguishes Ready, Preparing, and Needs preparation; unavailable songs prepare on tap, ready songs play, and music can be inserted with Add next or appended with Add to queue.
+- Reliability coverage adds deterministic high-count transfer/readiness stress, repeated interrupted-file resume checks, causal transfer diagnostics, and a strict stability-log analyzer.
+- The public architecture is documented around explicit invariants and Protocol 2 remains the strict 1.2.0 wire contract; no incompatible Protocol 3 change was required.
+
 ## 1.1.0
 
 - Player timelines stop at the first unavailable or unprepared canonical successor instead of exposing later ready songs.
