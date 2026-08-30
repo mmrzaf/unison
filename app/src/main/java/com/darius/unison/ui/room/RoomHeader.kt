@@ -64,6 +64,14 @@ internal fun RoomHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                Text(
+                    text = roomName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 roomCode?.let { code ->
                     Surface(
                         shape = MaterialTheme.shapes.small,
@@ -78,14 +86,6 @@ internal fun RoomHeader(
                         )
                     }
                 }
-                Text(
-                    text = roomName,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
             Surface(
                 shape = MaterialTheme.shapes.extraLarge,
