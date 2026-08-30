@@ -53,8 +53,17 @@ player and covers two-item continuation, final-item completion, repeat-one, expl
 playlist mutation near a boundary. It is the regression boundary for callback-order/misattribution risk;
 production listener logic must not be changed merely from a speculative callback order.
 
-A small Android instrumentation test also repeats interrupted/resume/verified-commit behavior on the real
-Android filesystem. Contributors do not need a multi-device lab to run ordinary tests.
+Android instrumentation also repeats interrupted/resume/verified-commit behavior on the real Android
+filesystem and exercises Compose/UI integration. These are execution tests, not compile-only fixtures.
+Normal GitHub CI runs the full instrumented suite on API 33; tagged release qualification runs it on
+API 30, 33, and 36 before signing. Contributors can run the same suite on any connected device/emulator:
+
+```bash
+./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
+```
+
+A multi-device lab is still unnecessary for ordinary changes, but Android/Media3/filesystem behavior
+that depends on the platform must not be declared verified from JVM/stub tests alone.
 
 ## Stability invariants
 
@@ -99,7 +108,7 @@ teardown, and materially late scheduled playback. Playback arrival lateness is r
 from PlayerExecutor execution lateness so a slow network/room-actor delivery is not misdiagnosed as a
 player scheduler failure.
 
-`scripts/check-log-analyzer-fixtures.py` runs sanitized regression traces derived from real 1.2.0
+`scripts/check-log-analyzer-fixtures.py` runs sanitized regression traces derived from 1.2 release-line
 qualification failures. A release-quality change must keep the healthy fixture green and every bad
 fixture red for the intended reason.
 
@@ -110,11 +119,21 @@ When Android SDK 36 and the pinned Gradle/dependency cache are available:
 ```bash
 ./scripts/verify-offline-ready.sh
 ./gradlew --offline --no-daemon --stacktrace \
-  testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
+  spotlessCheck testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
   :app:compileDebugAndroidTestKotlin
 ```
 
-Release candidates still get a final real-phone listening check because JVM/instrumentation tests do
-not reproduce every OEM Wi-Fi, Media3, Bluetooth, foreground-service, or power-management behavior.
-That real use is the last validation layer, not the first place basic state-machine regressions should
-be discovered.
+Compilation is followed by real Android execution:
+
+```bash
+./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
+```
+
+CI uses API 33 as the ordinary instrumented baseline. Tagged prerelease/stable workflows require an
+API 30/33/36 emulator matrix before signing/publication. Physical phones remain the final validation
+layer because emulators still do not reproduce every OEM Wi-Fi, Media3, Bluetooth, foreground-service,
+or power-management behavior.
+
+Release evidence records the exact tag/commit, GitHub-produced APK checksum/signing fingerprint,
+automated matrix results, physical devices, retained diagnostics, known issues, and final decision.
+See [`release-evidence/`](release-evidence/README.md).

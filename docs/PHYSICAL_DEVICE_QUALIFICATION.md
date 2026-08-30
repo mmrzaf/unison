@@ -4,6 +4,11 @@ Use at least three phones from at least two manufacturers covering Android 11 (A
 (API 33), and Android 16 (API 36). Test router Wi-Fi and LocalOnlyHotspot. Repeat the playback cases
 with built-in speakers and Bluetooth output.
 
+Automation is only the first layer: normal CI executes Android instrumentation on API 33 and tagged
+release CI executes API 30/33/36. This document is specifically for behaviors that still require real
+phones/OEM networking/audio/lifecycle behavior. Record candidate-specific results under
+[`release-evidence/`](release-evidence/README.md); do not reuse evidence from another APK/commit.
+
 ## Pass criteria
 
 At all times, every connected and ready listener eventually reports the latest canonical playback
@@ -69,6 +74,21 @@ without leaving and rejoining the room.
     clock traffic continues, and diagnostics show no starvation/reconnect storm.
 
 ## Evidence to retain
+
+For every prerelease/stable candidate retain enough information to reproduce exactly what was tested:
+
+- release tag and full Git commit SHA;
+- exact **GitHub-produced** signed APK SHA-256 and signing-certificate SHA-256 fingerprint;
+- source-package SHA-256;
+- device manufacturer/model, Android/API and build fingerprint where useful;
+- network topology and audio route;
+- scenario outcomes and relevant sanitized diagnostic trace/analysis;
+- tester/date, known issues, and final beta/stable decision.
+
+A locally built debug/release APK is not interchangeable with the final GitHub-produced artifact.
+After tag CI succeeds, download/install that exact APK and repeat a focused smoke test before approving
+publication/announcement.
+
 
 - APK version and git/source archive checksum;
 - device model, API level and build fingerprint;

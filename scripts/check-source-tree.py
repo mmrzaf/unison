@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repository-level release invariants for the Unison 1.2.0 release."""
+"""Repository-level release invariants for the current Unison source tree/package."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,10 +27,62 @@ def text(path: str) -> str:
     return value.read_text(errors="ignore")
 
 
+def repository_files() -> list[str]:
+    """Return source inventory in either a Git checkout or an exported source package."""
+    try:
+        inside = subprocess.check_output(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        if inside == "true":
+            return subprocess.check_output(
+                ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+                cwd=ROOT,
+                text=True,
+            ).splitlines()
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+
+    excluded_parts = {
+        ".git", ".gradle", ".kotlin", ".idea", ".vscode", "build", "dist",
+        "captures", "keystore", "signing", "__pycache__",
+    }
+    files: list[str] = []
+    for path in ROOT.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(ROOT)
+        if excluded_parts.intersection(relative.parts):
+            continue
+        files.append(relative.as_posix())
+    return sorted(files)
+
+
+def version_value(versions: str, key: str) -> str:
+    match = re.search(rf'^{re.escape(key)}\s*=\s*"([^"]+)"\s*$', versions, re.MULTILINE)
+    require(match is not None, f"Missing {key} in version catalog")
+    return match.group(1)
+
+
 def main() -> int:
     try:
         for path in (
             ".github/workflows/android.yml",
+            ".github/workflows/verify.yml",
+            ".github/workflows/release.yml",
+            ".github/workflows/codeql.yml",
+            ".github/dependabot.yml",
+            ".github/SECURITY.md",
+            ".github/ISSUE_TEMPLATE/bug.yml",
+            ".github/ISSUE_TEMPLATE/feature.yml",
+            ".github/ISSUE_TEMPLATE/config.yml",
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            "LICENSE",
+            "CODE_OF_CONDUCT.md",
+            "SUPPORT.md",
+            "THIRD_PARTY_NOTICES.md",
             "app/build.gradle.kts",
             "app/src/main/AndroidManifest.xml",
             "app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt",
@@ -51,7 +103,20 @@ def main() -> int:
             "scripts/check-hardening-kotlin.sh",
             "docs/SRP_REVIEW_1.2.md",
             "scripts/archive.sh",
+            "scripts/package-source.sh",
+            "scripts/check-source-package.py",
+            "scripts/extract-release-notes.py",
+            "scripts/bootstrap-dev.sh",
+            "scripts/refresh-dependency-verification.sh",
+            "scripts/check-dependency-verification.py",
+            "scripts/check-tooling.sh",
             "CONTRIBUTING.md",
+            "docs/DEVELOPMENT.md",
+            "docs/GITHUB_SETUP.md",
+            "docs/ROADMAP.md",
+            "docs/release-evidence/README.md",
+            "docs/release-evidence/TEMPLATE.md",
+            "docs/decisions/README.md",
             "docs/INVARIANTS.md",
         ):
             require((ROOT / path).exists(), f"Missing required file: {path}")
@@ -83,7 +148,7 @@ def main() -> int:
             require(excluded in archive, f"Source archive does not exclude sensitive path: {excluded}")
         require("Refusing to create archive" in archive, "Source archive lacks fail-closed secret scan")
 
-        tracked_files = subprocess.check_output(["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=ROOT, text=True).splitlines()
+        tracked_files = repository_files()
         sensitive_suffixes = (".jks", ".keystore", ".p12", ".pfx", ".pem", ".key", ".base64")
         for tracked in tracked_files:
             lower = tracked.lower()
@@ -120,14 +185,12 @@ def main() -> int:
             require(not (ROOT / path).exists(), f"Unrelated legacy project path remains: {path}")
 
         versions = text("gradle/libs.versions.toml")
-        require(
-            re.search(r'appVersionName\s*=\s*"1\.2\.0"', versions) is not None,
-            "Version name is not 1.2.0",
-        )
-        require(
-            re.search(r'appVersionCode\s*=\s*"4"', versions) is not None,
-            "Version code is not 4 for 1.2.0",
-        )
+        version_name = version_value(versions, "appVersionName")
+        version_code = version_value(versions, "appVersionCode")
+        require(re.fullmatch(r"1\.2\.0(?:-(?:beta|rc)\.[1-9][0-9]*)?", version_name) is not None,
+                f"Unexpected 1.2 release-line version: {version_name}")
+        require(version_code.isdigit() and int(version_code) >= 5, "1.2 beta/stable versionCode must be >= 5")
+
         readme = text("README.md")
         changelog = text("CHANGELOG.md")
         local_release = text("docs/LOCAL_RELEASE.md")
@@ -135,16 +198,53 @@ def main() -> int:
         release_quality = text("scripts/check-release-quality.sh")
         security_doc = text("docs/SECURITY.md")
         srp_review = text("docs/SRP_REVIEW_1.2.md")
-        require("# Unison 1.2.0" in readme, "README version is not 1.2.0")
-        require("versionCode` 4" in readme and "Wire protocol: **2 only**" in readme, "README release facts drifted")
-        require("## 1.2.0\n" in changelog and "1.2.0 (in development)" not in changelog, "Changelog is not final")
-        require("v1.2.0" in local_release, "Local release guide is stale")
+        require(f"Version: `{version_name}` (`versionCode` {version_code})" in readme, "README release facts drifted")
+        require("Wire protocol: **2 only**" in readme, "README wire protocol fact drifted")
+        require(f"## {version_name}\n" in changelog, f"Changelog has no section for {version_name}")
+        require("Publication is tag-triggered only" in local_release, "Local release guide is stale")
         require("bounded recovery" in physical_qualification and "zombie room UI" in physical_qualification, "Coordinator-loss qualification is stale")
         require("Room actions → Room logs" not in physical_qualification, "Diagnostics naming is stale")
         require("./scripts/check-hardening-kotlin.sh" in release_quality, "Release quality gate omits Milestone-5 hardening tests")
         require("Srp6aCoreRfc5054Test" in srp_review and "BigInteger.modPow" in srp_review, "SRP 1.2 review is incomplete")
         require("SRP_REVIEW_1.2.md" in security_doc, "Security model does not link the SRP 1.2 review")
         require("room A" in physical_qualification, "Cross-room admission qualification is missing")
+
+        app_build = text("app/build.gradle.kts")
+        require('testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"' in app_build,
+                "AndroidJUnitRunner is not configured explicitly")
+        require("androidx.test.runner" in app_build and "androidx.test.ext.junit" in app_build,
+                "Explicit Android instrumentation dependencies are missing")
+
+        android_ci = text(".github/workflows/android.yml")
+        release_ci = text(".github/workflows/release.yml")
+        verify_ci = text(".github/workflows/verify.yml")
+        require("connectedDebugAndroidTest" in android_ci and "api-level: 33" in android_ci,
+                "Normal CI does not execute Android instrumentation on API 33")
+        require("api: [30, 33, 36]" in release_ci and "connectedDebugAndroidTest" in release_ci,
+                "Release CI does not execute the required API 30/33/36 instrumentation matrix")
+        require("workflow_dispatch" not in release_ci, "Release publication must be tag-triggered only")
+        require("--clobber" not in release_ci, "Release assets must not be replaceable with --clobber")
+        require("--prerelease" in release_ci and "--latest" in release_ci,
+                "Release workflow does not distinguish prerelease and stable versions")
+        require("app-debug.apk" not in release_ci and "Unison-debug" not in release_ci,
+                "Debug APK must not be a public release asset")
+        require("persist-credentials: false" in verify_ci and "actions/checkout@" in verify_ci,
+                "Reusable verification workflow lacks hardened checkout configuration")
+        require("spotlessCheck" in verify_ci, "CI does not enforce the configured formatting baseline")
+        action_ref = re.compile(r"uses:\s+[^\s@]+@([0-9a-f]{40})(?:\s|$)")
+        for workflow_path in (".github/workflows/verify.yml", ".github/workflows/android.yml",
+                              ".github/workflows/release.yml", ".github/workflows/codeql.yml"):
+            workflow_text = text(workflow_path)
+            for line in workflow_text.splitlines():
+                if "uses:" in line and not "uses: ./" in line:
+                    require(action_ref.search(line) is not None, f"Unpinned GitHub Action in {workflow_path}: {line.strip()}")
+
+        gradle_properties = text("gradle.properties")
+        require("useIranMirrors=true" not in gradle_properties, "Regional Maven mirrors must be opt-in, not public default")
+        require("Apache License" in text("LICENSE"), "Project license is not Apache-2.0 text")
+        evidence_path = f"docs/release-evidence/{version_name}.md"
+        require((ROOT / evidence_path).is_file(), f"Missing release evidence record for current version: {evidence_path}")
+
         room_code_test = text("app/src/androidTest/java/com/darius/unison/ui/RoomCodeComposeTest.kt")
         require("RoomScreen(" not in room_code_test, "Android room-code test uses removed RoomScreen")
         require(re.search(r'compileSdk\s*=\s*"36"', versions) is not None, "compileSdk changed unexpectedly")
@@ -155,9 +255,9 @@ def main() -> int:
         protocol_json = text("app/src/main/java/com/darius/unison/protocol/ProtocolJson.kt")
         require("const val PROTOCOL_VERSION = 2" in protocol, "Wire protocol is not 2")
         protocol_doc = text("docs/PROTOCOL.md")
-        require("Unison 1.2.0's only wire contract" in protocol_doc, "Protocol documentation is stale")
+        require("Unison 1.2 release line's only wire contract" in protocol_doc, "Protocol documentation is stale")
         require("protocol value other than `2` are rejected" in protocol_doc, "Protocol documentation has the wrong strict version")
-        require("Protocol 3 was deliberately **not** introduced" in protocol_doc, "1.2.0 protocol decision is undocumented")
+        require("Protocol 3 was deliberately **not** introduced" in protocol_doc, "1.2 protocol decision is undocumented")
         for marker in (
             "PinClientHello",
             "ReconnectClientHello",
