@@ -2,8 +2,15 @@
 
 ## Unreleased
 
-Changes after `1.2.0-beta.3` should be recorded here until the next prerelease or stable release is
+Changes after `1.2.0-beta.4` should be recorded here until the next prerelease or stable release is
 cut.
+
+## 1.2.0-beta.4
+
+### Fixed
+
+- Restored release-note version alignment so the Beta 4 tag has a curated changelog section for the
+  release publication gate.
 
 ## 1.2.0-beta.1
 

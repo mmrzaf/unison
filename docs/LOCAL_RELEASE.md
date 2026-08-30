@@ -9,7 +9,7 @@ builds from `develop`; production-style prerelease/stable artifacts are tied to 
 
 Examples:
 
-- `1.2.0-beta.1` → `v1.2.0-beta.1` → GitHub prerelease
+- `1.2.0-beta.4` → `v1.2.0-beta.4` → GitHub prerelease
 - `1.2.0-rc.1` → `v1.2.0-rc.1` → GitHub prerelease
 - `1.2.0` → `v1.2.0` → normal/latest release
 
@@ -87,7 +87,7 @@ source artifact because it packages the current uncommitted filesystem state.
 Tagged releases use:
 
 ```bash
-./scripts/package-source.sh v1.2.0-beta.1 dist
+./scripts/package-source.sh v1.2.0-beta.4 dist
 ```
 
 That path packages the exact tagged Git commit, uses deterministic gzip metadata, validates the archive

@@ -147,7 +147,7 @@ when the corresponding obsolete work was rejected before current-state mutation.
 
 ## Exact-artifact publication gate
 
-For a tag such as `v1.2.0-beta.1`:
+For a tag such as `v1.2.0-beta.4`:
 
 1. tag the exact qualified commit and push that immutable tag;
 2. let the GitHub release workflow re-run verification/instrumentation and build/sign the APK;
