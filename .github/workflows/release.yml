@@ -20,7 +20,6 @@ jobs:
     name: Release instrumentation (API ${{ matrix.api }})
     runs-on: ubuntu-24.04
     timeout-minutes: 55
-
     strategy:
       fail-fast: false
       matrix:
@@ -47,11 +46,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           if [[ -e /dev/kvm ]]; then
-            echo 'KERNEL=="kvm", MODE="0666", GROUP="kvm"' \
-              | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-
+            echo 'KERNEL=="kvm", MODE="0666", GROUP="kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
             sudo udevadm control --reload-rules
             sudo udevadm trigger --name-match=kvm
           fi
@@ -68,13 +64,9 @@ jobs:
 
   build_signed:
     name: Build and verify signed APK
-    needs:
-      - verify
-      - instrumentation
-
+    needs: [verify, instrumentation]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-
     permissions:
       contents: read
       id-token: write
@@ -99,10 +91,7 @@ jobs:
 
       - name: Install Android build tools
         shell: bash
-        run: |
-          sdkmanager \
-            'platforms;android-36' \
-            'build-tools;36.0.0'
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
@@ -116,57 +105,24 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
         run: |
           set -euo pipefail
-
-          VERSION_NAME="$(
-            sed -n 's/^appVersionName = "\([^"]*\)"/\1/p' \
-              gradle/libs.versions.toml \
-              | head -1
-          )"
-
-          test -n "$VERSION_NAME" || {
-            echo 'Could not read appVersionName' >&2
-            exit 1
-          }
-
-          test "$GITHUB_REF_TYPE" = 'tag' || {
-            echo 'Release must run from a tag push' >&2
-            exit 1
-          }
-
+          VERSION_NAME="$(sed -n 's/^appVersionName = "\([^"]*\)"/\1/p' gradle/libs.versions.toml | head -1)"
+          test -n "$VERSION_NAME" || { echo 'Could not read appVersionName' >&2; exit 1; }
+          test "$GITHUB_REF_TYPE" = 'tag' || { echo 'Release must run from a tag push' >&2; exit 1; }
           test "$GITHUB_REF_NAME" = "v$VERSION_NAME" || {
             echo "Tag $GITHUB_REF_NAME does not match app version $VERSION_NAME" >&2
             exit 1
           }
-
           tag_commit="$(git rev-parse "refs/tags/$GITHUB_REF_NAME^{commit}")"
-
           test "$tag_commit" = "$GITHUB_SHA" || {
             echo "Checked-out commit $GITHUB_SHA does not match tag commit $tag_commit" >&2
             exit 1
           }
-
-          test -n "$KEYSTORE_BASE64" || {
-            echo 'Missing ANDROID_KEYSTORE_BASE64' >&2
-            exit 1
-          }
-
-          test -n "$KEYSTORE_PASSWORD" || {
-            echo 'Missing ANDROID_KEYSTORE_PASSWORD' >&2
-            exit 1
-          }
-
-          test -n "$KEY_ALIAS" || {
-            echo 'Missing ANDROID_KEY_ALIAS' >&2
-            exit 1
-          }
-
-          test -n "$KEY_PASSWORD" || {
-            echo 'Missing ANDROID_KEY_PASSWORD' >&2
-            exit 1
-          }
+          test -n "$KEYSTORE_BASE64" || { echo 'Missing ANDROID_KEYSTORE_BASE64' >&2; exit 1; }
+          test -n "$KEYSTORE_PASSWORD" || { echo 'Missing ANDROID_KEYSTORE_PASSWORD' >&2; exit 1; }
+          test -n "$KEY_ALIAS" || { echo 'Missing ANDROID_KEY_ALIAS' >&2; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo 'Missing ANDROID_KEY_PASSWORD' >&2; exit 1; }
 
       - name: Configure release signing
         shell: bash
@@ -175,94 +131,47 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
         run: |
           set -euo pipefail
-
           KEYSTORE_PATH="$RUNNER_TEMP/unison-release.jks"
-
-          printf '%s' "$KEYSTORE_BASE64" \
-            | base64 --decode \
-            > "$KEYSTORE_PATH"
-
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           chmod 600 "$KEYSTORE_PATH"
-
-          keytool \
-            -list \
-            -keystore "$KEYSTORE_PATH" \
-            -storepass "$KEYSTORE_PASSWORD" \
-            -alias "$KEY_ALIAS" \
-            >/dev/null
-
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null
           {
             printf 'storeFile=%s\n' "$KEYSTORE_PATH"
             printf 'storePassword=%s\n' "$KEYSTORE_PASSWORD"
             printf 'keyAlias=%s\n' "$KEY_ALIAS"
             printf 'keyPassword=%s\n' "$KEY_PASSWORD"
           } > keystore.properties
-
           chmod 600 keystore.properties
 
       - name: Build signed release APK
-        run: |
-          ./gradlew \
-            --no-daemon \
-            --stacktrace \
-            assembleRelease
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
 
       - name: Verify and package release artifacts
         shell: bash
         run: |
           set -euo pipefail
-
           VERSION_NAME="${GITHUB_REF_NAME#v}"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
           RELEASE_APK='app/build/outputs/apk/release/app-release.apk'
-
           test -x "$BUILD_TOOLS/apksigner"
           test -x "$BUILD_TOOLS/zipalign"
           test -f "$RELEASE_APK"
-
-          "$BUILD_TOOLS/apksigner" \
-            verify \
-            --verbose \
-            --print-certs \
-            "$RELEASE_APK" \
-            | tee "$RUNNER_TEMP/apksigner.txt"
-
-          "$BUILD_TOOLS/zipalign" \
-            -c \
-            -P 16 \
-            -v 4 \
-            "$RELEASE_APK"
-
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$RELEASE_APK" | tee "$RUNNER_TEMP/apksigner.txt"
+          "$BUILD_TOOLS/zipalign" -c -P 16 -v 4 "$RELEASE_APK"
           mkdir -p dist
-
-          cp \
-            "$RELEASE_APK" \
-            "dist/Unison-${VERSION_NAME}.apk"
-
-          ./scripts/package-source.sh \
-            "$GITHUB_REF_NAME" \
-            dist
-
+          cp "$RELEASE_APK" "dist/Unison-${VERSION_NAME}.apk"
+          ./scripts/package-source.sh "$GITHUB_REF_NAME" dist
           python3 ./scripts/write-release-info.py \
             --apk "dist/Unison-${VERSION_NAME}.apk" \
             --apksigner-output "$RUNNER_TEMP/apksigner.txt" \
             --output dist/release-info.txt \
             --git-sha "$GITHUB_SHA"
-
-          python3 ./scripts/extract-release-notes.py \
-            --output dist/release-notes.md
-
+          python3 ./scripts/extract-release-notes.py --output dist/release-notes.md
           (
             cd dist
-
-            sha256sum \
-              "Unison-${VERSION_NAME}.apk" \
-              "Unison-${VERSION_NAME}-source.tar.gz" \
-              release-info.txt \
-              > SHA256SUMS.txt
+            sha256sum "Unison-${VERSION_NAME}.apk" "Unison-${VERSION_NAME}-source.tar.gz" release-info.txt > SHA256SUMS.txt
           )
 
       - name: Attest release provenance
@@ -274,26 +183,21 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Unison-${{ github.ref_name }}
-
           path: |
             dist/Unison-*.apk
             dist/Unison-*-source.tar.gz
             dist/release-info.txt
             dist/release-notes.md
             dist/SHA256SUMS.txt
-
           if-no-files-found: error
           retention-days: 90
           compression-level: 0
 
   publish:
     name: Publish immutable GitHub release
-    needs:
-      - build_signed
-
+    needs: build_signed
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-
     permissions:
       contents: write
 
@@ -306,54 +210,38 @@ jobs:
 
       - name: Publish GitHub release
         shell: bash
-
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-
         run: |
           set -euo pipefail
-
           RELEASE_TAG="$GITHUB_REF_NAME"
           VERSION_NAME="${RELEASE_TAG#v}"
-
           test -n "$VERSION_NAME"
-
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; refusing to replace immutable assets." >&2
             exit 1
           fi
-
           assets=(
             "dist/Unison-${VERSION_NAME}.apk"
             "dist/Unison-${VERSION_NAME}-source.tar.gz"
             'dist/release-info.txt'
             'dist/SHA256SUMS.txt'
           )
-
           for asset in "${assets[@]}"; do
-            test -f "$asset" || {
-              echo "Missing release asset: $asset" >&2
-              exit 1
-            }
+            test -f "$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
           done
-
           if [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]]; then
             release_title="Unison ${BASH_REMATCH[1]} Beta ${BASH_REMATCH[2]}"
             release_kind=(--prerelease)
-
           elif [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
             release_title="Unison ${BASH_REMATCH[1]} RC ${BASH_REMATCH[2]}"
             release_kind=(--prerelease)
-
           else
             release_title="Unison ${VERSION_NAME}"
             release_kind=(--latest)
           fi
-
-          gh release create \
-            "$RELEASE_TAG" \
-            "${assets[@]}" \
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
             --verify-tag \
             --target "$GITHUB_SHA" \
             --title "$release_title" \
