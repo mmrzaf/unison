@@ -61,10 +61,17 @@ class UnisonRoomService : MediaSessionService() {
                 if (!controller.isTrusted) return MediaSession.ConnectionResult.reject()
                 return MediaSession.ConnectionResult.accept(
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
-                    MediaSessionCommandPolicy.systemCommands(),
+                    canonicalSystemCommands(),
                 )
             }
         }
+
+    private fun canonicalSystemCommands(): Player.Commands {
+        val builder = Player.Commands.Builder()
+        MediaSessionCommandPolicy.readOnlyPlayerCommands.forEach(builder::add)
+        MediaSessionCommandPolicy.supportedPlayerCommands.forEach(builder::add)
+        return builder.build()
+    }
 
     override fun onCreate() {
         super.onCreate()
