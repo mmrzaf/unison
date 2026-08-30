@@ -23,8 +23,8 @@ without leaving and rejoining the room.
 4. Reorder and clear the queue while imports and transfer preparation are active.
 5. Turn one screen off for five minutes, then wake it and verify automatic convergence.
 6. Background and foreground every phone while playback continues.
-7. Disable Wi-Fi on one listener for thirty seconds, restore it and verify full state repair.
-8. Disconnect the coordinator or hosted network and verify bounded recovery. If it cannot be recovered, verify that playback stops and the room ends cleanly without electing a replacement or leaving zombie room UI.
+7. On one listener, disable Wi-Fi for 2-5 seconds, restore it, and verify the phone stays in the room, visibly enters bounded reconnect, keeps playback silent while authority is unavailable, and repairs to the current canonical state without manual rejoin. Repeat with Wi-Fi unavailable for thirty seconds and verify the bounded terminal path remains clean and visible if recovery is exhausted.
+8. On the coordinator, interrupt router Wi-Fi for 2-5 seconds and restore it. Verify bounded recovery keeps the same room alive through realistic Android reassociation, re-advertises its current endpoint, and participants recover without manual room recreation. Then exceed the bounded coordinator network grace and verify playback stops and the room ends cleanly without electing a replacement or leaving zombie room UI. Repeat on LocalOnlyHotspot by actually stopping the hosted network and verify that genuine hotspot shutdown is terminal and clearly explained.
 9. Kill and restart a participant process, verify the listener disappears after grace if it does not reconnect, then rejoin the active room.
 10. Repeat song changes with Bluetooth connected and while switching audio routes. Trigger a real becoming-noisy/headphone-disconnect condition and verify that Unison stays silent afterward; it must not automatically resume merely because an output route becomes available again.
 11. On one non-controlling listener, trigger a real incoming call/audio-focus interruption and let the

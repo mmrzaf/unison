@@ -3,9 +3,11 @@ package com.darius.unison.ui
 import android.app.Application
 import com.darius.unison.app.AppContainer
 import com.darius.unison.model.AppCommand
+import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.model.TransportCommandStatus
+import com.darius.unison.model.UserFacingStatus
 import com.darius.unison.model.transportAction
 import com.darius.unison.playback.UnisonRoomService
 import com.darius.unison.room.RoomReducer
@@ -154,8 +156,17 @@ internal class RoomSessionActions(
 
     fun clearRoomError(expected: String) {
         container.roomStore.updateStructure { state ->
-            if (state.errorMessage == expected) state.copy(errorMessage = null, issue = null)
-            else state
+            if (state.errorMessage != expected) return@updateStructure state
+            val cleared = state.copy(errorMessage = null, issue = null)
+            if (state.snapshot == null && state.lifecycle == RoomLifecycleState.FAILED) {
+                cleared.copy(
+                    lifecycle = RoomLifecycleState.IDLE,
+                    status = UserFacingStatus.IDLE,
+                    statusMessage = null,
+                )
+            } else {
+                cleared
+            }
         }
     }
 

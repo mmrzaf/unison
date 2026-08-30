@@ -1,57 +1,40 @@
 # Unison <version> release evidence
 
-Status: **NOT QUALIFIED**
+Status: **IN PROGRESS**
 
-## Identity
+## Release
 
-- Tag:
-- Git commit SHA:
-- versionName:
-- versionCode:
-- Signed APK SHA-256:
-- Source package SHA-256:
-- Signing certificate SHA-256 fingerprint:
-- Protocol version:
-- Database schema:
-- GitHub build-provenance attestation verified: **PENDING**
+- Version: `<version>`
+- Tag: `v<version>`
+- GitHub Release / Actions run: **PENDING**
 
-## Automated verification
+Machine-generated checksums, signing metadata, automated gate results, and provenance remain attached to
+the GitHub release/run and are not duplicated here.
 
-- [ ] Repository quality gate
-- [ ] Unit tests
-- [ ] Debug/release lint
-- [ ] Debug/release build
-- [ ] API 30 instrumentation
-- [ ] API 33 instrumentation
-- [ ] API 36 instrumentation
-- [ ] CodeQL/security workflow reviewed
-- [ ] Gradle dependency-verification metadata reviewed
-- [ ] Exact GitHub-produced APK installed and smoke-tested
+## Human qualification
 
-## Physical-device matrix
+### Exact published APK smoke
 
-| Device | Manufacturer | Android/API | Build fingerprint | Network | Result |
-| --- | --- | --- | --- | --- | --- |
-| | | | | | |
+- Result: **PENDING**
+- Devices/network:
+- Scenarios exercised:
+- Notes:
 
-## Qualification scenarios
+### Additional physical / soak qualification
 
-Record pass/fail and evidence/log references for every required scenario in
-`docs/PHYSICAL_DEVICE_QUALIFICATION.md`.
+Record only what was actually exercised for this candidate. Reference
+`docs/PHYSICAL_DEVICE_QUALIFICATION.md` when a detailed scenario record is useful.
 
-## Soak
-
-- Single-device duration/result:
-- Three-device duration/result:
-- Reconnect/transfer cycles:
-- Diagnostic drop count:
-- Known warnings:
+- Devices:
+- Duration/cycles:
+- Result:
+- Diagnostic/log reference:
 
 ## Known issues accepted for this release
 
 None recorded.
 
-## Final decision
+## Final disposition
 
-- [ ] Candidate is approved for public prerelease/stable publication.
+- Decision: **PENDING**
 - Reviewer/date:

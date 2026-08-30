@@ -286,6 +286,12 @@ internal object RoomPlaybackUiPolicy {
                     message = "Unison is trying to restore smooth synchronized playback.",
                 )
 
+            RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE ->
+                IssuePresentation(
+                    title = "No local network",
+                    message = issue.message,
+                )
+
             RoomIssueCode.ROOM_NOT_ACTIVE,
             RoomIssueCode.CONNECTION_FAILED ->
                 IssuePresentation(

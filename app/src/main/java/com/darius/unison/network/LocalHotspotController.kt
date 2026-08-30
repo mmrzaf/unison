@@ -104,7 +104,7 @@ class LocalHotspotController(
                             "network.hotspot.failed",
                             attributes = mapOf("network.failure_reason" to reason),
                         )
-                        onError("Could not create offline network")
+                        onError("Could not create local connection")
                     }
                 },
                 Handler(Looper.getMainLooper()),
@@ -128,7 +128,7 @@ class LocalHotspotController(
                 "network.hotspot.start_failed",
                 throwable = error,
             )
-            onError("Could not create offline network")
+            onError("Could not create local connection")
         }
     }
 

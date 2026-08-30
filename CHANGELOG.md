@@ -2,8 +2,23 @@
 
 ## Unreleased
 
-Changes after `1.2.0-beta.4` should be recorded here until the next prerelease or stable release is
+Changes after `1.2.0-beta.5` should be recorded here until the next prerelease or stable release is
 cut.
+
+## 1.2.0-beta.5
+
+### Fixed
+
+- Made out-of-room room failures visible on Home instead of silently retaining a structured issue
+  that only the in-room screen could render.
+- Added explicit local-network precondition failures for Create and Join, including a direct Home
+  action to create Unison's local connection when no LAN is available.
+- Extended coordinator local-network recovery to the same bounded 20-second grace used by
+  participants so brief Android Wi-Fi reassociation does not immediately destroy the room.
+- Added one bounded same-room NSD endpoint refresh during participant reconnect so recovery can
+  follow a coordinator whose LAN address changed after Wi-Fi reassociation.
+- Kept genuine hotspot shutdown and exhausted reconnect paths terminal and visible rather than
+  allowing zombie room state.
 
 ## 1.2.0-beta.4
 

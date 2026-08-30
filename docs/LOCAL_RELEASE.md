@@ -1,54 +1,94 @@
-# Local APK release
+# Releasing Unison
 
-Unison distributes a signed APK rather than an Android App Bundle. Normal development uses debug
-builds from `develop`; production-style prerelease/stable artifacts are tied to immutable version tags.
+Unison distributes signed APKs through GitHub Releases. Beta, RC, and stable versions use the same
+production verification/signing pipeline.
 
-## Version and tag model
+## Source of truth
 
-`gradle/libs.versions.toml` is the source of truth for `appVersionName` and `appVersionCode`.
+`gradle/libs.versions.toml` owns:
 
-Examples:
+- `appVersionName`
+- `appVersionCode`
 
-- `1.2.0-beta.4` → `v1.2.0-beta.4` → GitHub prerelease
+Every installable update must use a strictly higher `versionCode`.
+
+Version tags map directly to releases:
+
+- `1.2.0-beta.5` → `v1.2.0-beta.5` → GitHub prerelease
 - `1.2.0-rc.1` → `v1.2.0-rc.1` → GitHub prerelease
-- `1.2.0` → `v1.2.0` → normal/latest release
+- `1.2.0` → `v1.2.0` → normal/latest GitHub release
 
-Every installable update must use a strictly higher `versionCode`. Never retag or replace assets for a
-published version; make a new beta/RC/patch version instead.
+Never retag a published version and never replace published assets. Fix forward with a new version.
 
-The 1.2 release line keeps Protocol 2 and Room database schema 1. Signed 1.1.x/1.0.x installs may
-upgrade into 1.2, and published 1.2 betas/RCs are expected to upgrade forward into later 1.2 builds
-while those compatibility contracts remain unchanged.
+## Release checklist
 
-## GitHub release workflow
+For each beta, RC, or stable release:
 
-Pushing the exact version tag runs [`Publish Unison release`](../.github/workflows/release.yml).
-Publication is tag-triggered only; there is no manual workflow path that can assign an existing tag
-name to a different checked-out commit.
+1. update `appVersionName` and increment `appVersionCode`;
+2. add/update the matching `CHANGELOG.md` section;
+3. create `docs/release-evidence/<version>.md` from `docs/release-evidence/TEMPLATE.md`;
+4. run local verification;
+5. commit the release source;
+6. create and push the matching tag.
 
-The workflow:
+Example:
 
-1. runs the reusable repository/unit/lint/build verification gate;
-2. executes Android instrumentation on API 30, 33, and 36;
-3. proves the tag matches `appVersionName` and points at the exact workflow commit;
-4. builds and verifies one signed release APK;
-5. creates a deterministic source package from the tagged commit;
-6. writes public release provenance/checksums and a GitHub/Sigstore build-provenance attestation;
-7. transfers those immutable artifacts to a separate publish job;
-8. refuses to overwrite an existing GitHub Release or its assets;
-9. publishes `-beta.*`/`-rc.*` as prereleases and stable versions as normal/latest releases.
+```bash
+git tag v1.2.0-beta.5
+git push origin v1.2.0-beta.5
+```
 
-Debug APKs remain CI artifacts and are not public release downloads.
+Publication is tag-triggered only.
 
-Configure these repository secrets before using the workflow:
+After the tag is pushed, GitHub Actions performs the complete release gate: repository checks, full
+release tests, API 30/33/36 instrumentation, signing, APK verification, source packaging, checksums,
+provenance attestation, and immutable GitHub Release publication.
+
+After publication, install/smoke-test the exact published APK and finish the concise per-version evidence
+record. Do not duplicate generated checksums/certificate metadata unless needed for an investigation;
+the release assets and Actions run already retain those facts.
+
+## Repository secrets
+
+The release workflow requires:
 
 - `ANDROID_KEYSTORE_BASE64`
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-The build/sign job receives signing secrets but no GitHub release-write permission. The publish job has
-release-write permission but never receives the signing material.
+The build/sign job receives signing material without release-write permission. The publish job receives
+release-write permission without signing material.
+
+## Local production-style build
+
+Local release builds are useful before tagging:
+
+```bash
+./scripts/verify-offline-ready.sh
+./scripts/build-release.sh
+```
+
+Expected output includes:
+
+- `app/build/outputs/apk/release/app-release.apk`
+- `app/build/outputs/release-SHA256SUMS.txt`
+
+A local build is not the published artifact. Human evidence that specifically claims to cover the
+published release must use the exact GitHub-produced APK.
+
+## Source packages
+
+`scripts/archive.sh` is a working-tree backup helper and is not a public release source artifact.
+
+Tagged releases use `scripts/package-source.sh`, which packages the exact tagged Git commit and validates
+the archive before publication.
+
+Example:
+
+```bash
+./scripts/package-source.sh v1.2.0-beta.5 dist
+```
 
 ## Local signing setup
 
@@ -56,52 +96,15 @@ release-write permission but never receives the signing material.
 ./scripts/create-release-key.sh
 ```
 
-Back up the release key and passwords securely. Supported updates must use the signing identity expected
-by already-installed production builds.
-
-## Local production-style build
-
-After first-time bootstrap and offline-readiness verification:
-
-```bash
-./scripts/verify-offline-ready.sh
-./scripts/build-release.sh
-```
-
-The local release script runs the repository gate, Android unit/lint/build work, shrinking, APK signing
-verification, size analysis, and SHA-256 generation according to the checked-in release contract.
-
-Expected local output:
-
-- `app/build/outputs/apk/release/app-release.apk`
-- `app/build/outputs/release-SHA256SUMS.txt`
-
-A locally built release APK is useful for pre-tag smoke testing, but a public beta/stable decision must
-also test the exact APK produced by the GitHub tag workflow.
-
-## Source packages
-
-`scripts/archive.sh` is a safe working-tree backup helper. It is deliberately not the public release
-source artifact because it packages the current uncommitted filesystem state.
-
-Tagged releases use:
-
-```bash
-./scripts/package-source.sh v1.2.0-beta.4 dist
-```
-
-That path packages the exact tagged Git commit, uses deterministic gzip metadata, validates the archive
-without requiring `.git`, and produces `Unison-<version>-source.tar.gz`.
+Back up the release key and passwords securely. Supported updates must continue using the expected
+release signing identity.
 
 ## APK size gate
 
-The local release script prints a ZIP-level APK breakdown and fails above 45 MiB by default. Override
-only after investigating and intentionally accepting the increase:
+The local release script enforces the configured APK size limit. Override it only after intentionally
+investigating and accepting an increase:
 
 ```bash
 MAX_RELEASE_APK_BYTES=47185920 ./scripts/build-release.sh
 python3 ./scripts/analyze-apk-size.py app/build/outputs/apk/release/app-release.apk
 ```
-
-Treat the compressed release APK as the distribution-size metric; installed Android storage can be
-larger because code/resources may be expanded or compiled on-device.

@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.RetentionPolicy
+import com.darius.unison.model.RoomIssueCode
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.TrackId
 
@@ -72,6 +73,7 @@ import com.darius.unison.model.TrackId
 internal fun HomeScreen(
     state: MainUiState,
     onCreateRoom: (String?) -> Unit,
+    onDismissRoomIssue: (String) -> Unit,
     onStartDiscovery: () -> Unit,
     onJoinRoom: (DiscoveredRoom, String) -> Unit,
     onCancelConnection: () -> Unit,
@@ -132,6 +134,31 @@ internal fun HomeScreen(
                 subtitle = "Start a synchronized room or join someone nearby.",
                 modifier = Modifier.padding(top = 8.dp),
             )
+        }
+
+        state.room.issue?.let { issue ->
+            item(key = "room-issue:${issue.deduplicationKey}") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PersistentRoomIssueCard(
+                        issue = issue,
+                        transportStatus = state.room.transportStatus,
+                        onDismiss = { onDismissRoomIssue(issue.message) },
+                        onRetryTransport = {},
+                        onChooseFiles = onChooseFiles,
+                        onLeaveRoom = { onDismissRoomIssue(issue.message) },
+                    )
+                    if (
+                        issue.code == RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE &&
+                            state.room.hotspot == null
+                    ) {
+                        FilledTonalButton(onClick = onCreateOfflineNetwork) {
+                            Icon(Icons.Default.WifiTethering, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Create local connection")
+                        }
+                    }
+                }
+            }
         }
 
         item(key = "create-room") {
