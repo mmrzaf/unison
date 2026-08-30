@@ -993,22 +993,24 @@ class Media3PlayerAdapter(
     }
 
     private fun detectOutputRoute(): AudioOutputRoute {
+        val manager = audioManager ?: return AudioOutputRoute.UNKNOWN
+        // API 30-32 can enumerate connected outputs, but that does not identify which device is
+        // actually carrying this media stream. Unknown is safer than fabricating a route change.
+        if (!OutputRouteQueryPolicy.canQueryActiveMediaRoute(Build.VERSION.SDK_INT)) {
+            return AudioOutputRoute.UNKNOWN
+        }
+        // Keep an explicit platform guard as the API-safety proof understood by Android Lint.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return AudioOutputRoute.UNKNOWN
+        }
         val devices =
             runCatching {
-                    when {
-                        audioManager == null -> emptyList()
-                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> {
-                            val mediaAttributes =
-                                android.media.AudioAttributes.Builder()
-                                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                                    .setContentType(
-                                        android.media.AudioAttributes.CONTENT_TYPE_MUSIC
-                                    )
-                                    .build()
-                            audioManager.getAudioDevicesForAttributes(mediaAttributes)
-                        }
-                        else -> audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
-                    }
+                    val mediaAttributes =
+                        android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                    manager.getAudioDevicesForAttributes(mediaAttributes)
                 }
                 .getOrDefault(emptyList())
         return when {

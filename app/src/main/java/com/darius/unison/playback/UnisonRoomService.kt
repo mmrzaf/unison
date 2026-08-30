@@ -74,7 +74,7 @@ class UnisonRoomService : MediaSessionService() {
                 if (!controller.isTrusted) return MediaSession.ConnectionResult.reject()
                 return MediaSession.ConnectionResult.accept(
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
-                    SYSTEM_MEDIA_COMMANDS,
+                    MediaSessionCommandPolicy.SYSTEM_COMMANDS,
                 )
             }
         }
@@ -366,22 +366,6 @@ class UnisonRoomService : MediaSessionService() {
         private const val IDLE_STOP_DELAY_MS = 1_000L
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 300L
         private const val FOREGROUND_START_RETRY_INTERVAL_MS = 1_000L
-        private val SYSTEM_MEDIA_COMMANDS: Player.Commands =
-            Player.Commands.Builder()
-                .addAllReadOnlyCommands()
-                .add(Player.COMMAND_PLAY_PAUSE)
-                .add(Player.COMMAND_STOP)
-                .add(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
-                .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_NEXT)
-                .add(Player.COMMAND_SEEK_BACK)
-                .add(Player.COMMAND_SEEK_FORWARD)
-                .build()
-
         /**
          * Refreshes Android's started-service ownership for each UI command. This is deliberately a
          * normal service start, not foreground promotion: MediaSessionService remains the sole
