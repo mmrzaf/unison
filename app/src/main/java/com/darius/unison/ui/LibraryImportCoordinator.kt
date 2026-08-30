@@ -431,22 +431,28 @@ internal class LibraryImportCoordinator(
     }
 
     private fun Intent.readSharedUris(): List<Uri> {
-        val fromExtras = buildList {
-            IntentCompat.getParcelableExtra(
-                    this@readSharedUris,
-                    Intent.EXTRA_STREAM,
-                    Uri::class.java,
-                )
-                ?.let(::add)
-            addAll(
-                IntentCompat.getParcelableArrayListExtra(
-                        this@readSharedUris,
-                        Intent.EXTRA_STREAM,
-                        Uri::class.java,
-                    )
-                    .orEmpty()
-            )
-        }
+        val fromExtras =
+            when (action) {
+                Intent.ACTION_SEND,
+                Intent.ACTION_SEND_MULTIPLE ->
+                    // Some senders incorrectly label a single Uri as ACTION_SEND_MULTIPLE.
+                    // Use type-safe compatibility accessors for both valid representations.
+                    listOfNotNull(
+                        IntentCompat.getParcelableExtra(
+                            this,
+                            Intent.EXTRA_STREAM,
+                            Uri::class.java,
+                        )
+                    ).ifEmpty {
+                        IntentCompat.getParcelableArrayListExtra(
+                            this,
+                            Intent.EXTRA_STREAM,
+                            Uri::class.java,
+                        ).orEmpty()
+                    }
+
+                else -> emptyList()
+            }
         val fromClip = buildList {
             val value = clipData ?: return@buildList
             for (index in 0 until value.itemCount) value.getItemAt(index).uri?.let(::add)

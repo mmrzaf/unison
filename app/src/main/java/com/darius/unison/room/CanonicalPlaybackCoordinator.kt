@@ -2,6 +2,7 @@ package com.darius.unison.room
 
 import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.PeerId
+import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.playback.PlaybackIntentReconciliationPolicy
 import com.darius.unison.playback.PlayerExecutor
@@ -28,6 +29,7 @@ internal class CanonicalPlaybackCoordinator(
     private val isCoordinator: () -> Boolean,
     private val snapshotProvider: suspend () -> RoomSnapshot?,
     private val refreshPlayerQueue: suspend (RoomSnapshot) -> Unit,
+    private val isQueueItemExecutable: suspend (QueueItemId) -> Boolean,
     private val scheduleQueueRefresh: (Long) -> Unit,
     private val requestSnapshot: suspend (Long) -> Unit,
     private val send: suspend (PeerId, ProtocolBody) -> Unit,
@@ -64,6 +66,15 @@ internal class CanonicalPlaybackCoordinator(
         }
         if (snapshot.queue.none { it.queueItemId == queueItem }) {
             requestSnapshot(snapshot.sequence)
+            return
+        }
+        if (!isQueueItemExecutable(queueItem)) {
+            log.debug(
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.execution.waiting_for_media",
+                attributes = mapOf("queue.item_id" to queueItem.value.take(12)),
+            )
             return
         }
 
@@ -107,14 +118,42 @@ internal class CanonicalPlaybackCoordinator(
         }
     }
 
+    /**
+     * Called once when the canonical current track becomes locally executable after media arrival.
+     * Reconstructs the latest desired state instead of replaying an old scheduled command.
+     */
+    suspend fun reconcileLocalExecution(reason: String) {
+        val snapshot = snapshotProvider() ?: return
+        val queueItemId = snapshot.playback.queueItemId ?: return
+        if (!isQueueItemExecutable(queueItemId)) return
+        val coordinatorNowNs =
+            if (isCoordinator()) clock.nowNs()
+            else {
+                if (!clockSync.synchronized) return
+                clockSync.coordinatorNowNs()
+            }
+        refreshPlayerQueue(snapshot)
+        repairLocal(snapshot, coordinatorNowNs, reason)
+    }
+
     suspend fun handleStatusReport(
         peerId: PeerId,
         report: ProtocolBody.PlaybackStatusReport,
+        playbackExecutable: Boolean = true,
     ) {
         val snapshot = snapshotProvider() ?: return
         if (snapshot.members.none { it.peerId == peerId }) return
         val now = clock.nowNs()
-        when (val action = playbackSession.convergenceAction(peerId, snapshot, report, now)) {
+        when (
+            val action =
+                playbackSession.convergenceAction(
+                    peerId,
+                    snapshot,
+                    report,
+                    now,
+                    playbackExecutable,
+                )
+        ) {
             PlaybackConvergencePolicy.Action.None -> Unit
             is PlaybackConvergencePolicy.Action.SendPlaybackState -> {
                 log.info(
@@ -170,6 +209,15 @@ internal class CanonicalPlaybackCoordinator(
             return
         }
 
+        if (!isQueueItemExecutable(queueItemId)) {
+            log.debug(
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.execution.waiting_for_media",
+                attributes = mapOf("queue.item_id" to queueItemId.value.take(12), "sync.reason" to reason),
+            )
+            return
+        }
         val local = player.state.value
         if (local.participation != LocalPlaybackParticipation.ACTIVE) return
         if (local.queueItemId != queueItemId) {

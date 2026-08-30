@@ -99,6 +99,20 @@ class PeerPlaybackHealthRegistryTest {
         )
     }
 
+
+    @Test
+    fun catchingUpPeerStillCountsAsActiveSynchronizationParticipant() {
+        val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
+        registry.updateClock(guest, true, 20L, 5L, 100L)
+        registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L)
+
+        assertEquals(PeerPlaybackHealthState.CATCHING_UP, registry.health(guest, 200L).state)
+        assertTrue(registry.isSynchronizationParticipant(guest, 200L))
+
+        registry.updateParticipation(guest, LocalPlaybackParticipation.OUTPUT_INHIBITED, 250L)
+        assertFalse(registry.isSynchronizationParticipant(guest, 250L))
+    }
+
     @Test
     fun clockReadinessIsIndependentFromPlaybackAdmission() {
         val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
@@ -109,6 +123,46 @@ class PeerPlaybackHealthRegistryTest {
 
         assertTrue(registry.isClockReady(guest, 150L))
         assertEquals(PeerPlaybackHealthState.CATCHING_UP, registry.health(guest, 150L).state)
+    }
+
+    @Test
+    fun contentReadinessKeepsVerifiedPeerWhileAudibleParticipationIsInhibited() {
+        val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
+        val connected = setOf(coordinator, guest)
+        registry.updateClock(guest, true, 20L, 5L, nowNs = 100L)
+        registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 100L)
+        registry.updateContentReady(guest, true, 100L)
+
+        registry.updateParticipation(guest, LocalPlaybackParticipation.OUTPUT_INHIBITED, 200L)
+
+        assertEquals(
+            emptySet<PeerId>(),
+            registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.OUTPUT_INHIBITED, 200L),
+        )
+        assertEquals(
+            setOf(coordinator, guest),
+            registry.contentReadinessPeers(connected, coordinator, 200L),
+        )
+    }
+
+    @Test
+    fun inhibitedCoordinatorStillAnchorsContentReadiness() {
+        val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
+        val connected = setOf(coordinator, guest)
+
+        assertEquals(
+            setOf(coordinator),
+            registry.contentReadinessPeers(connected, coordinator, nowNs = 0L),
+        )
+        assertEquals(
+            emptySet<PeerId>(),
+            registry.readyPeers(
+                connected,
+                coordinator,
+                LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                nowNs = 0L,
+            ),
+        )
     }
 
 }

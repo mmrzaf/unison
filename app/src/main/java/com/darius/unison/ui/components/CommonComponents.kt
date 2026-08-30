@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -46,51 +45,37 @@ internal fun OperationBanner(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Card(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-            if (progress == null) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 2.dp,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Working…",
+                    progress?.let {
+                        if (it.total > 0) "${it.headline} · ${it.completed} of ${it.total}"
+                        else it.headline
+                    } ?: "Working…",
                     style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.padding(bottom = 6.dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
-                LinearProgressIndicator(Modifier.fillMaxWidth())
+                TextButton(
+                    onClick = onCancel,
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) {
+                    Text("Cancel")
+                }
+            }
+            if (progress?.total != null && progress.total > 0) {
+                LinearProgressIndicator(
+                    progress = { progress.fraction.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
             } else {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(progress.headline, style = MaterialTheme.typography.labelLarge)
-                        progress.detail?.let {
-                            Text(
-                                it,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        if (progress.total > 0) {
-                            Text(
-                                "${progress.completed} of ${progress.total}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    TextButton(
-                        onClick = onCancel,
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                    ) {
-                        Text("Cancel")
-                    }
-                }
-                if (progress.total > 0) {
-                    LinearProgressIndicator(
-                        progress = { progress.fraction.coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                } else {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                }
+                LinearProgressIndicator(Modifier.fillMaxWidth())
             }
         }
     }

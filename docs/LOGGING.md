@@ -37,11 +37,21 @@ Event names describe what happened, for example:
 - `sync.speed_adjustment`;
 - `sync.hard_seek`;
 - `network.socket.route_selected`;
-- `transfer.track.failed`.
+- `transfer.track.failed`;
+- `transfer.assignment.created`;
+- `room.media.prepare_requested`;
+- `room.session.ended`;
+- `room.event.stale_session`;
+- `room.event.unexpected_handler_cancellation`;
+- `network.control.stale_admission`;
+- `network.envelope.stale_connection`;
+- `network.endpoint.host_mismatch`.
 
 Important values such as command ID, queue item ID, phase, latency, drift, peer ID, retry number, and
-duration are attributes. This lets the room console and qualification scripts filter the same data
-without parsing prose.
+duration are attributes. Transfer attempts also carry `transfer.operation_id`; coordinator assignments
+carry a safe derived `transfer.assignment_id`. These IDs correlate coordinator/source/destination
+lifecycle without logging the single-use authorization token. This lets the room console and
+qualification scripts reconstruct causality without parsing prose.
 
 ## Room scope and privacy
 
@@ -88,7 +98,9 @@ The console provides:
 - category filters;
 - text search over event name, component, body, and attributes;
 - expandable structured attributes and exception summary;
-- bounded clipboard export of the current filtered view as chronological NDJSON.
+- bounded clipboard export of the current filtered view as chronological NDJSON;
+- **Clear view**, which clears the in-memory room view only. It does not promise secure erasure of
+  already-persisted NDJSON; durable records remain subject to the bounded rotation/retention policy.
 
 ## Device capture and analysis
 
@@ -108,8 +120,25 @@ Analyze a capture:
 
 ```bash
 ./scripts/analyze-playback-log.py unison-playback.ndjson --strict
+./scripts/analyze-stability-log.py unison-playback.ndjson --strict
 ```
 
-The analyzer understands schema 1 directly. It checks canonical item storms, queue/player switching,
-transport/preparation completion, scheduled-command lateness, playback failures, transition circuit
-breakers, structured-log validity, sync correction statistics, and diagnostic drops.
+The playback analyzer checks canonical/player convergence, physical natural-boundary handoff,
+pending-successor/readiness behavior, automatic audio-focus rejoin, safe clock-domain projection,
+transport/preparation completion, playback failures, structured-log validity, sync correction
+statistics, and diagnostic drops. It rejects the historical failure shapes where an ended item was
+repaired back into Play, connected members collapsed to an empty content-readiness cohort, an
+unexplained callback became `SYSTEM_POLICY`, or cleared transient focus never converged back to active
+participation.
+
+The stability analyzer independently rejects unavailable-media command rejection, duplicate transfer
+assignment, handshake timeout, reconnect/retry churn, malformed records, unclean room teardown, and any
+`room.event.unexpected_handler_cancellation`. Stale/provenance rejection events are retained as bounded
+forensic evidence but are not themselves failures: their presence means the fence rejected obsolete work.
+Scheduled playback now records `playback.arrival_late_ms` and `playback.executor_late_ms` separately:
+a command that reaches the scheduler after its target time is a delivery/actor problem, while extra
+lateness accumulated after scheduling is a PlayerExecutor problem. Both are release failures when
+material, but they are reported independently.
+
+Sanitized real-device regression shapes live under `scripts/fixtures/diagnostics/` and are exercised
+by `scripts/check-log-analyzer-fixtures.py` as part of `check-release-quality.sh`.

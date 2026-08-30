@@ -22,7 +22,11 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/model/Commands.kt \
   app/src/main/java/com/darius/unison/app/RoomCommandBus.kt \
   app/src/main/java/com/darius/unison/playback/SystemMediaCommandPolicy.kt \
+  app/src/main/java/com/darius/unison/playback/MediaSessionCommandPolicy.kt \
   app/src/main/java/com/darius/unison/playback/RoomMediaSessionPlayer.kt \
+  scripts/session-player-kotlin-check/MediaSessionCommandPolicyCheck.kt \
   -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH:$OUT_DIR/java" \
   -d "$OUT_DIR/session-player.jar"
+java -cp "$OUT_DIR/session-player.jar:$OUT_DIR/java:$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
+  com.darius.unison.playback.MediaSessionCommandPolicyCheckKt
 echo SESSION_PLAYER_KOTLIN_COMPILE_OK

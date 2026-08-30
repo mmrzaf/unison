@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 
 ./scripts/check-release-quality.sh
 ./gradlew --offline --no-daemon --stacktrace \
-  testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
+  spotlessCheck testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
   :app:compileDebugAndroidTestKotlin
 
 APK="$PWD/app/build/outputs/apk/release/app-release.apk"

@@ -44,8 +44,9 @@ internal class PlaybackConvergencePolicy(
         snapshot: RoomSnapshot,
         report: ProtocolBody.PlaybackStatusReport,
         coordinatorNowNs: Long,
+        playbackExecutable: Boolean = true,
     ): Action {
-        val candidate = decideUnthrottled(snapshot, report, coordinatorNowNs)
+        val candidate = decideUnthrottled(snapshot, report, coordinatorNowNs, playbackExecutable)
         if (candidate == Action.None) {
             synchronized(lock) { lastRepairByPeer.remove(peerId) }
             return Action.None
@@ -91,6 +92,7 @@ internal class PlaybackConvergencePolicy(
         snapshot: RoomSnapshot,
         report: ProtocolBody.PlaybackStatusReport,
         coordinatorNowNs: Long,
+        playbackExecutable: Boolean,
     ): Action {
         if (
             report.canonicalSequence < 0L ||
@@ -110,6 +112,9 @@ internal class PlaybackConvergencePolicy(
         if (report.queueRevision < snapshot.queueRevision) {
             return Action.SendSnapshot("QUEUE_REVISION_BEHIND")
         }
+        // Queue identity can always be repaired. Playback state cannot be meaningfully repaired
+        // until this peer can execute the canonical media locally, including revision-only repair.
+        if (!playbackExecutable) return Action.None
         if (report.playbackRevision < snapshot.playback.revision) {
             return Action.SendPlaybackState("PLAYBACK_REVISION_BEHIND")
         }

@@ -229,10 +229,8 @@ internal fun AllMusicScreen(
                                         listOfNotNull(
                                                 track.artist?.takeIf(String::isNotBlank),
                                                 formatDuration(track.durationMs),
-                                                "Temporary"
-                                                    .takeIf { track.trackId in temporaryTrackIds },
                                             )
-                                            .joinToString(" • "),
+                                            .joinToString(" · "),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )

@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 internal class SessionJobRegistry(private val scope: CoroutineScope) {
     private val generationCounter = AtomicLong(0L)
+    private val generationMutationLock = Any()
     private val jobs = ConcurrentHashMap.newKeySet<Job>()
 
     val generation: Long
@@ -23,6 +24,19 @@ internal class SessionJobRegistry(private val scope: CoroutineScope) {
         get() = jobs.count { !it.isCompleted }
 
     fun isCurrent(candidate: Long): Boolean = candidate == generation
+
+    /**
+     * Runs a short, non-suspending mutation only while [candidate] is still the current session.
+     * Generation advancement uses the same lock, so the generation cannot change between the check
+     * and [block]. This is for replaceable session telemetry/state that intentionally bypasses the
+     * room actor; canonical actor events must still validate their own provenance when consumed.
+     */
+    fun runIfCurrent(candidate: Long, block: () -> Unit): Boolean =
+        synchronized(generationMutationLock) {
+            if (candidate != generationCounter.get()) return@synchronized false
+            block()
+            true
+        }
 
     fun launch(block: suspend CoroutineScope.(generation: Long) -> Unit): Job {
         val capturedGeneration = generation
@@ -36,7 +50,7 @@ internal class SessionJobRegistry(private val scope: CoroutineScope) {
     }
 
     suspend fun advanceAndCancel(timeoutMs: Long): Long {
-        val nextGeneration = generationCounter.incrementAndGet()
+        val nextGeneration = advanceGeneration()
         val current = currentCoroutineContext()[Job]
         val closing = jobs.toList().filterNot { it === current }
         closing.forEach(Job::cancel)
@@ -48,9 +62,14 @@ internal class SessionJobRegistry(private val scope: CoroutineScope) {
     }
 
     fun advanceAndCancelNow(): Long {
-        val nextGeneration = generationCounter.incrementAndGet()
+        val nextGeneration = advanceGeneration()
         jobs.toList().forEach(Job::cancel)
         jobs.removeIf(Job::isCompleted)
         return nextGeneration
     }
+
+    private fun advanceGeneration(): Long =
+        synchronized(generationMutationLock) {
+            generationCounter.incrementAndGet()
+        }
 }

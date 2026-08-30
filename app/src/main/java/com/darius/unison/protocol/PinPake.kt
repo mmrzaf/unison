@@ -51,14 +51,22 @@ object PinPake {
             try {
                 val serverPublic = decodeElement(challenge.serverPublicValueBase64)
                 require(serverPublic.mod(MODULUS) != ZERO) { "Invalid PIN challenge" }
-                val scrambling = hashPaddedIntegers(publicValue, serverPublic)
+                val scrambling =
+                    Srp6aCore.scramblingParameter(
+                        MODULUS, publicValue, serverPublic, DIGEST_ALGORITHM
+                    )
                 require(scrambling != ZERO) { "Invalid PIN challenge" }
                 val x = privateKey(roomId, pin, salt)
-                val gx = GENERATOR.modPow(x, MODULUS)
-                val base = serverPublic.subtract(MULTIPLIER.multiply(gx)).mod(MODULUS)
-                require(base != ZERO) { "Invalid PIN challenge" }
-                val exponent = privateValue.add(scrambling.multiply(x))
-                val sharedSecret = base.modPow(exponent, MODULUS)
+                val sharedSecret =
+                    Srp6aCore.clientSharedSecret(
+                        modulus = MODULUS,
+                        generator = GENERATOR,
+                        multiplier = MULTIPLIER,
+                        privateKey = x,
+                        clientPrivateValue = privateValue,
+                        serverPublicValue = serverPublic,
+                        scramblingParameter = scrambling,
+                    )
                 val sessionKey = deriveSessionKey(sharedSecret, transcript)
                 clientProof =
                     proof(sessionKey, CLIENT_PROOF_DOMAIN, transcript, publicValue, serverPublic)
@@ -85,7 +93,7 @@ object PinPake {
             ): ClientSession {
                 requirePin(pin)
                 val privateValue = randomExponent()
-                val publicValue = GENERATOR.modPow(privateValue, MODULUS)
+                val publicValue = Srp6aCore.clientPublicValue(MODULUS, GENERATOR, privateValue)
                 return ClientSession(roomId, peerId, clientNonce, pin, privateValue, publicValue)
             }
         }
@@ -115,13 +123,19 @@ object PinPake {
             var responseProof: ByteArray? = null
             var sessionKey: ByteArray? = null
             try {
-                val scrambling = hashPaddedIntegers(clientPublic, serverPublic)
+                val scrambling =
+                    Srp6aCore.scramblingParameter(
+                        MODULUS, clientPublic, serverPublic, DIGEST_ALGORITHM
+                    )
                 if (scrambling == ZERO) return null
                 val sharedSecret =
-                    clientPublic
-                        .multiply(verifier.modPow(scrambling, MODULUS))
-                        .mod(MODULUS)
-                        .modPow(privateValue, MODULUS)
+                    Srp6aCore.serverSharedSecret(
+                        modulus = MODULUS,
+                        verifier = verifier,
+                        clientPublicValue = clientPublic,
+                        serverPrivateValue = privateValue,
+                        scramblingParameter = scrambling,
+                    )
                 sessionKey = deriveSessionKey(sharedSecret, transcript)
                 expectedProof =
                     proof(sessionKey, CLIENT_PROOF_DOMAIN, transcript, clientPublic, serverPublic)
@@ -157,12 +171,12 @@ object PinPake {
                 require(clientPublic.mod(MODULUS) != ZERO) { "Invalid PIN public value" }
                 val salt = Crypto.randomBytes(SALT_BYTES)
                 val x = privateKey(roomId, pin, salt)
-                val verifier = GENERATOR.modPow(x, MODULUS)
+                val verifier = Srp6aCore.verifier(MODULUS, GENERATOR, x)
                 val privateValue = randomExponent()
                 val serverPublic =
-                    MULTIPLIER.multiply(verifier)
-                        .add(GENERATOR.modPow(privateValue, MODULUS))
-                        .mod(MODULUS)
+                    Srp6aCore.serverPublicValue(
+                        MODULUS, GENERATOR, MULTIPLIER, verifier, privateValue
+                    )
                 require(serverPublic != ZERO) { "Invalid PIN challenge" }
                 val serverNonce = Crypto.randomBase64(18)
                 return ServerSession(
@@ -200,20 +214,8 @@ object PinPake {
         }
     }
 
-    private fun privateKey(roomId: String, pin: String, salt: ByteArray): BigInteger {
-        val identity = "$roomId:$pin".encodeToByteArray()
-        val identityHash =
-            try {
-                hash(identity)
-            } finally {
-                identity.fill(0)
-            }
-        return try {
-            hashInteger(salt, identityHash)
-        } finally {
-            identityHash.fill(0)
-        }
-    }
+    private fun privateKey(roomId: String, pin: String, salt: ByteArray): BigInteger =
+        Srp6aCore.privateKey(roomId, pin, salt, DIGEST_ALGORITHM)
 
     private fun deriveSessionKey(sharedSecret: BigInteger, transcript: ByteArray): ByteArray {
         val paddedSecret = pad(sharedSecret)
@@ -301,24 +303,6 @@ object PinPake {
             digest()
         }
 
-    private fun hashInteger(vararg values: ByteArray): BigInteger {
-        val digest = hash(*values)
-        return try {
-            BigInteger(1, digest)
-        } finally {
-            digest.fill(0)
-        }
-    }
-
-    private fun hashPaddedIntegers(vararg values: BigInteger): BigInteger {
-        val padded = values.map(::pad)
-        return try {
-            hashInteger(*padded.toTypedArray())
-        } finally {
-            padded.forEach { it.fill(0) }
-        }
-    }
-
     private fun join(vararg values: ByteArray): ByteArray {
         val size = values.sumOf { it.size }
         return ByteArray(size).also { output ->
@@ -398,7 +382,8 @@ object PinPake {
     private val GENERATOR = BigInteger.valueOf(2)
     private val ZERO = BigInteger.ZERO
     private val MODULUS_BYTES = (MODULUS.bitLength() + 7) / 8
-    private val MULTIPLIER = hashPaddedIntegers(MODULUS, GENERATOR)
+    private const val DIGEST_ALGORITHM = "SHA-256"
+    private val MULTIPLIER = Srp6aCore.multiplier(MODULUS, GENERATOR, DIGEST_ALGORITHM)
     private const val SALT_BYTES = 16
     private const val EXPONENT_BYTES = 32
     private const val PROOF_BYTES = 32

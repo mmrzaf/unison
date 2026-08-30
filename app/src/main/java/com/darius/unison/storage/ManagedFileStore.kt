@@ -26,6 +26,14 @@ enum class ManagedFileLeaseReason {
     IMPORT,
     INDEXING,
     PENDING_SIDE_EFFECT,
+    /** Blocks deletion while a database/source publication is in flight, but not file replacement. */
+    REFERENCE_PUBLICATION,
+}
+
+enum class ManagedFileDeleteResult {
+    DELETED,
+    DEFERRED,
+    NOT_FOUND,
 }
 
 interface ManagedFileLease : AutoCloseable {
@@ -45,6 +53,9 @@ class ManagedFileStore(filesDir: File) {
     fun finalFile(trackId: TrackId): File = fileFor(trackId, suffix = "")
 
     fun partialFile(trackId: TrackId): File = fileFor(trackId, suffix = ".part")
+
+    private fun pendingDeleteFile(trackId: TrackId): File =
+        fileFor(trackId, suffix = PENDING_DELETE_SUFFIX)
 
     /** Metadata-only check for bounded background cleanup; playback still uses [hasVerified]. */
     fun hasStoredFile(trackId: TrackId, expectedSize: Long? = null): Boolean {
@@ -95,11 +106,33 @@ class ManagedFileStore(filesDir: File) {
 
     internal fun fullVerificationCountForTests(): Long = fullVerificationCount.get()
 
-    fun acquireLease(trackId: TrackId, reason: ManagedFileLeaseReason): ManagedFileLease {
-        val key = LeaseKey(trackId, reason)
+    fun acquireLease(trackId: TrackId, reason: ManagedFileLeaseReason): ManagedFileLease =
+        synchronized(commitLock(trackId)) { acquireLeaseLocked(trackId, reason) }
+
+    /**
+     * Atomically proves that the already-resolved managed file still exists and establishes a lease
+     * before deletion can win. This deliberately performs no deep hash while holding [commitLock].
+     */
+    fun acquireExistingFileLease(
+        trackId: TrackId,
+        expectedSize: Long?,
+        reason: ManagedFileLeaseReason,
+    ): LeasedManagedFile? =
         synchronized(commitLock(trackId)) {
-            leaseCounts.compute(key) { _, count -> (count ?: 0) + 1 }
+            if (pendingDeleteFile(trackId).isFile) return@synchronized null
+            val file = finalFile(trackId)
+            if (!file.isFile || (expectedSize != null && file.length() != expectedSize)) {
+                return@synchronized null
+            }
+            LeasedManagedFile(file, acquireLeaseLocked(trackId, reason))
         }
+
+    private fun acquireLeaseLocked(
+        trackId: TrackId,
+        reason: ManagedFileLeaseReason,
+    ): ManagedFileLease {
+        val key = LeaseKey(trackId, reason)
+        leaseCounts.compute(key) { _, count -> (count ?: 0) + 1 }
         return object : ManagedFileLease {
             override val trackId: TrackId = trackId
             override val reason: ManagedFileLeaseReason = reason
@@ -114,15 +147,20 @@ class ManagedFileStore(filesDir: File) {
                             else -> count - 1
                         }
                     }
+                    if (!isLeasedLocked(trackId)) completePendingDeleteLocked(trackId)
                 }
             }
         }
     }
 
-    fun isLeased(trackId: TrackId): Boolean =
+    fun isLeased(trackId: TrackId): Boolean = isLeasedLocked(trackId)
+
+    private fun isLeasedLocked(trackId: TrackId): Boolean =
         ManagedFileLeaseReason.entries.any { reason ->
             leaseCounts[LeaseKey(trackId, reason)]?.let { it > 0 } == true
         }
+
+    fun isDeletePending(trackId: TrackId): Boolean = pendingDeleteFile(trackId).isFile
 
     private fun isReplacementProtected(trackId: TrackId): Boolean =
         REPLACEMENT_PROTECTING_LEASES.any { reason ->
@@ -165,6 +203,33 @@ class ManagedFileStore(filesDir: File) {
      * still open, then atomically commits to the content-addressed destination.
      */
     suspend fun copyAndHash(input: InputStream, maxBytes: Long = Long.MAX_VALUE): CopyResult =
+        copyAndHashInternal(input, maxBytes, leaseReason = null).let {
+            CopyResult(it.trackId, it.file, it.sizeBytes)
+        }
+
+    /**
+     * Same safe staging/verification lifecycle as [copyAndHash], but acquires [reason] inside the
+     * final commit lock before the committed path is returned to its publisher.
+     */
+    suspend fun copyAndHashWithLease(
+        input: InputStream,
+        maxBytes: Long = Long.MAX_VALUE,
+        reason: ManagedFileLeaseReason,
+    ): LeasedCopyResult =
+        copyAndHashInternal(input, maxBytes, reason).let { result ->
+            LeasedCopyResult(
+                trackId = result.trackId,
+                file = result.file,
+                sizeBytes = result.sizeBytes,
+                lease = checkNotNull(result.lease),
+            )
+        }
+
+    private suspend fun copyAndHashInternal(
+        input: InputStream,
+        maxBytes: Long,
+        leaseReason: ManagedFileLeaseReason?,
+    ): CopyCommitResult =
         withContext(Dispatchers.IO) {
             val staging = File.createTempFile("staging-", ".part", root)
             val digest = MessageDigest.getInstance("SHA-256")
@@ -186,8 +251,8 @@ class ManagedFileStore(filesDir: File) {
                 }
                 val id = TrackId(digest.hex())
                 val target = finalFile(id)
-                commitVerifiedStaging(staging, target, size, id)
-                CopyResult(id, target, size)
+                val lease = commitVerifiedStaging(staging, target, size, id, leaseReason)
+                CopyCommitResult(id, target, size, lease)
             } catch (error: Throwable) {
                 staging.delete()
                 throw error
@@ -199,11 +264,12 @@ class ManagedFileStore(filesDir: File) {
         target: File,
         expectedSize: Long,
         trackId: TrackId,
-    ) {
+        leaseReason: ManagedFileLeaseReason? = null,
+    ): ManagedFileLease? =
         synchronized(commitLock(trackId)) {
             if (target.isFile && hasVerified(trackId, expectedSize)) {
                 staging.delete()
-                return
+                return@synchronized leaseReason?.let { acquireLeaseLocked(trackId, it) }
             }
             verificationCache.remove(trackId)
             if (target.exists()) {
@@ -214,7 +280,7 @@ class ManagedFileStore(filesDir: File) {
             }
             if (staging.renameTo(target)) {
                 verificationCache[trackId] = verificationStamp(target)
-                return
+                return@synchronized leaseReason?.let { acquireLeaseLocked(trackId, it) }
             }
 
             // Some filesystems reject rename across directories. Hash the fallback while copying,
@@ -244,8 +310,8 @@ class ManagedFileStore(filesDir: File) {
             }
             check(target.isFile && target.length() == expectedSize) { "Could not store audio" }
             verificationCache[trackId] = verificationStamp(target)
+            leaseReason?.let { acquireLeaseLocked(trackId, it) }
         }
-    }
 
     /**
      * The flush is mandatory. fsync is best-effort because a few Android filesystems/providers
@@ -415,18 +481,97 @@ class ManagedFileStore(filesDir: File) {
     /** Explicit transfer-owner discard. Background cleanup never calls this method. */
     fun discardPartial(trackId: TrackId): Boolean = partialFile(trackId).delete()
 
-    fun delete(trackId: TrackId): Boolean {
-        if (isLeased(trackId)) return false
-        val target = finalFile(trackId)
-        return synchronized(commitLock(trackId)) {
-            if (isLeased(trackId)) {
-                false
+    /** Requests logical deletion without ever deleting bytes that currently have an active lease. */
+    fun requestDelete(trackId: TrackId): ManagedFileDeleteResult =
+        synchronized(commitLock(trackId)) {
+            writePendingDeleteMarkerLocked(trackId)
+            if (isLeasedLocked(trackId)) {
+                ManagedFileDeleteResult.DEFERRED
             } else {
-                verificationCache.remove(trackId)
-                target.delete() or partialFile(trackId).delete()
+                val existed = finalFile(trackId).exists() || partialFile(trackId).exists()
+                if (completePendingDeleteLocked(trackId)) {
+                    if (existed) ManagedFileDeleteResult.DELETED else ManagedFileDeleteResult.NOT_FOUND
+                } else {
+                    ManagedFileDeleteResult.DEFERRED
+                }
+            }
+        }
+
+    /** Clears a deletion obligation after a managed reference has been successfully published. */
+    fun cancelPendingDelete(trackId: TrackId): Boolean =
+        synchronized(commitLock(trackId)) { pendingDeleteFile(trackId).delete() }
+
+    fun pendingDeleteTrackIds(): Set<TrackId> = buildSet {
+        root.listFiles().orEmpty().filter(File::isDirectory).forEach { directory ->
+            directory.listFiles().orEmpty().forEach { file ->
+                val value = file.name.removeSuffix(PENDING_DELETE_SUFFIX)
+                if (file.isFile && file.name.endsWith(PENDING_DELETE_SUFFIX) && TRACK_ID_PATTERN.matches(value)) {
+                    add(TrackId(value))
+                }
             }
         }
     }
+
+    /**
+     * Crash-recovery cleanup for durable delete markers. [protectedTrackIds] are current managed DB
+     * references and therefore cancel an obsolete marker instead of deleting live content.
+     */
+    fun cleanupPendingDeletes(
+        maxFiles: Int = Int.MAX_VALUE,
+        protectedTrackIds: Set<TrackId> = emptySet(),
+    ): Int {
+        require(maxFiles >= 0) { "Cleanup limit must not be negative" }
+        var resolved = 0
+        for (trackId in pendingDeleteTrackIds()) {
+            if (resolved >= maxFiles) break
+            val completed =
+                synchronized(commitLock(trackId)) {
+                    when {
+                        trackId in protectedTrackIds -> pendingDeleteFile(trackId).delete()
+                        isLeasedLocked(trackId) -> false
+                        else -> completePendingDeleteLocked(trackId)
+                    }
+                }
+            if (completed) resolved++
+        }
+        return resolved
+    }
+
+    fun delete(trackId: TrackId): Boolean {
+        if (isLeased(trackId)) return false
+        return synchronized(commitLock(trackId)) {
+            if (isLeasedLocked(trackId)) {
+                false
+            } else {
+                verificationCache.remove(trackId)
+                val final = finalFile(trackId)
+                val partial = partialFile(trackId)
+                val existed = final.exists() || partial.exists()
+                val finalDeleted = deleteIfPresent(final)
+                val partialDeleted = deleteIfPresent(partial)
+                pendingDeleteFile(trackId).delete()
+                existed && finalDeleted && partialDeleted
+            }
+        }
+    }
+
+    private fun writePendingDeleteMarkerLocked(trackId: TrackId) {
+        writeFile(pendingDeleteFile(trackId)) { output ->
+            output.write(PENDING_DELETE_MARKER_BYTES)
+        }
+    }
+
+    private fun completePendingDeleteLocked(trackId: TrackId): Boolean {
+        val marker = pendingDeleteFile(trackId)
+        if (!marker.isFile || isLeasedLocked(trackId)) return false
+        verificationCache.remove(trackId)
+        val final = finalFile(trackId)
+        val partial = partialFile(trackId)
+        if (!deleteIfPresent(final) || !deleteIfPresent(partial)) return false
+        return marker.delete() || !marker.exists()
+    }
+
+    private fun deleteIfPresent(file: File): Boolean = !file.exists() || file.delete()
 
     private fun sha256Hex(file: File): String {
         fullVerificationCount.incrementAndGet()
@@ -492,6 +637,22 @@ class ManagedFileStore(filesDir: File) {
 
     data class CopyResult(val trackId: TrackId, val file: File, val sizeBytes: Long)
 
+    data class LeasedCopyResult(
+        val trackId: TrackId,
+        val file: File,
+        val sizeBytes: Long,
+        val lease: ManagedFileLease,
+    )
+
+    data class LeasedManagedFile(val file: File, val lease: ManagedFileLease)
+
+    private data class CopyCommitResult(
+        val trackId: TrackId,
+        val file: File,
+        val sizeBytes: Long,
+        val lease: ManagedFileLease?,
+    )
+
     data class PartialReceiveResult(val totalBytes: Long, val sha256Hex: String)
 
     private companion object {
@@ -506,6 +667,8 @@ class ManagedFileStore(filesDir: File) {
         const val BUFFER_SIZE = 128 * 1024
         const val QUICK_SAMPLE_BYTES = 4 * 1024
         const val COMMIT_LOCK_STRIPES = 32
+        const val PENDING_DELETE_SUFFIX = ".delete-pending"
+        val PENDING_DELETE_MARKER_BYTES = "delete-pending\n".encodeToByteArray()
         val TRACK_ID_PATTERN = Regex("[0-9a-f]{64}")
         val HEX_CHARS = "0123456789abcdef".toCharArray()
     }

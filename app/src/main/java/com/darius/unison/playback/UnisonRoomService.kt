@@ -29,19 +29,6 @@ import kotlinx.coroutines.launch
 import com.darius.unison.util.DiagnosticCategory
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-private fun Player.Commands.Builder.addAllReadOnlyCommands(): Player.Commands.Builder =
-    addAll(
-        Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
-        Player.COMMAND_GET_TIMELINE,
-        Player.COMMAND_GET_METADATA,
-        Player.COMMAND_GET_AUDIO_ATTRIBUTES,
-        Player.COMMAND_GET_VOLUME,
-        Player.COMMAND_GET_DEVICE_VOLUME,
-        Player.COMMAND_GET_TEXT,
-        Player.COMMAND_GET_TRACKS,
-    )
-
-@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class UnisonRoomService : MediaSessionService() {
     private data class NotificationContent(
         val queueItemId: String?,
@@ -74,7 +61,7 @@ class UnisonRoomService : MediaSessionService() {
                 if (!controller.isTrusted) return MediaSession.ConnectionResult.reject()
                 return MediaSession.ConnectionResult.accept(
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
-                    SYSTEM_MEDIA_COMMANDS,
+                    MediaSessionCommandPolicy.SYSTEM_COMMANDS,
                 )
             }
         }
@@ -121,11 +108,6 @@ class UnisonRoomService : MediaSessionService() {
         )
 
         runtime = RoomRuntime(this, unisonContainer, playerAdapter, runtimeScope)
-        runtimeScope.launch {
-            unisonContainer.settings.playbackSyncProfile
-                .distinctUntilChanged()
-                .collect(runtime::updatePlaybackSyncProfile)
-        }
         roomForegroundJob = lifecycleScope.launch {
             unisonContainer.roomStore.structure
                 .map { state -> state.sessionActive || state.hotspot != null }
@@ -254,9 +236,28 @@ class UnisonRoomService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Task removal can race a notification or UI command. Reuse the delayed, start-ID-bound
-        // shutdown path so an older task-removal callback can never stop newer accepted work.
-        scheduleStopWhenIdle()
+        // Removing Unison from recents is an explicit application exit. A room is a live shared
+        // session, not background audio that survives after the app is closed. End it cleanly so a
+        // healthy coordinator can remove this participant immediately and so a coordinator tells
+        // listeners that the room itself ended.
+        lifecycleScope.launch {
+            try {
+                if (::runtime.isInitialized && unisonContainer.roomStore.structure.value.sessionActive) {
+                    runtime.handle(AppCommand.LeaveRoom)
+                }
+            } catch (error: Exception) {
+                if (error !is CancellationException) {
+                    unisonContainer.diagnostics.warn(
+                        TAG,
+                        DiagnosticCategory.ROOM,
+                        "room.task_removed.leave_failed",
+                        throwable = error,
+                    )
+                }
+            } finally {
+                stopSelf()
+            }
+        }
         super.onTaskRemoved(rootIntent)
     }
 
@@ -352,22 +353,6 @@ class UnisonRoomService : MediaSessionService() {
         private const val IDLE_STOP_DELAY_MS = 1_000L
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 300L
         private const val FOREGROUND_START_RETRY_INTERVAL_MS = 1_000L
-        private val SYSTEM_MEDIA_COMMANDS: Player.Commands =
-            Player.Commands.Builder()
-                .addAllReadOnlyCommands()
-                .add(Player.COMMAND_PLAY_PAUSE)
-                .add(Player.COMMAND_STOP)
-                .add(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
-                .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_NEXT)
-                .add(Player.COMMAND_SEEK_BACK)
-                .add(Player.COMMAND_SEEK_FORWARD)
-                .build()
-
         /**
          * Refreshes Android's started-service ownership for each UI command. This is deliberately a
          * normal service start, not foreground promotion: MediaSessionService remains the sole

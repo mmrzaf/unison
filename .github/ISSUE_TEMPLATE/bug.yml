@@ -1,0 +1,106 @@
+name: Bug report
+description: Report a reproducible Unison problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Unison. For security vulnerabilities, stop here and use the private process in `.github/SECURITY.md` instead.
+
+  - type: input
+    id: version
+    attributes:
+      label: Unison version
+      description: Use the version shown in About or the release tag.
+      placeholder: 1.2.0-beta.1
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      description: Manufacturer/model plus Android version or API level.
+      placeholder: Pixel 6 — Android 13 / API 33
+    validations:
+      required: true
+
+  - type: dropdown
+    id: role
+    attributes:
+      label: Room role
+      options:
+        - Coordinator
+        - Participant
+        - No active room
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network setup
+      options:
+        - Router Wi-Fi
+        - Android LocalOnlyHotspot
+        - Other private LAN
+        - Not applicable / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: devices
+    attributes:
+      label: Number of phones in the room
+      placeholder: "3"
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest repeatable sequence, including which phone performs each action.
+      placeholder: |
+        1. Phone A creates a room...
+        2. Phone B joins...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Playback/network context
+      description: If relevant, include Bluetooth/output route, current track transition, reconnect/transfer state, screen-off/background state, and whether cellular data was enabled.
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Paste only relevant sanitized Unison diagnostic events. Do not include secrets or private signing material.
+      render: text
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: This report does not contain a private security vulnerability or secret material.
+          required: true

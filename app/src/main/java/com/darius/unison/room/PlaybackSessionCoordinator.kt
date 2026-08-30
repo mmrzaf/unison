@@ -128,8 +128,9 @@ internal class PlaybackSessionCoordinator(
         snapshot: RoomSnapshot,
         report: ProtocolBody.PlaybackStatusReport,
         coordinatorNowNs: Long,
+        playbackExecutable: Boolean = true,
     ): PlaybackConvergencePolicy.Action =
-        convergence.decide(peerId, snapshot, report, coordinatorNowNs)
+        convergence.decide(peerId, snapshot, report, coordinatorNowNs, playbackExecutable)
 
     @Synchronized
     fun forgetPeer(peerId: PeerId) = convergence.forget(peerId)

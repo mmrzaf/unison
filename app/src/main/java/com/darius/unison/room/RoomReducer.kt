@@ -38,6 +38,7 @@ object RoomReducer {
         coordinatorNowNs: Long,
         leadNs: Long = DEFAULT_COMMAND_LEAD_NS,
         preparedQueueItemIds: Set<QueueItemId> = emptySet(),
+        playPositionOverrideMs: Long? = null,
     ): Decision {
         if (command.commandId.length !in 1..MAX_COMMAND_ID_LENGTH) {
             return Decision.Rejected("Invalid command")
@@ -45,7 +46,15 @@ object RoomReducer {
         val memberExists = snapshot.members.any { it.peerId == command.requestedBy }
         if (!memberExists) return Decision.Rejected("You are no longer connected to this room")
         return when (command) {
-            is UserCommand.Play -> play(snapshot, preparedQueueItemIds, coordinatorNowNs, leadNs, command.commandId)
+            is UserCommand.Play ->
+                play(
+                    snapshot,
+                    preparedQueueItemIds,
+                    coordinatorNowNs,
+                    leadNs,
+                    command.commandId,
+                    playPositionOverrideMs,
+                )
             is UserCommand.Pause -> pause(snapshot, coordinatorNowNs, leadNs, command.commandId)
             is UserCommand.Seek ->
                 seek(snapshot, command.positionMs, coordinatorNowNs, leadNs, command.commandId)
@@ -229,6 +238,7 @@ object RoomReducer {
         now: Long,
         lead: Long,
         commandId: String,
+        positionOverrideMs: Long?,
     ): Decision {
         val queueItem =
             snapshot.playback.queueItemId?.let { id ->
@@ -236,16 +246,14 @@ object RoomReducer {
             }
                 ?: snapshot.queue.firstOrNull()
                 ?: return Decision.Rejected("Add music before playing")
-        if (
-            snapshot.options.waitAtTrackBoundary &&
-                queueItem.queueItemId !in preparedQueueItemIds
-        ) {
-            return Decision.Rejected("Getting this song ready")
+        if (queueItem.queueItemId !in preparedQueueItemIds) {
+            return Decision.Rejected("Prepare this song before playing it")
         }
         val position =
-            if (snapshot.playback.queueItemId == queueItem.queueItemId) {
-                snapshot.playback.projectedPositionMs(now)
-            } else 0
+            positionOverrideMs?.coerceAtLeast(0L)
+                ?: if (snapshot.playback.queueItemId == queueItem.queueItemId) {
+                    snapshot.playback.projectedPositionMs(now)
+                } else 0
         val executeAt = now + lead
         return mutation(
             snapshot,
@@ -315,10 +323,7 @@ object RoomReducer {
             else seek(snapshot, 0, now, lead, commandId)
         }
         val target = snapshot.queue[newIndex]
-        if (
-            snapshot.options.waitAtTrackBoundary &&
-                target.queueItemId !in preparedQueueItemIds
-        ) {
+        if (target.queueItemId !in preparedQueueItemIds) {
             return Decision.Rejected("The next song is not ready yet")
         }
         return mutation(
@@ -346,7 +351,7 @@ object RoomReducer {
             snapshot.queue.firstOrNull { it.queueItemId == id }
                 ?: return Decision.Rejected("That song is no longer in the queue")
         val ready = target.queueItemId in preparedQueueItemIds
-        if (snapshot.options.waitAtTrackBoundary && !ready) {
+        if (!ready) {
             return Decision.Rejected("The selected song is still preparing")
         }
         return mutation(

@@ -7,6 +7,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -219,6 +222,47 @@ class ManagedFileStoreTest {
     }
 
     @Test
+    fun repeatedInterruptedTransferResumesWithoutLosingUsefulBytes() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(1_200_000) { (it % 251).toByte() }
+            val expected = store.hash(ByteArrayInputStream(bytes)).trackId
+            var offset = 0
+            val chunk = 37_777
+
+            while (offset + chunk < bytes.size) {
+                var interrupted = false
+                try {
+                    store.receivePartialAndHash(
+                        trackId = expected,
+                        offset = offset.toLong(),
+                        expectedSize = bytes.size.toLong(),
+                        input = ByteArrayInputStream(bytes, offset, chunk),
+                    )
+                } catch (_: IllegalStateException) {
+                    interrupted = true
+                }
+                assertTrue(interrupted)
+                offset += chunk
+                assertEquals(offset.toLong(), store.partialFile(expected).length())
+            }
+
+            val result =
+                store.receivePartialAndHash(
+                    trackId = expected,
+                    offset = offset.toLong(),
+                    expectedSize = bytes.size.toLong(),
+                    input = ByteArrayInputStream(bytes, offset, bytes.size - offset),
+                )
+            assertTrue(store.commitPartialWithDigest(expected, bytes.size.toLong(), result.sha256Hex))
+            assertTrue(store.finalFile(expected).readBytes().contentEquals(bytes))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun completedTransferCommitsUsingStreamingDigestWithoutSecondFullRead() = runBlocking {
         val root = createTempDirectory("unison-store-").toFile()
         try {
@@ -302,4 +346,176 @@ class ManagedFileStoreTest {
             root.deleteRecursively()
         }
     }
+    @Test
+    fun pendingDeleteCompletesWhenFinalLeaseCloses() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = "pending delete audio".repeat(1024).encodeToByteArray()
+            val result = store.copyAndHash(ByteArrayInputStream(bytes))
+            val playback = store.acquireLease(result.trackId, ManagedFileLeaseReason.PLAYBACK)
+            val upload = store.acquireLease(result.trackId, ManagedFileLeaseReason.TRANSFER_UPLOAD)
+
+            assertEquals(
+                ManagedFileDeleteResult.DEFERRED,
+                store.requestDelete(result.trackId),
+            )
+            assertTrue(store.isDeletePending(result.trackId))
+            assertTrue(result.file.exists())
+
+            playback.close()
+            assertTrue(result.file.exists())
+            assertTrue(store.isDeletePending(result.trackId))
+
+            upload.close()
+            assertFalse(result.file.exists())
+            assertFalse(store.isDeletePending(result.trackId))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun pendingDeleteSurvivesStoreRecreationAndCleanup() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val firstStore = ManagedFileStore(root)
+            val bytes = ByteArray(8192) { (it % 193).toByte() }
+            val result = firstStore.copyAndHash(ByteArrayInputStream(bytes))
+            val lease = firstStore.acquireLease(result.trackId, ManagedFileLeaseReason.PLAYBACK)
+            assertEquals(ManagedFileDeleteResult.DEFERRED, firstStore.requestDelete(result.trackId))
+
+            // Simulate process death: the in-memory lease disappears, while the durable marker remains.
+            val restartedStore = ManagedFileStore(root)
+            assertTrue(restartedStore.isDeletePending(result.trackId))
+            assertEquals(1, restartedStore.cleanupPendingDeletes(maxFiles = 10))
+            assertFalse(restartedStore.finalFile(result.trackId).exists())
+            assertFalse(restartedStore.isDeletePending(result.trackId))
+
+            lease.close()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun cleanupCancelsObsoleteDeleteMarkerForProtectedManagedReference() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(4096) { (it % 181).toByte() }
+            val result = store.copyAndHash(ByteArrayInputStream(bytes))
+            val lease = store.acquireLease(result.trackId, ManagedFileLeaseReason.PLAYBACK)
+            assertEquals(ManagedFileDeleteResult.DEFERRED, store.requestDelete(result.trackId))
+            lease.close()
+
+            // Recreate the file and a stale marker to model publication/crash recovery.
+            val restored = store.copyAndHash(ByteArrayInputStream(bytes))
+            val guard = store.acquireLease(restored.trackId, ManagedFileLeaseReason.PLAYBACK)
+            assertEquals(ManagedFileDeleteResult.DEFERRED, store.requestDelete(restored.trackId))
+            val restarted = ManagedFileStore(root)
+            assertEquals(
+                1,
+                restarted.cleanupPendingDeletes(
+                    maxFiles = 10,
+                    protectedTrackIds = setOf(restored.trackId),
+                ),
+            )
+            assertTrue(restarted.finalFile(restored.trackId).exists())
+            assertFalse(restarted.isDeletePending(restored.trackId))
+            guard.close()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun acquireExistingFileLeaseIsAtomicAgainstDeletion() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(32 * 1024) { (it % 167).toByte() }
+            val result = store.copyAndHash(ByteArrayInputStream(bytes))
+            val leased =
+                store.acquireExistingFileLease(
+                    result.trackId,
+                    result.sizeBytes,
+                    ManagedFileLeaseReason.TRANSFER_UPLOAD,
+                )
+            assertNotNull(leased)
+            val leasedFile = requireNotNull(leased)
+            assertEquals(ManagedFileDeleteResult.DEFERRED, store.requestDelete(result.trackId))
+            assertTrue(leasedFile.file.exists())
+            leasedFile.lease.close()
+            assertFalse(leasedFile.file.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun acquireExistingFileLeaseRejectsPendingDeletion() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(2048) { it.toByte() }
+            val result = store.copyAndHash(ByteArrayInputStream(bytes))
+            val guard = store.acquireLease(result.trackId, ManagedFileLeaseReason.PLAYBACK)
+            assertEquals(ManagedFileDeleteResult.DEFERRED, store.requestDelete(result.trackId))
+            assertNull(
+                store.acquireExistingFileLease(
+                    result.trackId,
+                    result.sizeBytes,
+                    ManagedFileLeaseReason.TRANSFER_UPLOAD,
+                )
+            )
+            guard.close()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun referencePublicationLeaseDoesNotBlockSameSizeCorruptionRepair() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(64 * 1024) { (it % 157).toByte() }
+            val result = store.copyAndHash(ByteArrayInputStream(bytes))
+            result.file.writeBytes(ByteArray(bytes.size) { 0x55.toByte() })
+            val publication =
+                store.acquireLease(result.trackId, ManagedFileLeaseReason.REFERENCE_PUBLICATION)
+            try {
+                val repaired = store.copyAndHash(ByteArrayInputStream(bytes))
+                assertTrue(repaired.file.readBytes().contentEquals(bytes))
+            } finally {
+                publication.close()
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun copyAndHashWithLeaseClosesCommitToPublicationGap() = runBlocking {
+        val root = createTempDirectory("unison-store-").toFile()
+        try {
+            val store = ManagedFileStore(root)
+            val bytes = ByteArray(12 * 1024) { (it % 149).toByte() }
+            val result =
+                store.copyAndHashWithLease(
+                    ByteArrayInputStream(bytes),
+                    reason = ManagedFileLeaseReason.REFERENCE_PUBLICATION,
+                )
+            assertTrue(store.isLeased(result.trackId))
+            assertEquals(ManagedFileDeleteResult.DEFERRED, store.requestDelete(result.trackId))
+            assertTrue(result.file.exists())
+            store.cancelPendingDelete(result.trackId)
+            result.lease.close()
+            assertTrue(result.file.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 }

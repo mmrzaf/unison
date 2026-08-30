@@ -16,7 +16,8 @@ class PeerServer {
             val serverReadKey: ByteArray,
             val endpoint: PeerEndpoint,
             val roomId: String,
-            val onEnvelope: suspend (PeerId, Envelope) -> Unit,
+            val sessionGeneration: Long,
+            val onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
             val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
         ) : ControlAdmission
 

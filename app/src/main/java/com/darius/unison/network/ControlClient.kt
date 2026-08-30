@@ -32,7 +32,7 @@ class ControlClient(
         listeningPort: Int,
         pin: String,
         appVersion: String,
-        onEnvelope: suspend (PeerId, Envelope) -> Unit,
+        onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
         onClosed: suspend (ControlConnection, Throwable?) -> Unit,
     ): ConnectedControl =
         connect(
@@ -55,7 +55,7 @@ class ControlClient(
         listeningPort: Int,
         roomSecret: ByteArray,
         appVersion: String,
-        onEnvelope: suspend (PeerId, Envelope) -> Unit,
+        onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
         onClosed: suspend (ControlConnection, Throwable?) -> Unit,
     ): ConnectedControl =
         connect(
@@ -78,7 +78,7 @@ class ControlClient(
         listeningPort: Int,
         credential: Credential,
         appVersion: String,
-        onEnvelope: suspend (PeerId, Envelope) -> Unit,
+        onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
         onClosed: suspend (ControlConnection, Throwable?) -> Unit,
     ): ConnectedControl =
         try {

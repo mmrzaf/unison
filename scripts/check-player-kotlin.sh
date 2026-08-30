@@ -25,11 +25,13 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/model/Commands.kt \
   app/src/main/java/com/darius/unison/app/RoomCommandBus.kt \
   app/src/main/java/com/darius/unison/playback/PlayerPort.kt \
+  app/src/main/java/com/darius/unison/playback/NaturalBoundaryLatch.kt \
   app/src/main/java/com/darius/unison/playback/ExpectedPlayerIntentTracker.kt \
   app/src/main/java/com/darius/unison/playback/PlaybackPausePolicy.kt \
   app/src/main/java/com/darius/unison/playback/PlaybackQueueDiffPolicy.kt \
   app/src/main/java/com/darius/unison/playback/PlaybackTimelinePlan.kt \
   app/src/main/java/com/darius/unison/playback/SystemMediaCommandPolicy.kt \
+  app/src/main/java/com/darius/unison/playback/OutputRouteQueryPolicy.kt \
   app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt \
   -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
   -d "$OUT_DIR/player-kotlin.jar"

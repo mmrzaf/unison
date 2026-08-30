@@ -34,3 +34,18 @@ spotless {
         endWithNewline()
     }
 }
+
+tasks.register("resolveVerificationDependencies") {
+    group = "verification"
+    description = "Resolves every resolvable configuration so Gradle can record dependency checksums."
+
+    doLast {
+        allprojects.forEach { project ->
+            project.configurations
+                .filter { it.isCanBeResolved }
+                .forEach { configuration ->
+                    configuration.resolve()
+                }
+        }
+    }
+}

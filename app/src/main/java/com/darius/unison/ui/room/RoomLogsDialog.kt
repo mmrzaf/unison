@@ -176,7 +176,7 @@ internal fun RoomLogsDialog(
                             onClear()
                             copied = false
                         },
-                    ) { Text("Clear") }
+                    ) { Text("Clear view") }
                     TextButton(onClick = onDismiss) { Text("Done") }
                 }
 

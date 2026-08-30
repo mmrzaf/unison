@@ -32,10 +32,16 @@ class RoomEngine(initialSnapshot: RoomSnapshot) {
         coordinatorNowNs: Long,
         leadNs: Long = RoomReducer.DEFAULT_COMMAND_LEAD_NS,
         preparedQueueItemIds: Set<com.darius.unison.model.QueueItemId> = emptySet(),
+        playPositionOverrideMs: Long? = null,
         acceptsSnapshot: (RoomSnapshot) -> Boolean = { true },
     ): RoomReducer.Decision = mutex.withLock {
         when (val decision = RoomReducer.decide(
-            current, command, coordinatorNowNs, leadNs, preparedQueueItemIds
+            current,
+            command,
+            coordinatorNowNs,
+            leadNs,
+            preparedQueueItemIds,
+            playPositionOverrideMs,
         )) {
             is RoomReducer.Decision.Accepted -> {
                 if (decision.mutations.all { acceptsSnapshot(it.snapshot) }) {

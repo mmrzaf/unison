@@ -27,8 +27,9 @@ internal class ControlAdmissionController(
     private val localIdentity: () -> LocalIdentity,
     private val roomPin: () -> String?,
     private val roomSecret: () -> ByteArray?,
+    private val sessionGeneration: () -> Long,
     private val log: DiagnosticLog,
-    private val onEnvelope: suspend (com.darius.unison.model.PeerId, Envelope) -> Unit,
+    private val onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
     private val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
     private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
 ) {
@@ -319,6 +320,7 @@ internal class ControlAdmissionController(
                 serverReadKey = keys.clientToCoordinator,
                 endpoint = endpoint,
                 roomId = current.roomId,
+                sessionGeneration = sessionGeneration(),
                 onEnvelope = onEnvelope,
                 onClosed = onClosed,
             )

@@ -17,8 +17,9 @@ TMP_ARCHIVE="$DEST/.unison-source-$STAMP.tmp.$$.tar.gz"
 
 trap 'rm -f "$TMP_ARCHIVE"' EXIT
 
-# Archive the working tree exactly as it exists on disk, excluding local state,
-# secrets, dependencies, caches, generated output, and nested archives.
+# Working-tree backup only: archive the filesystem exactly as it exists, excluding local state,
+# secrets, dependencies, caches, generated output, and nested archives. Public tagged releases use
+# package-source.sh so the distributed source is derived from one immutable Git commit.
 (
   cd "$ROOT_DIR"
 
@@ -129,5 +130,6 @@ mv -f "$TMP_ARCHIVE" "$ARCHIVE"
 trap - EXIT
 
 read -r ARCHIVE_SHA256 _ < <(sha256sum "$ARCHIVE")
-printf 'Created %s\n' "$ARCHIVE"
+printf 'Created working-tree backup %s\n' "$ARCHIVE"
 printf 'SHA256 %s\n' "$ARCHIVE_SHA256"
+printf 'Tagged public source packages are created by scripts/package-source.sh\n'

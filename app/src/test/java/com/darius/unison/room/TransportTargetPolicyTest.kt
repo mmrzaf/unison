@@ -32,7 +32,7 @@ class TransportTargetPolicyTest {
         }
 
     @Test
-    fun nextToUnreadyTrackBecomesPendingWithoutChangingCurrentItem() {
+    fun nextToUnreadyTrackWaitsForThatExactSuccessor() {
         val snapshot = snapshot(prepared = setOf(items[0].queueItemId))
         val result =
             resolve(
@@ -41,30 +41,30 @@ class TransportTargetPolicyTest {
                 coordinatorNowNs = 0,
             )
 
-        assertEquals(items[1].queueItemId, result.pendingTarget)
-        assertEquals(true, result.pendingResumePlayback)
+        assertNull(result.rejection)
         assertNull(result.command)
+        assertEquals(items[1].queueItemId, result.waitForPreparationQueueItemId)
+        assertTrue(result.resumeWhenReady)
         assertEquals(items[0].queueItemId, snapshot.playback.queueItemId)
     }
 
     @Test
-    fun repeatedNextAdvancesFromPendingAbsoluteTarget() {
+    fun unreadyNextDoesNotSkipAheadToALaterReadyTrack() {
         val snapshot = snapshot(prepared = setOf(items[0].queueItemId, items[2].queueItemId))
         val result =
             resolve(
                 UserCommand.SkipNext("next-2", peer),
                 snapshot,
                 coordinatorNowNs = 0,
-                pendingTarget = items[1].queueItemId,
             )
 
-        val resolved = result.command as UserCommand.PlayQueueItem
-        assertEquals(items[2].queueItemId, resolved.queueItemId)
-        assertEquals("next-2", resolved.commandId)
+        assertNull(result.rejection)
+        assertNull(result.command)
+        assertEquals(items[1].queueItemId, result.waitForPreparationQueueItemId)
     }
 
     @Test
-    fun pausedNextPreservesPausedIntentWhilePreparing() {
+    fun pausedNextWaitsWithoutInventingResumeIntent() {
         val snapshot =
             snapshot(
                 prepared = setOf(items[0].queueItemId),
@@ -77,8 +77,10 @@ class TransportTargetPolicyTest {
                 coordinatorNowNs = 0,
             )
 
-        assertEquals(items[1].queueItemId, result.pendingTarget)
-        assertEquals(false, result.pendingResumePlayback)
+        assertNull(result.rejection)
+        assertNull(result.command)
+        assertEquals(items[1].queueItemId, result.waitForPreparationQueueItemId)
+        assertEquals(false, result.resumeWhenReady)
     }
 
     @Test
@@ -100,7 +102,7 @@ class TransportTargetPolicyTest {
     }
 
     @Test
-    fun explicitPendingSelectionPreservesRequestedResumeIntent() {
+    fun explicitSelectionOfUnreadyTrackRequiresPreparation() {
         val snapshot = snapshot(prepared = setOf(items[0].queueItemId))
         val result =
             resolve(
@@ -114,8 +116,8 @@ class TransportTargetPolicyTest {
                 coordinatorNowNs = 0,
             )
 
-        assertEquals(items[1].queueItemId, result.pendingTarget)
-        assertEquals(false, result.pendingResumePlayback)
+        assertEquals("Prepare this song before playing it", result.rejection)
+        assertNull(result.command)
     }
 
     @Test
@@ -140,7 +142,6 @@ class TransportTargetPolicyTest {
 
         assertTrue(result.alreadyAligned)
         assertNull(result.command)
-        assertNull(result.pendingTarget)
     }
 
     @Test
@@ -205,9 +206,8 @@ class TransportTargetPolicyTest {
         command: UserCommand,
         snapshot: RoomSnapshot,
         coordinatorNowNs: Long,
-        pendingTarget: com.darius.unison.model.QueueItemId? = null,
     ) = TransportTargetPolicy.resolve(
-        command, snapshot, coordinatorNowNs, pendingTarget, readiness[snapshot].orEmpty()
+        command, snapshot, coordinatorNowNs, readiness[snapshot].orEmpty()
     )
 
     private fun snapshot(

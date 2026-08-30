@@ -2,100 +2,257 @@
 
 ## Product model
 
-Unison behaves as one shared music player across several phones. Each phone plays a verified local
-copy. One temporary coordinator orders commands and publishes canonical queue and playback state; it
-is not a privileged product role.
+Unison is a temporary local listening room, not a streaming service or a general file-sync system.
+Nearby phones deliberately reach the same verified playable state, then execute one canonical room
+playback intent together.
 
-## Application surfaces
+The architecture is optimized for four outcomes:
 
-- **Home:** room creation, nearby rooms, library search, playlists, imports, and storage management in
-  one scrolling surface.
-- **Room:** room identity/code, canonical player, listeners, and queue in one scrolling surface.
+1. **truthful state** — the UI never pretends a dead room or unavailable song is usable;
+2. **deterministic control** — one serialized authority orders queue/playback mutations;
+3. **monotonic preparation** — useful file progress converges toward verified READY content;
+4. **quiet steady state** — once healthy, the system stops doing unnecessary repair work.
 
-Focused tasks use dialogs or sheets. There is no destination tab bar and no alternate player truth in
-the UI.
+Complexity is accepted when it buys correctness, recovery, responsiveness, security, or measured
+transfer efficiency. It is rejected when it creates split ownership or repeated physical work.
 
 ## State ownership
 
-`RoomRuntime` is the Android/session orchestrator and owns one bounded `SerializedEventLoop` for
-canonical state. `RoomReducer` performs deterministic mutations. The actor is the only writer of room
-state.
+`RoomRuntime` is the Android/session composition root. It wires network, storage, playback, clock,
+and room components together and owns one bounded `SerializedEventLoop<RoomEvent>`. The room actor
+is the only writer of canonical room state.
 
-Focused components own policies and effects:
+Focused components own decisions that need independent reasoning:
 
-- `ControlAdmissionController`: first admission and reconnect authentication;
-- `PlaybackSessionCoordinator`: playback revision, reference cadence, and repair throttling;
-- `PlaybackSynchronizationRuntime`: local drift/convergence policy. Its cadence runs independently
-  from the room actor so room/network/storage work cannot manufacture a clock discontinuity;
-- `PeerPlaybackHealthRegistry`: coordinator-owned READY leases so warming or degraded listeners
-  repair locally without controlling healthy-room timing;
-- `LocalPlaybackParticipationCoordinator`: device-local interruption/resume lifecycle; audio-focus
-  loss never mutates room transport, live resume atomically targets the latest canonical
-  item/position, and session boundaries clear stale local interruption state;
-- `CanonicalPlaybackCoordinator`: exact local/peer convergence;
-- `CanonicalPlaybackDispatcher`: ordered canonical work and replaceable latest-state reconciliation;
-- `PlayerExecutor`: the only Media3 mutation authority. Exact transport, timeline maintenance, and
-  synchronization correction share one serialization boundary. Media3 pauses at item boundaries;
-  canonical room policy, never a local automatic transition, chooses the successor;
-- `TransferManager`: authorized upload/download lifecycle;
-- `RoomStore`: structural, playback, and transfer flows for UI consumption.
+- `RoomReducer` — deterministic canonical queue/member/playback mutations;
+- `ControlAdmissionController` — first admission and reconnect authentication;
+- `PlaybackSessionCoordinator` — playback revision/reference lifecycle;
+- `CanonicalPlaybackCoordinator` — exact local/peer canonical convergence;
+- `PeerPlaybackHealthRegistry` — coordinator-side playback/clock readiness leases;
+- `RoomMediaReadinessPolicy` — derived `NEEDS_PREPARATION / PREPARING / READY` state;
+- `TransferCoordinator` — transfer demand, admission, active routes, and route retry/backoff;
+- `TransferCapacityPolicy` — one capacity model shared by coordinator policy and transport guards;
+- `TransferManager` — authenticated resumable upload/download execution and verified commit;
+- `PlayerExecutor` — the only Media3 mutation authority;
+- `PlaybackSynchronizationRuntime` — local drift/correction policy outside the room actor;
+- `RoomReconnectPolicy` — bounded coordinator/network/peer recovery windows;
+- `DiagnosticLog` — one bounded structured observability sink.
 
-High-frequency position telemetry does not enter the room actor. Only meaningful player transitions
-do. Participant status reports travel only to the coordinator for convergence repair; they are not
-fanned back out to every listener.
+The rule is simple: policy owners decide; effect executors execute; effects report typed outcomes back.
+No subsystem should reach sideways and manipulate another subsystem's internal lifecycle.
 
-`DiagnosticLog` is the single application observability sink. Producers emit structured events into
-a bounded single-writer queue; disk rotation and JSON serialization never run on the room actor or
-Media3 mutation path. `RoomDiagnostics` owns room-session context/lifecycle attributes, while
-`SynchronizationDiagnostics` only rate-limits sync samples before forwarding them to the same sink.
-The room log console subscribes only while it is visible.
+### Async provenance at the actor boundary
 
-## Command flow
+The room actor is also the final validity gate for asynchronous work. A callback-side check is useful
+for avoiding unnecessary work, but authoritative mutation happens later and must re-prove ownership
+there.
 
-`RoomCommandBus` has bounded general and transport mailboxes owned by `UnisonRoomService`.
+`RoomEvent` ingress is classified by the provenance it requires:
 
-- General commands preserve FIFO ingress. Long repository work completes asynchronously with
-  generation/revision fences.
-- Play/pause and seek intent are coalesced before canonical mutation.
-- Previous, next, and explicit queue selection remain discrete.
-- Every asynchronous result carries enough identity to be rejected after clear, leave, reconnect,
-  queue mutation, or newer playback intent.
+- **actor-local** — ordered local work whose authority is established by actor ingress;
+- **device-global** — current process/device observations interpreted against latest room state;
+- **session** — work produced for one `SessionJobRegistry` generation;
+- **connection** — work tied to one exact control-connection instance;
+- **session + connection** — work that requires both proofs.
 
-## Canonical convergence
+`RoomSessionProvenance` is the process-local room-id/generation identity used where asynchronous work
+must carry both pieces of session ownership. It is not protocol or persisted state. Session-bound
+telemetry that intentionally bypasses the canonical actor may use `SessionJobRegistry.runIfCurrent`
+for a short non-suspending mutation; generation advancement and that mutation are atomic with respect
+to each other.
 
-A peer is correct only when it has the latest queue revision, playback revision, queue item, and
-play/pause intent. Position correction happens after those invariants match. Reconnect performs a
-complete state application before the listener is considered converged.
+Cancellation has separate semantics. Genuine cancellation of the room actor owner stops the actor,
+but a handler that accidentally throws `CancellationException` while the owner remains active is an
+event failure, not permission to terminate the persistent actor.
 
-The coordinator schedules transport against the fresh READY playback cohort, never against every
-connected socket. A listener enters READY only while it holds a fresh positive clock-quality lease.
-A stale or explicitly unsynchronized listener becomes DEGRADED and reacquires independently; it
-cannot inflate healthy-room transport lead or block prepared tracks.
+Inbound control admission captures the room ID and session generation at the final successful
+authentication check. `ControlConnected` revalidates that provenance as its first actor operation.
+Inbound envelopes carry the actual `ControlConnection` instance that decoded them; the actor compares
+that instance by identity with the current peer connection before replay evaluation, liveness refresh,
+or protocol dispatch. This deliberately mirrors the existing stale-close identity fence.
 
-Synchronization correction is deliberately local. Tight, Balanced, and Smooth profiles alter only
-the listener's bounded drift/correction behavior; the canonical room timeline and transport lead
-remain automatic and shared.
+## Canonical state vs runtime state
+
+Canonical room history contains shared product truth:
+
+- members;
+- queue/order;
+- canonical playback intent;
+- monotonic queue/playback revisions;
+- room options.
+
+Transient runtime facts do **not** belong in canonical history:
+
+- socket state;
+- transfer progress;
+- source assignment;
+- retry timers;
+- local file availability;
+- preparation progress;
+- clock acquisition details.
+
+Those facts are derived locally/coordinator-side and are fenced by session/revision identity.
+
+## Prepare and Play
+
+Preparation and playback are separate operations.
+
+A queue item becomes room-ready only when every listener required for synchronized playback has the
+exact verified local content. The local device also requires its own verified file before it may
+execute Media3 playback.
+
+- `NEEDS_PREPARATION`: tap means Prepare.
+- `PREPARING`: transfer is useful work in progress.
+- `READY`: tap means Play/select canonically.
+
+Background prefetch may prepare likely upcoming content automatically, but it never creates hidden
+"prepare then replay an old command" state. Canonical playback repair is suppressed while a peer
+cannot execute the target media; queue/revision repair remains independent.
+
+## Transfer architecture
+
+Transfer exists only to turn demanded content into verified READY content.
+
+`TransferCoordinator` is the coordinator-side lifecycle owner. It tracks logical demand, admitted
+routes, and genuine route backoff inside the serialized room actor.
+
+The shared capacity policy currently allows:
+
+- up to 2 inbound transfers per destination;
+- up to 3 outbound transfers per source;
+- at most 1 active transfer for a specific source→destination pair;
+- at most 1 active route for a track→destination demand.
+
+That permits useful multi-peer concurrency without opening a same-pair socket that can only wait
+behind another upload.
+
+Priorities primarily choose **what starts next**. An already admitted useful BODY transfer is not
+blindly preempted because speculative playback demand changed.
+
+`TransferManager` executes a granted assignment:
+
+1. route/bind and connect;
+2. authenticate the single-use authorization;
+3. resume from the verified partial offset;
+4. stream bounded authenticated records;
+5. verify final SHA-256;
+6. atomically commit the managed file;
+7. report a typed terminal result.
+
+Transfer-manager callbacks are session-scoped. Progress uses `SessionJobRegistry.runIfCurrent` at the
+actual `RoomStore` mutation, while completion/failure events carry the manager generation into the room
+actor and are rejected there if the room has advanced. Reconnect status text uses the same atomic
+generation fence so an obsolete recovery coroutine cannot repopulate a newer lobby/room UI.
+
+Uploads do not acquire `TRANSFER_UPLOAD` before repository repair. `TrackRepository` first resolves and
+cryptographically repairs the content-addressed file as needed; `ManagedFileStore.acquireExistingFileLease`
+then proves that exact final file still exists and acquires the upload lease under the per-track commit
+lock. If deletion wins the handoff gap, resolution is retried once instead of opening a stale path.
+
+Intentional cancellation is semantically different from network failure and must never penalize a
+route or create a retry storm.
+
+## Playback and synchronization
+
+One canonical timeline defines which ready item should play, play/pause intent, and room position.
+`PlayerExecutor` serializes every Media3 mutation behind one mutex. Media3 does not independently
+author canonical song progression.
+
+A peer may know canonical desired state while being temporarily unable to execute it. In that case it
+waits for media or clock recovery rather than repeatedly issuing impossible player mutations.
+
+Natural completion of the final queue item is also canonical state, not a Media3-local special case.
+When the coordinator commits the terminal natural pause, `RoomRuntime` records a runtime-only
+`TerminalNaturalPause` proof containing the queue item, queue revision, and resulting playback revision.
+Only an unchanged matching paused snapshot may convert the next user Play into a canonical
+`PlayScheduled(..., positionMs = 0)`. Seeking manually to the end does not create this proof, and any
+queue/playback/session revision change invalidates it. The marker is never serialized or sent on the wire.
+
+Media3 boundary attribution is guarded independently. The adapter records physical natural boundaries
+with the identity of the item that ended and de-duplicates the END_OF_MEDIA_ITEM / item-transition
+callback paths. Android instrumentation exercises the actual pinned Media3 callback behavior; production
+attribution logic is changed only when that behavior is reproduced, not from assumed callback ordering.
+
+Output-route identity is similarly conservative. API 33+ uses the audio-attribute-specific active-route
+query. API 30-32 cannot reliably answer the same question, so Unison reports `UNKNOWN` instead of
+classifying whichever Bluetooth/USB/wired device merely happens to be connected.
+
+System MediaSession capabilities are a contract with external controllers. The service advertises only
+operations that `RoomMediaSessionPlayer` can translate into canonical room commands; arbitrary
+`COMMAND_SEEK_TO_MEDIA_ITEM` remains unadvertised until arbitrary queue-index navigation has explicit
+canonical semantics.
+
+Clock synchronization and drift correction are local. Long scheduled waits periodically re-evaluate
+the coordinator→local mapping, so clock reacquisition cannot leave a stale sleep target several
+seconds in the future.
+
+Healthy steady state should be quiet: occasional clock/reference traffic and useful background
+preparation, not constant seek/repair/reassignment churn.
+
+## Room lifecycle
+
+A room is a live network session, not a stale UI object.
+
+```text
+CREATING / JOINING
+        ↓
+      ACTIVE
+        ↓
+   RECONNECTING
+      ↙    ↘
+   ACTIVE   ENDED
+```
+
+Temporary connectivity loss pauses local synchronized output and gets bounded recovery. Explicit
+leave/task exit, coordinator shutdown, hotspot loss that cannot recover, or exhausted coordinator
+reconnect ends the session. `ENDED` is terminal.
+
+Unexpected participant loss gets a short reconnect grace. If it does not return, canonical membership
+and associated transfer/preparation state are removed. No ghost listener remains indefinitely.
+
+The Unison 1.2 release line deliberately does **not** elect a replacement coordinator. Surviving coordinator death
+would require a different availability contract and substantially more distributed-state machinery.
+
+## Control and network boundary
+
+Control and file traffic use separate TCP connections. Control traffic has bounded priority classes so
+large music movement cannot starve room commands or clock traffic. The release contract is bounded
+priority/no-starvation, not a total order between messages that become ready at the same instant; a
+dedicated stress test keeps all lower-priority lanes continuously ready while checking guaranteed and
+clock service.
+
+Android NSD and LocalOnlyHotspot callbacks are generation-bound. The process-local route authority
+preserves the owning Android `Network` where available and binds control/transfer sockets consistently.
+Public addresses and DNS joins are rejected.
 
 ## Storage
 
-Room schema 1 contains only tracks, track sources, playlists, and playlist entries. Active room state
-is memory only.
+Room database schema 1 stores tracks, track sources, playlists, and playlist entries only. Active
+room state is memory-only.
 
-Managed files are content-addressed by SHA-256. Staging, complete verification, atomic commit,
-operation locks, and reason-scoped leases protect imports, playback, cleanup, and transfer.
+Managed media is content-addressed by SHA-256. Staging, resumable partials, operation locks,
+reason-scoped leases, complete verification, and atomic commit protect imports, playback, cleanup,
+and transfer.
 
-## Network lifecycle
+Deletion is two-phase when bytes are leased. Removing the final managed reference writes a durable
+`.delete-pending` sidecar; the bytes remain readable until the last lease closes, then final/partial
+content and the marker are removed under the same per-track lock. `CacheCleanupWorker` resolves markers
+after process restart and cancels obsolete markers for track IDs that still have managed database
+references.
 
-Android NSD and LocalOnlyHotspot callbacks are generation-bound. Stale callbacks cannot clear newer
-state. Android 14–16 service-info callbacks preserve every resolved host address and the Android
-`Network` that owns it. Android 13 preserves the owning `Network` from the resolved NSD service,
-while Android 11–12 infer the matching Wi-Fi/Ethernet `Network` from
-`ConnectivityManager`/`LinkProperties`. Control and transfer sockets use the same process-local
-route authority and are individually network-bound when Android exposes a `Network`. A validated
-numeric-endpoint fallback exists only for hotspot/downstream interfaces for which Android exposes no
-`Network`; arbitrary interface-name scanning is not a normal routing authority. Discovery,
-registration, sockets, multicast locks, Wi-Fi locks, transfer jobs, and session jobs have explicit
-owners and teardown paths.
+`REFERENCE_PUBLICATION` is deliberately deletion-protecting but not replacement-protecting. Known-track
+repair/registration can therefore hold publication protection without preventing a corrupt target from
+being replaced. Imports whose track ID is unknown until hashing use `copyAndHashWithLease` so the
+publication lease is acquired inside the final commit lock before the content-addressed path is returned.
+
+## Diagnostics
+
+`DiagnosticLog` is the only application observability sink. Events are structured, bounded, sanitized,
+and local-only. Transfer attempts carry operation/assignment correlation IDs so coordinator, source,
+and destination lifecycle can be reconstructed without logging authorization secrets.
+
+Release analysis checks both playback and stability invariants; diagnostics are evidence, not another
+source of room truth.
 
 ## Scale boundaries
 
@@ -104,6 +261,6 @@ owners and teardown paths.
 - one audio file: 1 GiB;
 - M3U: 4 MiB, 10,000 entries, 8,192 characters per line;
 - concurrent inbound admissions: 24;
-- concurrent uploads: 3, at most one per destination;
+- transfer capacity: shared `TransferCapacityPolicy` values above;
 - library presentation: Room/Paging;
-- player timeline: moving window around the current item.
+- player timeline: bounded moving window around current playable content.

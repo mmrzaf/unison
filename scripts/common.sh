@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+export ROOT_DIR
 info() { printf '==> %s\n' "$*"; }
 warn() { printf 'WARNING: %s\n' "$*" >&2; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }

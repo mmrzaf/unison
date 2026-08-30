@@ -64,6 +64,61 @@ class PlayerEventInterpreterTest {
         assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 1))
     }
 
+
+    @Test
+    fun stateEndedThenExplicitBoundaryForSameCycleEmitsOnce() {
+        val interpreter = PlayerEventInterpreter()
+        val finalState =
+            PlayerState(
+                queueItemId = ended,
+                positionMs = 10_000,
+                durationMs = 10_000,
+                ended = true,
+                seekRevision = 2,
+                itemTransitionRevision = 4,
+            )
+
+        assertEquals(
+            PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
+            interpreter.observe(finalState, true, 0),
+        )
+        val explicitBoundary =
+            finalState.copy(
+                itemBoundaryRevision = 1,
+                boundaryEndedQueueItemId = ended,
+                boundaryEndedPositionMs = 10_000,
+                boundaryEndedDurationMs = 10_000,
+            )
+        assertEquals(
+            PlayerEventInterpreter.Action.None,
+            interpreter.observe(explicitBoundary, true, 1),
+        )
+    }
+
+    @Test
+    fun replayOfSameQueueItemCanProduceANewEndCycle() {
+        val interpreter = PlayerEventInterpreter()
+        val firstEnd =
+            PlayerState(
+                queueItemId = ended,
+                positionMs = 10_000,
+                durationMs = 10_000,
+                ended = true,
+                seekRevision = 1,
+                itemTransitionRevision = 1,
+            )
+        assertEquals(
+            PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
+            interpreter.observe(firstEnd, true, 0),
+        )
+
+        val replayEnd = firstEnd.copy(seekRevision = 2)
+        assertEquals(
+            PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
+            interpreter.observe(replayEnd, true, 1),
+        )
+    }
+
     @Test
     fun participantConsumesBoundaryButNeverAuthorsRoomTransition() {
         val interpreter = PlayerEventInterpreter()

@@ -38,11 +38,8 @@ object PlaybackQueuePolicy {
         val future =
             snapshot.queue.drop(currentIndex).takeWhile { item ->
                 item.track.trackId in readableTrackIds &&
-                    (
-                        !snapshot.options.waitAtTrackBoundary ||
-                            item.queueItemId == snapshot.playback.queueItemId ||
-                            item.queueItemId in preparedQueueItemIds
-                    )
+                    (item.queueItemId == snapshot.playback.queueItemId ||
+                        item.queueItemId in preparedQueueItemIds)
             }
         return history + future
     }
@@ -61,6 +58,30 @@ object PlaybackQueuePolicy {
         val endExclusive =
             (currentIndex + upcomingCount.coerceAtLeast(1) + 1).coerceAtMost(snapshot.queue.size)
         return snapshot.queue.subList(start, endExclusive)
+    }
+
+    fun immediateNextQueueItemId(
+        snapshot: RoomSnapshot,
+        fromQueueItemId: QueueItemId,
+    ): QueueItemId? {
+        val currentIndex = snapshot.queue.indexOfFirst { it.queueItemId == fromQueueItemId }
+        if (currentIndex < 0) return null
+        return snapshot.queue.getOrNull(currentIndex + 1)?.queueItemId
+    }
+
+    fun naturalSuccessorQueueItemId(
+        snapshot: RoomSnapshot,
+        fromQueueItemId: QueueItemId,
+    ): QueueItemId? {
+        val currentIndex = snapshot.queue.indexOfFirst { it.queueItemId == fromQueueItemId }
+        if (currentIndex < 0) return null
+        return when (snapshot.repeatMode) {
+            RepeatMode.ONE -> snapshot.queue[currentIndex].queueItemId
+            RepeatMode.ALL ->
+                snapshot.queue.getOrNull(currentIndex + 1)?.queueItemId
+                    ?: snapshot.queue.firstOrNull()?.queueItemId
+            RepeatMode.OFF -> snapshot.queue.getOrNull(currentIndex + 1)?.queueItemId
+        }
     }
 
     fun planNaturalEnd(
@@ -86,16 +107,8 @@ object PlaybackQueuePolicy {
     ): NaturalEndPlan? {
         if (!snapshot.playback.isPlaying || snapshot.playback.queueItemId != endedQueueItemId)
             return null
-        val currentIndex = snapshot.queue.indexOfFirst { it.queueItemId == endedQueueItemId }
-        if (currentIndex < 0) return null
-        val next =
-            when (snapshot.repeatMode) {
-                RepeatMode.ONE -> snapshot.queue[currentIndex]
-                RepeatMode.ALL ->
-                    snapshot.queue.getOrNull(currentIndex + 1) ?: snapshot.queue.firstOrNull()
-                RepeatMode.OFF -> snapshot.queue.getOrNull(currentIndex + 1)
-            }
-        if (next == null) {
+        val nextId = naturalSuccessorQueueItemId(snapshot, endedQueueItemId)
+        if (nextId == null) {
             return NaturalEndPlan(
                 mutation =
                     ProtocolBody.PauseScheduled(
@@ -105,12 +118,12 @@ object PlaybackQueuePolicy {
                     )
             )
         }
-        val ready = next.queueItemId in preparedQueueItemIds
+        val ready = nextId in preparedQueueItemIds
         return if (ready) {
             NaturalEndPlan(
                 mutation =
                     ProtocolBody.CurrentItemChanged(
-                        queueItemId = next.queueItemId,
+                        queueItemId = nextId,
                         positionMs = 0,
                         executeAtCoordinatorNs = coordinatorNowNs + leadNs,
                         resumePlayback = true,
@@ -127,7 +140,7 @@ object PlaybackQueuePolicy {
                         positionMs = maxOf(positionMs, durationMs).coerceAtLeast(0),
                         executeAtCoordinatorNs = coordinatorNowNs,
                     ),
-                waitForQueueItemId = next.queueItemId,
+                waitForQueueItemId = nextId,
             )
         }
     }

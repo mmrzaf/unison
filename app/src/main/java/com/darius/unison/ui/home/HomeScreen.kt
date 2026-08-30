@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
@@ -39,9 +39,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -63,10 +65,10 @@ import androidx.compose.ui.unit.dp
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.TrackId
-import com.darius.unison.sync.PlaybackSyncProfile
+import com.darius.unison.model.RetentionPolicy
 
 /** Out-of-room surface: rooms first, then a playlist-only music shelf. */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun HomeScreen(
     state: MainUiState,
@@ -78,7 +80,7 @@ internal fun HomeScreen(
     onImportM3u: () -> Unit,
     onEditName: () -> Unit,
     onShowAbout: () -> Unit,
-    onSetPlaybackSyncProfile: (PlaybackSyncProfile) -> Unit,
+    onSetRetentionPolicy: (RetentionPolicy) -> Unit,
     onCreateOfflineNetwork: () -> Unit,
     onStopOfflineNetwork: () -> Unit,
     onOpenAllMusic: () -> Unit,
@@ -94,7 +96,6 @@ internal fun HomeScreen(
     var settingsOpen by remember { mutableStateOf(false) }
     var musicMenuOpen by remember { mutableStateOf(false) }
     var storageOpen by remember { mutableStateOf(false) }
-    var synchronizationOpen by remember { mutableStateOf(false) }
     var connectionHelpOpen by remember { mutableStateOf(false) }
     var confirmClearTemporary by remember { mutableStateOf(false) }
     var createPlaylistOpen by remember { mutableStateOf(false) }
@@ -120,55 +121,8 @@ internal fun HomeScreen(
     ) {
         stickyHeader(key = "app-bar") {
             ScreenTopBar(title = "Unison") {
-                Box {
-                    IconButton(onClick = { settingsOpen = true }) {
-                        Icon(Icons.Default.Settings, "Settings")
-                    }
-                    DropdownMenu(
-                        expanded = settingsOpen,
-                        onDismissRequest = { settingsOpen = false },
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Change your name") },
-                            leadingIcon = { Icon(Icons.Default.Person, null) },
-                            onClick = {
-                                settingsOpen = false
-                                onEditName()
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Playback synchronization") },
-                            leadingIcon = { Icon(Icons.Default.Settings, null) },
-                            onClick = {
-                                settingsOpen = false
-                                synchronizationOpen = true
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Connection help") },
-                            leadingIcon = { Icon(Icons.Default.WifiTethering, null) },
-                            onClick = {
-                                settingsOpen = false
-                                connectionHelpOpen = true
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Storage") },
-                            leadingIcon = { Icon(Icons.Default.Storage, null) },
-                            onClick = {
-                                settingsOpen = false
-                                storageOpen = true
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("About Unison") },
-                            leadingIcon = { Icon(Icons.Default.Code, null) },
-                            onClick = {
-                                settingsOpen = false
-                                onShowAbout()
-                            },
-                        )
-                    }
+                IconButton(onClick = { settingsOpen = true }) {
+                    Icon(Icons.Default.Settings, "Settings")
                 }
             }
         }
@@ -183,42 +137,32 @@ internal fun HomeScreen(
 
         item(key = "create-room") {
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier.fillMaxWidth().clickable(enabled = !connecting) {
+                        createRoomOpen = true
+                    },
                 shape = MaterialTheme.shapes.large,
                 color = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
-                Column(
+                Row(
                     Modifier.fillMaxWidth().padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        TonalIcon(Icons.Default.Groups, null)
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                "Create a room",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                "Play the same music in sync on nearby phones.",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
+                    TonalIcon(Icons.Default.Groups, null)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            "Create a room",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Play music together on nearby phones.",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
-                    Button(
-                        onClick = { createRoomOpen = true },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                        enabled = !connecting,
-                    ) {
-                        Icon(Icons.Default.Add, null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Create room")
-                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = null)
                 }
             }
         }
@@ -317,33 +261,22 @@ internal fun HomeScreen(
         item(key = "music-divider") {
             SectionHeader(
                 title = "Your music",
-                subtitle = "${state.libraryTotalCount} saved ${if (state.libraryTotalCount == 1) "song" else "songs"}",
+                subtitle = "${state.libraryTotalCount} ${if (state.libraryTotalCount == 1) "song" else "songs"}",
                 modifier = Modifier.padding(top = 22.dp),
                 action = {
-                    IconButton(
-                        onClick = {
-                            playlistName = ""
-                            createPlaylistOpen = true
-                        }
-                    ) {
-                        Icon(Icons.Default.Add, "New playlist")
+                    TextButton(onClick = onChooseFiles) {
+                        Icon(Icons.Default.Add, null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Add music")
                     }
                     Box {
                         IconButton(onClick = { musicMenuOpen = true }) {
-                            Icon(Icons.Default.MoreVert, "Music actions")
+                            Icon(Icons.Default.MoreVert, "More music actions")
                         }
                         DropdownMenu(
                             expanded = musicMenuOpen,
                             onDismissRequest = { musicMenuOpen = false },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Add audio files") },
-                                leadingIcon = { Icon(Icons.Default.AudioFile, null) },
-                                onClick = {
-                                    musicMenuOpen = false
-                                    onChooseFiles()
-                                },
-                            )
                             DropdownMenuItem(
                                 text = { Text("Import playlist") },
                                 leadingIcon = { Icon(Icons.Default.UploadFile, null) },
@@ -353,11 +286,12 @@ internal fun HomeScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Storage") },
-                                leadingIcon = { Icon(Icons.Default.Storage, null) },
+                                text = { Text("New playlist") },
+                                leadingIcon = { Icon(Icons.Default.Add, null) },
                                 onClick = {
                                     musicMenuOpen = false
-                                    storageOpen = true
+                                    playlistName = ""
+                                    createPlaylistOpen = true
                                 },
                             )
                         }
@@ -410,6 +344,52 @@ internal fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+
+    if (settingsOpen) {
+        ModalBottomSheet(onDismissRequest = { settingsOpen = false }) {
+            Text(
+                "Settings",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+            )
+            ListItem(
+                headlineContent = { Text("Your name") },
+                supportingContent = { Text(state.room.localIdentity?.displayName ?: "Friend") },
+                leadingContent = { Icon(Icons.Default.Person, null) },
+                modifier = Modifier.clickable {
+                    settingsOpen = false
+                    onEditName()
+                },
+            )
+            ListItem(
+                headlineContent = { Text("Storage") },
+                supportingContent = { Text(formatBytes(state.storageSummary.totalBytes)) },
+                leadingContent = { Icon(Icons.Default.Storage, null) },
+                modifier = Modifier.clickable {
+                    settingsOpen = false
+                    storageOpen = true
+                },
+            )
+            ListItem(
+                headlineContent = { Text("Connection help") },
+                leadingContent = { Icon(Icons.Default.WifiTethering, null) },
+                modifier = Modifier.clickable {
+                    settingsOpen = false
+                    connectionHelpOpen = true
+                },
+            )
+            ListItem(
+                headlineContent = { Text("About Unison") },
+                leadingContent = { Icon(Icons.Default.Code, null) },
+                modifier = Modifier.clickable {
+                    settingsOpen = false
+                    onShowAbout()
+                },
+            )
+            Spacer(Modifier.size(24.dp))
         }
     }
 
@@ -497,17 +477,6 @@ internal fun HomeScreen(
         )
     }
 
-    if (synchronizationOpen) {
-        PlaybackSynchronizationDialog(
-            initialProfile = state.playbackSyncProfile,
-            onSave = { profile ->
-                synchronizationOpen = false
-                onSetPlaybackSyncProfile(profile)
-            },
-            onDismiss = { synchronizationOpen = false },
-        )
-    }
-
     if (connectionHelpOpen) {
         AlertDialog(
             onDismissRequest = { connectionHelpOpen = false },
@@ -544,10 +513,27 @@ internal fun HomeScreen(
             icon = { Icon(Icons.Default.Storage, null) },
             title = { Text("Storage") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     StorageLine("Used by Unison", state.storageSummary.totalBytes)
                     StorageLine("Kept music", state.storageSummary.keptBytes)
                     StorageLine("Temporary music", state.storageSummary.temporaryBytes)
+                    Text(
+                        "Music received in rooms",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = state.retentionPolicy == RetentionPolicy.TEMPORARY_24_HOURS,
+                            onClick = { onSetRetentionPolicy(RetentionPolicy.TEMPORARY_24_HOURS) },
+                            label = { Text("Temporary") },
+                        )
+                        FilterChip(
+                            selected = state.retentionPolicy == RetentionPolicy.KEEP_IN_LIBRARY,
+                            onClick = { onSetRetentionPolicy(RetentionPolicy.KEEP_IN_LIBRARY) },
+                            label = { Text("Keep in library") },
+                        )
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { storageOpen = false }) { Text("Done") } },

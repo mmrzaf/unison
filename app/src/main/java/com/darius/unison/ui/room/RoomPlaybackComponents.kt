@@ -22,10 +22,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -59,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.darius.unison.model.MemberTrackState
+import com.darius.unison.model.RoomMediaReadiness
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TransferProgress
 import com.darius.unison.model.TransportAction
@@ -107,13 +111,16 @@ internal fun PlaybackTransitionStatus(
 internal fun UpNextStatus(
     track: TrackDescriptor,
     transfer: TransferProgress?,
+    readiness: RoomMediaReadiness,
 ) {
     val suffix =
-        when (transfer?.state) {
-            MemberTrackState.RECEIVING -> " · Getting ready"
-            MemberTrackState.VERIFYING,
-            MemberTrackState.PREPARING_PLAYER -> " · Almost ready"
-            MemberTrackState.FAILED -> " · Needs attention"
+        when {
+            transfer?.state == MemberTrackState.RECEIVING -> " · Preparing"
+            transfer?.state == MemberTrackState.VERIFYING ||
+                transfer?.state == MemberTrackState.PREPARING_PLAYER -> " · Almost ready"
+            transfer?.state == MemberTrackState.FAILED -> " · Needs attention"
+            readiness == RoomMediaReadiness.NEEDS_PREPARATION -> " · Not ready"
+            readiness == RoomMediaReadiness.PREPARING -> " · Preparing"
             else -> ""
         }
     val failed = transfer?.state == MemberTrackState.FAILED
@@ -306,8 +313,8 @@ internal fun TransportControlButton(
 }
 
 @Composable
-internal fun TransportPlayPauseButton(
-    isPlaying: Boolean,
+internal fun TransportPrimaryButton(
+    control: RoomPlaybackUiPolicy.PrimaryControl,
     pending: Boolean,
     enabled: Boolean = true,
     onClick: () -> Unit,
@@ -319,12 +326,20 @@ internal fun TransportPlayPauseButton(
     val outerSize = if (compact) 48.dp else 72.dp
     val buttonSize = if (compact) 44.dp else 64.dp
     val iconSize = if (compact) 24.dp else 34.dp
+    val busy =
+        control == RoomPlaybackUiPolicy.PrimaryControl.PREPARING ||
+            control == RoomPlaybackUiPolicy.PrimaryControl.WAITING_FOR_NEXT ||
+            control == RoomPlaybackUiPolicy.PrimaryControl.RECOVERING
     val contentDescription =
-        when {
-            isPlaying && pending -> "Pause; play is scheduled"
-            isPlaying -> "Pause"
-            pending -> "Play; pause is scheduled"
-            else -> "Play"
+        when (control) {
+            RoomPlaybackUiPolicy.PrimaryControl.NONE -> "Playback unavailable"
+            RoomPlaybackUiPolicy.PrimaryControl.PLAY -> "Play"
+            RoomPlaybackUiPolicy.PrimaryControl.PAUSE -> "Pause"
+            RoomPlaybackUiPolicy.PrimaryControl.PREPARE -> "Prepare song"
+            RoomPlaybackUiPolicy.PrimaryControl.PREPARING -> "Preparing song"
+            RoomPlaybackUiPolicy.PrimaryControl.WAITING_FOR_NEXT -> "Preparing next song"
+            RoomPlaybackUiPolicy.PrimaryControl.REJOIN -> "Rejoin playback"
+            RoomPlaybackUiPolicy.PrimaryControl.RECOVERING -> "Recovering playback"
         }
     Box(Modifier.size(outerSize), contentAlignment = Alignment.Center) {
         FilledIconButton(
@@ -337,13 +352,29 @@ internal fun TransportPlayPauseButton(
                     scaleY = controlScale
                 },
         ) {
-            Icon(
-                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription,
-                Modifier.size(iconSize),
-            )
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(if (compact) 20.dp else 28.dp),
+                    strokeWidth = if (compact) 2.dp else 3.dp,
+                )
+            } else {
+                Icon(
+                    when (control) {
+                        RoomPlaybackUiPolicy.PrimaryControl.PAUSE -> Icons.Default.Pause
+                        RoomPlaybackUiPolicy.PrimaryControl.PREPARE -> Icons.Default.Download
+                        RoomPlaybackUiPolicy.PrimaryControl.REJOIN -> Icons.Default.Refresh
+                        RoomPlaybackUiPolicy.PrimaryControl.NONE,
+                        RoomPlaybackUiPolicy.PrimaryControl.PLAY,
+                        RoomPlaybackUiPolicy.PrimaryControl.PREPARING,
+                        RoomPlaybackUiPolicy.PrimaryControl.WAITING_FOR_NEXT,
+                        RoomPlaybackUiPolicy.PrimaryControl.RECOVERING -> Icons.Default.PlayArrow
+                    },
+                    contentDescription,
+                    Modifier.size(iconSize),
+                )
+            }
         }
-        if (pending) {
+        if (pending && !busy) {
             PendingActionIndicator(
                 modifier = Modifier.align(Alignment.TopEnd),
                 size = if (compact) 9.dp else 11.dp,
@@ -383,6 +414,7 @@ internal fun QueueRow(
     temporary: Boolean,
     pending: Boolean,
     transfer: TransferProgress? = null,
+    readiness: RoomMediaReadiness = RoomMediaReadiness.NEEDS_PREPARATION,
     canReorder: Boolean,
     draggedIndex: Int?,
     dragTargetIndex: Int?,
@@ -399,6 +431,19 @@ internal fun QueueRow(
     onKeep: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
+    val mediaPresentation =
+        RoomQueueUiPolicy.mediaPresentation(
+            readiness = readiness,
+            transfer = transfer,
+            current = current,
+            playing = playing,
+        )
+    val primaryActionLabel =
+        when (mediaPresentation.tapAction) {
+            RoomQueueUiPolicy.TapAction.PLAY -> "Play song"
+            RoomQueueUiPolicy.TapAction.PREPARE -> "Prepare song"
+            RoomQueueUiPolicy.TapAction.NONE -> null
+        }
     val dragged = draggedIndex
     val target = dragTargetIndex
     val dragActive = dragged != null && target != null
@@ -448,7 +493,7 @@ internal fun QueueRow(
                             }
                         )
                     add(
-                        CustomAccessibilityAction("Play next") {
+                        CustomAccessibilityAction("Move next") {
                             onMoveNext()
                             true
                         }
@@ -468,7 +513,11 @@ internal fun QueueRow(
                     )
                 }
             }
-            .clickable(enabled = draggedIndex == null && playEnabled, onClick = onPlay)
+            .clickable(
+                enabled = draggedIndex == null && playEnabled && primaryActionLabel != null,
+                onClickLabel = primaryActionLabel,
+                onClick = onPlay,
+            )
             .padding(start = 4.dp, end = 0.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -505,23 +554,14 @@ internal fun QueueRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val transferDetail =
-                when (transfer?.state) {
-                    MemberTrackState.RECEIVING -> "Getting ready · ${(transfer.fraction * 100).toInt()}%"
-                    MemberTrackState.VERIFYING,
-                    MemberTrackState.PREPARING_PLAYER -> "Almost ready"
-                    MemberTrackState.FAILED -> "Couldn't get ready"
-                    MemberTrackState.CANCELLED -> null
-                    else -> null
-                }
+            val readinessDetail = mediaPresentation.detail
             val detail =
-                remember(track.artist, temporary, transferDetail) {
+                remember(track.artist, readinessDetail) {
                     listOfNotNull(
-                            transferDetail,
                             track.artist?.takeIf(String::isNotBlank),
-                            "Temporary".takeIf { temporary },
+                            readinessDetail,
                         )
-                        .joinToString(" • ")
+                        .joinToString(" · ")
                 }
             if (detail.isNotEmpty()) {
                 Text(
@@ -563,8 +603,18 @@ internal fun QueueRow(
                 Icon(Icons.Default.MoreVert, "Queue actions", Modifier.size(20.dp))
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (primaryActionLabel != null) {
+                    DropdownMenuItem(
+                        text = { Text(primaryActionLabel) },
+                        enabled = playEnabled,
+                        onClick = {
+                            menu = false
+                            onPlay()
+                        },
+                    )
+                }
                 DropdownMenuItem(
-                    text = { Text("Play next") },
+                    text = { Text("Move next") },
                     onClick = {
                         menu = false
                         onMoveNext()

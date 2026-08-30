@@ -23,16 +23,24 @@ class TransferCancellationRegistry {
     val activeResourceCount: Int
         get() = sockets.size
 
-    /**
-     * Serializes complete download lifecycles for the same track. A replacement first cancels the
-     * previous job, then waits for that job to release its partial file and socket before starting.
-     */
+    /** Serializes complete download lifecycles for the same track as a defensive file-store guard. */
     suspend fun <T> withTrackOperation(trackId: TrackId, block: suspend () -> T): T =
         operationLocks[operationIndex(trackId)].withLock { block() }
 
-    fun registerJob(trackId: TrackId, job: Job) {
-        jobs.put(trackId, job)?.cancel(CancellationException("Transfer replaced"))
-        job.invokeOnCompletion { jobs.remove(trackId, job) }
+    /** Registers one logical download per track. Duplicate assignments never replace healthy work. */
+    fun tryRegisterJob(trackId: TrackId, job: Job): Boolean {
+        while (true) {
+            val existing = jobs[trackId]
+            if (existing != null) {
+                if (!existing.isCompleted) return false
+                jobs.remove(trackId, existing)
+                continue
+            }
+            if (jobs.putIfAbsent(trackId, job) == null) {
+                job.invokeOnCompletion { jobs.remove(trackId, job) }
+                return true
+            }
+        }
     }
 
     fun attachSocket(trackId: TrackId, socket: Closeable) {
@@ -44,14 +52,14 @@ class TransferCancellationRegistry {
     }
 
     fun cancel(trackId: TrackId, reason: String = "Transfer cancelled") {
-        sockets.remove(trackId)?.let(::closeQuietly)
         jobs[trackId]?.cancel(CancellationException(reason))
+        sockets.remove(trackId)?.let(::closeQuietly)
     }
 
     fun cancelAll(reason: String = "Transfers cancelled") {
+        jobs.values.forEach { it.cancel(CancellationException(reason)) }
         sockets.values.forEach(::closeQuietly)
         sockets.clear()
-        jobs.values.forEach { it.cancel(CancellationException(reason)) }
         jobs.entries.removeIf { it.value.isCompleted }
     }
 
@@ -70,7 +78,7 @@ class TransferCancellationRegistry {
         return completed && jobs.values.none { !it.isCompleted }
     }
 
-    fun hasActiveJob(trackId: TrackId): Boolean = jobs.containsKey(trackId)
+    fun hasActiveJob(trackId: TrackId): Boolean = jobs[trackId]?.isCompleted == false
 
     fun hasActiveSocket(trackId: TrackId): Boolean = sockets.containsKey(trackId)
 

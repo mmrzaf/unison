@@ -46,46 +46,6 @@ class TrackPrefetchPolicyTest {
     }
 
     @Test
-    fun explicitPendingTargetIsPrefetchedBeforeRegularWindow() {
-        val desired =
-            TrackPrefetchPolicy.prioritizedDesiredItems(
-                snapshot = snapshot,
-                priorityQueueItemId = queue[7].queueItemId,
-            )
-
-        assertEquals(queue[7].track.trackId, desired.first().track.trackId)
-        assertEquals(
-            queue.subList(2, 6).map { it.track.trackId }.toSet() + queue[7].track.trackId,
-            desired.map { it.track.trackId }.toSet(),
-        )
-    }
-
-    @Test
-    fun explicitPendingTargetDoesNotDuplicateTrackAlreadyInWindow() {
-        val desired =
-            TrackPrefetchPolicy.prioritizedDesiredItems(
-                snapshot = snapshot,
-                priorityQueueItemId = queue[4].queueItemId,
-            )
-
-        assertEquals(queue[4].track.trackId, desired.first().track.trackId)
-        assertEquals(desired.map { it.track.trackId }.distinct(), desired.map { it.track.trackId })
-    }
-
-    @Test
-    fun obsoleteDemandIsCancelledRegardlessOfPartialProgress() {
-        val obsolete = queue[0].track.trackId
-        val stillNeeded = queue[1].track.trackId
-        assertEquals(
-            setOf(obsolete),
-            TrackPrefetchPolicy.obsoleteTracks(
-                previousDesired = setOf(obsolete, stillNeeded),
-                nextDesired = setOf(stillNeeded),
-            ),
-        )
-    }
-
-    @Test
     fun transferDemandGivesUserSelectionAndNextBoundaryPriority() {
         val timedQueue =
             queue.map { item -> item.copy(track = item.track.copy(durationMs = 60_000L)) }

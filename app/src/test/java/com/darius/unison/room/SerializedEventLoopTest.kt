@@ -1,6 +1,7 @@
 package com.darius.unison.room
 
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -8,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -100,6 +102,62 @@ class SerializedEventLoopTest {
             scope.cancel()
         }
     }
+
+    @Test
+    fun handlerCancellationWhileOwnerActiveReportsFailureAndContinues() = runBlocking {
+        val failure = CompletableDeferred<Throwable>()
+        val processedAfterFailure = CompletableDeferred<Unit>()
+        val loop =
+            SerializedEventLoop<Int>(
+                scope = this,
+                capacity = 2,
+                handler = { value ->
+                    if (value == 1) {
+                        throw CancellationException("business-logic cancellation")
+                    }
+                    processedAfterFailure.complete(Unit)
+                },
+                onFailure = { _, error -> failure.complete(error) },
+            )
+
+        loop.submit(1)
+        assertTrue(withTimeout(1_000) { failure.await() } is CancellationException)
+        assertTrue(loop.isActive)
+
+        loop.submit(2)
+        withTimeout(1_000) { processedAfterFailure.await() }
+        assertTrue(loop.isActive)
+        assertTrue(loop.closeAndJoin())
+    }
+
+    @Test
+    fun eventLocalTimeoutCancellationDoesNotKillOwnerLoop() = runBlocking {
+        val failure = CompletableDeferred<Throwable>()
+        val processedAfterFailure = CompletableDeferred<Unit>()
+        val loop =
+            SerializedEventLoop<Int>(
+                scope = this,
+                capacity = 2,
+                handler = { value ->
+                    if (value == 1) {
+                        withTimeout(10) { delay(10_000) }
+                    } else {
+                        processedAfterFailure.complete(Unit)
+                    }
+                },
+                onFailure = { _, error -> failure.complete(error) },
+            )
+
+        loop.submit(1)
+        withTimeout(1_000) { failure.await() }
+        assertTrue(loop.isActive)
+
+        loop.submit(2)
+        withTimeout(1_000) { processedAfterFailure.await() }
+        assertTrue(loop.isActive)
+        assertTrue(loop.closeAndJoin())
+    }
+
     @Test
     fun reportsHandlerDurationAfterProcessing() = runBlocking {
         val handled = CompletableDeferred<Pair<Int, Long>>()

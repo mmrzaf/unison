@@ -14,7 +14,6 @@ import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.toUiState
-import com.darius.unison.sync.PlaybackSyncProfile
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticEvent
 import kotlinx.coroutines.CancellationException
@@ -59,7 +58,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             scope = viewModelScope,
             activeOperationCount = activeOperationCount,
             message = message,
-            addTracksToRoom = roomActions::addTracksToRoom,
+            addTracksToRoom = { trackIds, insertAfterCurrent ->
+                roomActions.addTracksToRoom(trackIds, insertAfterCurrent)
+            },
         )
     private val pendingM3uResolution = importCoordinator.pendingM3uResolution
     private val selectedPlaylist = playlistActions.selectedPlaylist
@@ -127,10 +128,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         combine(
             container.settings.onboardingComplete,
             container.settings.retentionPolicy,
-            container.settings.playbackSyncProfile,
-        ) { onboarded, retention, syncProfile ->
-            Triple(onboarded, retention, syncProfile)
-        }
+        ) { onboarded, retention -> onboarded to retention }
     private val debouncedLibraryQuery = libraryQuery.debounce(180).distinctUntilChanged()
     private val libraryControls = combine(libraryQuery, librarySort, ::LibraryControls)
 
@@ -182,7 +180,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     settingsLoaded = true,
                     onboardingComplete = preferencesState.first,
                     retentionPolicy = preferencesState.second,
-                    playbackSyncProfile = preferencesState.third,
                     busy = transientState.operation.busy,
                     importProgress = transientState.operation.importProgress,
                     message = transientState.message,
@@ -243,13 +240,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         importCoordinator.skipPendingM3uAmbiguity(entryIndex)
 
     fun finishPendingM3uWithoutFolder() = importCoordinator.finishPendingM3uWithoutFolder()
-
-    fun setPlaybackSyncProfile(profile: PlaybackSyncProfile) {
-        viewModelScope.launch {
-            userResult { container.settings.setPlaybackSyncProfile(profile) }
-                .onFailure { message.value = "Could not update synchronization" }
-        }
-    }
 
     fun setRetentionPolicy(policy: RetentionPolicy) {
         viewModelScope.launch {
@@ -409,7 +399,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         includeAllMusic: Boolean,
         playlistIds: List<String>,
         trackIds: List<TrackId>,
-    ) = playlistActions.addSelectionToRoom(includeAllMusic, playlistIds, trackIds)
+        insertAfterCurrent: Boolean = false,
+    ) =
+        playlistActions.addSelectionToRoom(
+            includeAllMusic,
+            playlistIds,
+            trackIds,
+            insertAfterCurrent,
+        )
 
     fun exportPlaylist(playlistId: String, destination: Uri) =
         playlistActions.export(playlistId, destination)

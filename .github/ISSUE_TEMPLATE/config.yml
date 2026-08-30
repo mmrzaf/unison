@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/mmrzaf/unison/discussions
+    about: Use Discussions for usage help, open-ended ideas, and development questions.
+  - name: Security vulnerability
+    url: https://github.com/mmrzaf/unison/security
+    about: Use private vulnerability reporting rather than a public issue.

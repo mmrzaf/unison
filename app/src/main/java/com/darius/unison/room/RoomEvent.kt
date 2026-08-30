@@ -3,7 +3,6 @@ package com.darius.unison.room
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.HotspotInfo
 import com.darius.unison.model.PeerId
-import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportCommandPhase
@@ -15,10 +14,13 @@ import com.darius.unison.playback.PlayerState
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.transfer.TransferFailure
-import com.darius.unison.sync.PlaybackSyncProfile
 import kotlinx.coroutines.CompletableDeferred
 
-/** Inputs accepted by the single serialized room actor. Producers never mutate room state. */
+/**
+ * Inputs accepted by the single serialized room actor. Producers never mutate canonical room state.
+ * [provenanceRequirement] is the exhaustive ingress inventory for authority that must survive until
+ * the actor consumes asynchronous work.
+ */
 internal sealed interface RoomEvent {
     data class AppCommandReceived(
         val command: AppCommand,
@@ -38,13 +40,14 @@ internal sealed interface RoomEvent {
     ) : RoomEvent
 
     data class NetworkEnvelopeReceived(
-        val peerId: PeerId,
+        val sourceConnection: ControlConnection,
         val envelope: Envelope,
         val completion: CompletableDeferred<Unit>,
     ) : RoomEvent
 
     data class ControlConnected(
         val connection: ControlConnection,
+        val admittedSession: RoomSessionProvenance,
         val completion: CompletableDeferred<Unit>,
     ) : RoomEvent
 
@@ -79,6 +82,15 @@ internal sealed interface RoomEvent {
     data class ReconnectExhausted(
         val generation: Long,
         val lostCoordinatorPeerId: PeerId,
+    ) : RoomEvent
+
+    /** Coordinator-local network disappeared and did not return inside the bounded grace window. */
+    data class LocalNetworkGraceExpired(val generation: Long) : RoomEvent
+
+    /** A disconnected participant did not reconnect before its canonical-membership grace expired. */
+    data class PeerDisconnectGraceExpired(
+        val generation: Long,
+        val peerId: PeerId,
     ) : RoomEvent
 
     data class CoordinatorCommandReceived(
@@ -143,15 +155,6 @@ internal sealed interface RoomEvent {
         val available: Boolean,
     ) : RoomEvent
 
-
-    data class PendingTrackAvailabilityProbed(
-        val generation: Long,
-        val commandId: String,
-        val queueItemId: QueueItemId,
-        val trackId: TrackId,
-        val available: Boolean,
-    ) : RoomEvent
-
     data class TransportWatchdogExpired(
         val generation: Long,
         val commandId: String,
@@ -167,7 +170,7 @@ internal sealed interface RoomEvent {
         val aligned: Boolean,
     ) : RoomEvent
 
-    data object HeartbeatTick : RoomEvent
+    data class HeartbeatTick(val generation: Long) : RoomEvent
 
 
     /** Low-frequency room/network consequence of the independent local playback sync loop. */
@@ -176,9 +179,10 @@ internal sealed interface RoomEvent {
     /** Coordinator reference broadcast requested by the independent local playback sync loop. */
     data class PlaybackReferenceBroadcastDue(val generation: Long) : RoomEvent
 
-    data class PlaybackSyncProfileChanged(val profile: PlaybackSyncProfile) : RoomEvent
-
-    data class TransferCompleted(val descriptor: TrackDescriptor) : RoomEvent
+    data class TransferCompleted(
+        val generation: Long,
+        val descriptor: TrackDescriptor,
+    ) : RoomEvent
 
     data class TransferAuthorizationTimedOut(
         val generation: Long,
@@ -188,10 +192,80 @@ internal sealed interface RoomEvent {
     data class TransferRetryDue(
         val generation: Long,
         val trackId: TrackId,
+        val destinationPeerId: PeerId,
     ) : RoomEvent
 
-    data class TransferFailed(val failure: TransferFailure) : RoomEvent
+    data class TransferFailed(
+        val generation: Long,
+        val failure: TransferFailure,
+    ) : RoomEvent
 }
+
+/**
+ * Provenance required at the authoritative mutation boundary for each actor ingress.
+ *
+ * This inventory is intentionally independent of the fields currently present on an event. In
+ * particular, connection/session events identified here must not be treated as safe merely because
+ * an earlier callback performed a validity check; the proof must survive until actor consumption.
+ */
+internal enum class RoomEventProvenanceRequirement {
+    /** Ordered local work whose authority is established by actor ingress itself. */
+    ACTOR_LOCAL,
+
+    /** Process/device state that intentionally spans room generations and is interpreted on consume. */
+    DEVICE_GLOBAL,
+
+    /** Async work produced for one room-session generation. */
+    SESSION,
+
+    /** Work whose authority is tied to one specific control-connection instance. */
+    CONNECTION,
+
+    /** Work that must prove both room/session ownership and current connection authority. */
+    SESSION_AND_CONNECTION,
+}
+
+internal val RoomEvent.provenanceRequirement: RoomEventProvenanceRequirement
+    get() =
+        when (this) {
+            is RoomEvent.AppCommandReceived,
+            is RoomEvent.LocalTransportSubmitted,
+            is RoomEvent.LocalTransportSuperseded,
+            is RoomEvent.CoordinatorCommandReceived,
+            is RoomEvent.CanonicalMutationRequested,
+            is RoomEvent.TrackAvailabilityObserved -> RoomEventProvenanceRequirement.ACTOR_LOCAL
+
+            is RoomEvent.LocalAddressChanged,
+            is RoomEvent.HotspotChanged,
+            is RoomEvent.PlayerTransitionObserved -> RoomEventProvenanceRequirement.DEVICE_GLOBAL
+
+            is RoomEvent.ControlClosed -> RoomEventProvenanceRequirement.CONNECTION
+
+            is RoomEvent.NetworkEnvelopeReceived,
+            is RoomEvent.ControlConnected -> RoomEventProvenanceRequirement.SESSION_AND_CONNECTION
+
+            is RoomEvent.InitialJoinConnected,
+            is RoomEvent.InitialJoinFailed,
+            is RoomEvent.InitialJoinRetry,
+            is RoomEvent.ReconnectSucceeded,
+            is RoomEvent.ReconnectExhausted,
+            is RoomEvent.LocalNetworkGraceExpired,
+            is RoomEvent.PeerDisconnectGraceExpired,
+            is RoomEvent.CoordinatorTransportSuperseded,
+            is RoomEvent.TracksPrepared,
+            is RoomEvent.RepositoryCommandCompleted,
+            is RoomEvent.TransportCommandPhaseObserved,
+            is RoomEvent.LocalTrackAvailabilityProbed,
+            is RoomEvent.TransportWatchdogExpired,
+            is RoomEvent.TransportWatchdogAlignmentObserved,
+            is RoomEvent.HeartbeatTick,
+            is RoomEvent.LocalPlaybackStatusDue,
+            is RoomEvent.PlaybackReferenceBroadcastDue,
+            is RoomEvent.TransferCompleted,
+            is RoomEvent.TransferAuthorizationTimedOut,
+            is RoomEvent.TransferRetryDue,
+            is RoomEvent.TransferFailed -> RoomEventProvenanceRequirement.SESSION
+        }
 
 internal fun RoomEvent.completionOrNull(): CompletableDeferred<Unit>? =
     when (this) {

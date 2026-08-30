@@ -74,6 +74,64 @@ class RoomReducerTest {
     }
 
     @Test
+    fun terminalReplayOverrideRestartsCanonicalPlayAtZero() {
+        val item = QueueItem.create(track, peer)
+        val room =
+            snapshot(listOf(item))
+                .copy(
+                    playback =
+                        CanonicalPlaybackState(
+                            queueItemId = item.queueItemId,
+                            positionAtTimestampMs = track.durationMs,
+                            coordinatorTimestampNs = 1_000,
+                            isPlaying = false,
+                            revision = 8,
+                        )
+                )
+
+        val result =
+            RoomReducer.decide(
+                room,
+                UserCommand.Play(requestedBy = peer),
+                coordinatorNowNs = 5_000_000_000L,
+                preparedQueueItemIds = setOf(item.queueItemId),
+                playPositionOverrideMs = 0L,
+            ) as RoomReducer.Decision.Accepted
+
+        val body = result.mutations.single().body as ProtocolBody.PlayScheduled
+        assertEquals(0L, body.positionMs)
+        assertEquals(0L, result.mutations.single().snapshot.playback.positionAtTimestampMs)
+    }
+
+    @Test
+    fun pausedAtDurationWithoutTerminalOverrideRetainsExistingPlaySemantics() {
+        val item = QueueItem.create(track, peer)
+        val room =
+            snapshot(listOf(item))
+                .copy(
+                    playback =
+                        CanonicalPlaybackState(
+                            queueItemId = item.queueItemId,
+                            positionAtTimestampMs = track.durationMs,
+                            coordinatorTimestampNs = 1_000,
+                            isPlaying = false,
+                            revision = 8,
+                        )
+                )
+
+        val result =
+            RoomReducer.decide(
+                room,
+                UserCommand.Play(requestedBy = peer),
+                coordinatorNowNs = 5_000_000_000L,
+                preparedQueueItemIds = setOf(item.queueItemId),
+            ) as RoomReducer.Decision.Accepted
+
+        val body = result.mutations.single().body as ProtocolBody.PlayScheduled
+        assertEquals(track.durationMs, body.positionMs)
+    }
+
+    @Test
     fun oldCanonicalMessagesAreIgnored() {
         val item = QueueItem.create(track, peer)
         val initial = snapshot(listOf(item)).copy(sequence = 5)
@@ -705,4 +763,33 @@ class RoomReducerTest {
         assertTrue(mutation.snapshot.queue.isEmpty())
         assertFalse(mutation.snapshot.playback.isPlaying)
     }
+    @Test
+    fun roomOptionCannotBypassReadinessForSelectedPlayback() {
+        val first = QueueItem.create(track, peer)
+        val target =
+            QueueItem.create(
+                track.copy(trackId = TrackId("d".repeat(64)), title = "Needs preparation"),
+                peer,
+            )
+        val room =
+            snapshot(listOf(first, target)).copy(
+                options = RoomOptions(waitAtTrackBoundary = false),
+                playback = CanonicalPlaybackState(first.queueItemId, 0, 0, false),
+            )
+
+        val result =
+            RoomReducer.decide(
+                room,
+                UserCommand.PlayQueueItem(
+                    commandId = "select-unready-nonblocking",
+                    requestedBy = peer,
+                    queueItemId = target.queueItemId,
+                ),
+                coordinatorNowNs = 0,
+                preparedQueueItemIds = setOf(first.queueItemId),
+            )
+
+        assertTrue(result is RoomReducer.Decision.Rejected)
+    }
+
 }

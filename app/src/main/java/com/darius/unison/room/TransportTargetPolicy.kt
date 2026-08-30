@@ -7,16 +7,16 @@ import com.darius.unison.model.UserCommand
 /**
  * Resolves relative transport intent to a stable absolute queue target before canonical mutation.
  *
- * Pending navigation is represented by queue-item ID rather than index, so concurrent queue edits
- * cannot silently retarget a user's command. The coordinator remains responsible for requesting
- * preparation and re-running the returned absolute command when the target becomes ready.
+ * Arbitrary item selection remains explicit: unavailable items must be prepared first. Next is
+ * stronger sequential intent, so an unavailable immediate successor is returned as a preparation
+ * target without skipping ahead. RoomRuntime owns the single pending-successor lifecycle.
  */
 object TransportTargetPolicy {
     data class Resolution(
         val command: UserCommand? = null,
-        val pendingTarget: QueueItemId? = null,
-        val pendingResumePlayback: Boolean? = null,
         val alreadyAligned: Boolean = false,
+        val waitForPreparationQueueItemId: QueueItemId? = null,
+        val resumeWhenReady: Boolean = false,
         val rejection: String? = null,
     )
 
@@ -24,7 +24,6 @@ object TransportTargetPolicy {
         command: UserCommand,
         snapshot: RoomSnapshot,
         coordinatorNowNs: Long,
-        pendingTarget: QueueItemId? = null,
         preparedQueueItemIds: Set<QueueItemId> = emptySet(),
     ): Resolution {
         return when (command) {
@@ -33,22 +32,22 @@ object TransportTargetPolicy {
                     command = command,
                     snapshot = snapshot,
                     delta = 1,
-                    baseId = pendingTarget ?: snapshot.playback.queueItemId,
+                    baseId = snapshot.playback.queueItemId,
                     emptyOrBoundaryMessage = "Already at the end of the queue",
                     preparedQueueItemIds = preparedQueueItemIds,
+                    waitForPreparation = true,
                 )
 
             is UserCommand.SkipPrevious -> {
                 if (
-                    pendingTarget == null &&
-                        snapshot.playback.projectedPositionMs(coordinatorNowNs) >
-                            RESTART_THRESHOLD_MS
+                    snapshot.playback.projectedPositionMs(coordinatorNowNs) >
+                        RESTART_THRESHOLD_MS
                 ) {
                     Resolution(
                         command = UserCommand.Seek(command.commandId, command.requestedBy, 0L)
                     )
                 } else {
-                    resolvePrevious(command, snapshot, pendingTarget, preparedQueueItemIds)
+                    resolvePrevious(command, snapshot, preparedQueueItemIds)
                 }
             }
 
@@ -72,10 +71,7 @@ object TransportTargetPolicy {
                     }
                 }
                 if (snapshot.requiresPreparation(target.queueItemId, preparedQueueItemIds)) {
-                    Resolution(
-                        pendingTarget = target.queueItemId,
-                        pendingResumePlayback = command.resumePlayback,
-                    )
+                    Resolution(rejection = "Prepare this song before playing it")
                 } else {
                     Resolution(command = command)
                 }
@@ -88,15 +84,14 @@ object TransportTargetPolicy {
     private fun resolvePrevious(
         command: UserCommand.SkipPrevious,
         snapshot: RoomSnapshot,
-        pendingTarget: QueueItemId?,
         preparedQueueItemIds: Set<QueueItemId>,
     ): Resolution {
         if (snapshot.queue.isEmpty()) return Resolution(rejection = "The queue is empty")
-        val baseId = pendingTarget ?: snapshot.playback.queueItemId
         val baseIndex =
-            snapshot.queue.indexOfFirst { it.queueItemId == baseId }.let { if (it < 0) 0 else it }
+            snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId }
+                .let { if (it < 0) 0 else it }
         val target = snapshot.queue[(baseIndex - 1).coerceAtLeast(0)]
-        if (target.queueItemId == snapshot.playback.queueItemId && pendingTarget == null) {
+        if (target.queueItemId == snapshot.playback.queueItemId) {
             return Resolution(
                 command = UserCommand.Seek(command.commandId, command.requestedBy, 0L)
             )
@@ -111,6 +106,7 @@ object TransportTargetPolicy {
         baseId: QueueItemId?,
         emptyOrBoundaryMessage: String,
         preparedQueueItemIds: Set<QueueItemId>,
+        waitForPreparation: Boolean = false,
     ): Resolution {
         if (snapshot.queue.isEmpty()) return Resolution(rejection = "The queue is empty")
         val baseIndex = snapshot.queue.indexOfFirst { it.queueItemId == baseId }
@@ -118,7 +114,9 @@ object TransportTargetPolicy {
         val target =
             snapshot.queue.getOrNull(targetIndex)
                 ?: return Resolution(rejection = emptyOrBoundaryMessage)
-        return targetResolution(command, snapshot, target.queueItemId, preparedQueueItemIds)
+        return targetResolution(
+            command, snapshot, target.queueItemId, preparedQueueItemIds, waitForPreparation
+        )
     }
 
     private fun targetResolution(
@@ -126,12 +124,17 @@ object TransportTargetPolicy {
         snapshot: RoomSnapshot,
         queueItemId: QueueItemId,
         preparedQueueItemIds: Set<QueueItemId>,
+        waitForPreparation: Boolean = false,
     ): Resolution =
         if (snapshot.requiresPreparation(queueItemId, preparedQueueItemIds)) {
-            Resolution(
-                pendingTarget = queueItemId,
-                pendingResumePlayback = snapshot.playback.isPlaying,
-            )
+            if (waitForPreparation) {
+                Resolution(
+                    waitForPreparationQueueItemId = queueItemId,
+                    resumeWhenReady = snapshot.playback.isPlaying,
+                )
+            } else {
+                Resolution(rejection = "Prepare this song before playing it")
+            }
         } else {
             Resolution(
                 command =
@@ -147,7 +150,7 @@ object TransportTargetPolicy {
     private fun RoomSnapshot.requiresPreparation(
         queueItemId: QueueItemId,
         preparedQueueItemIds: Set<QueueItemId>,
-    ): Boolean = options.waitAtTrackBoundary && queueItemId !in preparedQueueItemIds
+    ): Boolean = queueItemId !in preparedQueueItemIds
 
     private const val RESTART_THRESHOLD_MS = 4_000L
 }

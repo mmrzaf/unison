@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a focused improvement that fits Unison's local-first product contract
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Unison intentionally stays local-first: no cloud backend, account system, analytics/advertising SDK, or Internet relay without an explicit product decision.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What real user problem are you trying to solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the user-visible result, not only an implementation idea.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Architecture/protocol impact
+      description: If known, say whether this touches the canonical room actor, Protocol 2, database schema 1, playback ownership, transfer/storage, privacy, or Android permissions.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: contract
+    attributes:
+      label: Product contract
+      options:
+        - label: This can remain local-first and does not require a hosted backend/account/analytics service.
+          required: true

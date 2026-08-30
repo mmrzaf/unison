@@ -22,7 +22,7 @@ internal class PlaylistActions(
     private val scope: CoroutineScope,
     private val activeOperationCount: MutableStateFlow<Int>,
     private val message: MutableStateFlow<String?>,
-    private val addTracksToRoom: (List<TrackId>) -> Unit,
+    private val addTracksToRoom: (List<TrackId>, Boolean) -> Unit,
 ) {
     private val _selectedPlaylist = MutableStateFlow<PlaylistDetail?>(null)
     val selectedPlaylist = _selectedPlaylist.asStateFlow()
@@ -170,7 +170,7 @@ internal class PlaylistActions(
                     when {
                         detail == null -> message.value = "This playlist is no longer available"
                         detail.tracks.isEmpty() -> message.value = "This playlist is empty"
-                        else -> addTracksToRoom(detail.tracks.map { it.trackId })
+                        else -> addTracksToRoom(detail.tracks.map { it.trackId }, false)
                     }
                 }
                 .onFailure { message.value = "Could not open playlist" }
@@ -181,6 +181,7 @@ internal class PlaylistActions(
         includeAllMusic: Boolean,
         playlistIds: List<String>,
         trackIds: List<TrackId>,
+        insertAfterCurrent: Boolean = false,
     ) {
         if (!includeAllMusic && playlistIds.isEmpty() && trackIds.isEmpty()) {
             message.value = "Choose music to add"
@@ -215,7 +216,7 @@ internal class PlaylistActions(
                 }
                 .onSuccess { selectedTracks ->
                     if (selectedTracks.isEmpty()) message.value = "The selected music is empty"
-                    else addTracksToRoom(selectedTracks)
+                    else addTracksToRoom(selectedTracks, insertAfterCurrent)
                 }
                 .onFailure { message.value = "Could not add this music" }
         }

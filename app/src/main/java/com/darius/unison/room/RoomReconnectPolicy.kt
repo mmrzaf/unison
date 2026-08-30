@@ -7,6 +7,10 @@ internal object RoomReconnectPolicy {
     const val MAX_ATTEMPTS = 6
     const val NETWORK_GRACE_MS = 20_000L
     const val NETWORK_POLL_MS = 400L
+    /** Coordinator-local route loss may be a brief Android network transition, but never indefinite. */
+    const val LOCAL_NETWORK_GRACE_MS = 5_000L
+    /** Ungraceful peer loss is kept briefly for fast reconnect, then removed from canonical membership. */
+    const val PEER_DISCONNECT_GRACE_MS = 10_000L
 
     fun delayBeforeAttemptMs(attempt: Int): Long {
         require(attempt in 1..MAX_ATTEMPTS)

@@ -36,6 +36,8 @@ internal class LocalPlaybackSyncController(
     private val playbackSession: PlaybackSessionCoordinator,
     private val synchronization: PlaybackSynchronizationRuntime,
 ) {
+    private var soloCoordinatorMode = false
+
     sealed interface TickResult {
         data class Evaluated(
             val sample: PlaybackSample,
@@ -102,13 +104,27 @@ internal class LocalPlaybackSyncController(
                     state = ClockSyncState.LOCKED,
                 )
         } else {
-            val conversion = clockSync.toCoordinatorTimeWithUncertainty(sample.sampledAtLocalNs)
-            sampleCoordinatorNs = conversion.timeNs
             clockEstimate = clockSync.estimate(sample.sampledAtLocalNs)
+            sampleCoordinatorNs =
+                if (clockEstimate.state == ClockSyncState.LOCKED) {
+                    clockSync.toCoordinatorTimeWithUncertainty(sample.sampledAtLocalNs).timeNs
+                } else {
+                    // Before lock, local and coordinator monotonic clocks are unrelated. Hold the
+                    // canonical reference timestamp rather than projecting through the wrong domain.
+                    canonical.coordinatorTimestampNs
+                }
         }
 
+        val clockUsableForProjection = coordinator || clockEstimate.state == ClockSyncState.LOCKED
         val futureCommand =
-            canonical.coordinatorTimestampNs > sampleCoordinatorNs + FUTURE_COMMAND_TOLERANCE_NS
+            clockUsableForProjection &&
+                canonical.coordinatorTimestampNs > sampleCoordinatorNs + FUTURE_COMMAND_TOLERANCE_NS
+        val projectedPositionMs =
+            if (clockUsableForProjection) {
+                canonical.projectedPositionMs(sampleCoordinatorNs)
+            } else {
+                canonical.positionAtTimestampMs
+            }
         val decision =
             if (futureCommand) {
                 synchronization.holdForFutureCommand()
@@ -116,7 +132,7 @@ internal class LocalPlaybackSyncController(
                 synchronization.evaluate(
                     PlaybackSyncInput(
                         canonicalQueueItemId = canonical.queueItemId,
-                        expectedPositionMs = canonical.projectedPositionMs(sampleCoordinatorNs),
+                        expectedPositionMs = projectedPositionMs,
                         sample = sample,
                         connected = connected,
                         clockState = clockEstimate.state,
@@ -135,7 +151,7 @@ internal class LocalPlaybackSyncController(
             clockEstimate = clockEstimate,
             decision = decision,
             canonicalPositionMs =
-                if (futureCommand) null else canonical.projectedPositionMs(sampleCoordinatorNs),
+                if (futureCommand || !clockUsableForProjection) null else projectedPositionMs,
         )
     }
 
@@ -152,9 +168,29 @@ internal class LocalPlaybackSyncController(
         canonical: CanonicalPlaybackState?,
         preserveLearnedBaseline: Boolean,
     ) {
+        soloCoordinatorMode = false
         synchronization.reset(preserveLearnedBaseline)
         playbackSession.resetAfterDiscontinuity(canonical)
         normalizeSpeed()
+    }
+
+    /**
+     * A coordinator with no other active listener has nobody to synchronize against. Entering this
+     * mode clears feedback-loop history and normalizes the player to exactly 1x. Leaving it performs
+     * the same clean reacquisition before the next real multi-listener sample is evaluated.
+     *
+     * Returns true only when the mode changed, allowing RoomRuntime to keep diagnostics quiet.
+     */
+    suspend fun setSoloCoordinatorMode(
+        enabled: Boolean,
+        canonical: CanonicalPlaybackState?,
+    ): Boolean {
+        if (soloCoordinatorMode == enabled) return false
+        soloCoordinatorMode = enabled
+        synchronization.reset(preserveLearnedBaseline = false)
+        playbackSession.resetAfterDiscontinuity(canonical)
+        normalizeSpeed()
+        return true
     }
 
     suspend fun updateProfile(profile: PlaybackSyncProfile): Boolean {
@@ -169,6 +205,7 @@ internal class LocalPlaybackSyncController(
     }
 
     fun resetRuntime(preserveLearnedBaseline: Boolean = false) {
+        soloCoordinatorMode = false
         synchronization.reset(preserveLearnedBaseline)
     }
 

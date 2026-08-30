@@ -4,6 +4,11 @@ Use at least three phones from at least two manufacturers covering Android 11 (A
 (API 33), and Android 16 (API 36). Test router Wi-Fi and LocalOnlyHotspot. Repeat the playback cases
 with built-in speakers and Bluetooth output.
 
+Automation is only the first layer: normal CI executes Android instrumentation on API 33 and tagged
+release CI executes API 30/33/36. This document is specifically for behaviors that still require real
+phones/OEM networking/audio/lifecycle behavior. Record candidate-specific results under
+[`release-evidence/`](release-evidence/README.md); do not reuse evidence from another APK/commit.
+
 ## Pass criteria
 
 At all times, every connected and ready listener eventually reports the latest canonical playback
@@ -14,18 +19,19 @@ without leaving and rejoining the room.
 
 1. Create a room, join two listeners, add at least twenty tracks and play for one hour.
 2. Rapidly alternate Play and Pause from different phones for two minutes.
-3. Select Next, Previous and arbitrary queue items while another listener is downloading.
+3. Rapidly use Next/Previous among READY items while another listener is preparing media. Then make the immediate canonical successor unavailable and press Next while playing: verify that exact successor is prepared, the room does not skip to a later READY item, and playback advances automatically when it becomes READY. Repeat Next while paused and verify the successor becomes current without unexpectedly starting playback. Tapping an arbitrary unavailable queue item should still prepare it without changing current playback.
 4. Reorder and clear the queue while imports and transfer preparation are active.
 5. Turn one screen off for five minutes, then wake it and verify automatic convergence.
 6. Background and foreground every phone while playback continues.
 7. Disable Wi-Fi on one listener for thirty seconds, restore it and verify full state repair.
-8. Disconnect the coordinator and verify bounded reconnection to that coordinator. If it cannot be
-   recovered, verify that the room ends cleanly without electing a replacement.
-9. Kill and restart a participant process, then rejoin the active room.
-10. Repeat song changes with Bluetooth connected and while switching audio routes.
-11. On one non-controlling listener, trigger a real incoming call/audio-focus interruption, let the
-    room advance by at least two songs, end the interruption, and verify that no automatic audio
-    resumes. Tap Play/Rejoin once and verify that phone joins the current song/current room position.
+8. Disconnect the coordinator or hosted network and verify bounded recovery. If it cannot be recovered, verify that playback stops and the room ends cleanly without electing a replacement or leaving zombie room UI.
+9. Kill and restart a participant process, verify the listener disappears after grace if it does not reconnect, then rejoin the active room.
+10. Repeat song changes with Bluetooth connected and while switching audio routes. Trigger a real becoming-noisy/headphone-disconnect condition and verify that Unison stays silent afterward; it must not automatically resume merely because an output route becomes available again.
+11. On one non-controlling listener, trigger a real incoming call/audio-focus interruption and let the
+    room advance by at least two songs. End the interruption and issue no playback command. Once
+    platform suppression is clear, the room clock is locked, and the current item is locally
+    executable, verify that the interrupted phone automatically rejoins the current canonical
+    song/current room position exactly once.
 12. On Android 16, keep cellular data enabled while connected to a private Wi-Fi network with no
     Internet. Join from Android 11/13 and transfer several full songs in both directions; verify the
     selected control/transfer route is `SYSTEM_DEFAULT` when the owning Wi-Fi network is already
@@ -37,7 +43,52 @@ without leaving and rejoining the room.
 14. Interrupt and resume a large transfer across an API 30 ↔ API 36 pair and verify the final SHA-256
     matches before playback becomes eligible.
 
+15. Swipe Unison away / remove its task while in a room and verify that phone leaves the room and stops synchronized playback rather than keeping a hidden room service alive.
+16. Exercise natural completion with both a READY successor and an unavailable successor. A READY
+    successor must begin once with no pause/restart resurrection of the finished item. An unavailable
+    successor must become the one pending successor, be prepared urgently, keep canonical time parked
+    at the real boundary, and start automatically from position 0 once READY. Reorder or remove that
+    successor while waiting and verify stale pending intent cannot later play the wrong song.
+17. Let the final queue item complete naturally, verify the room parks paused at the terminal boundary,
+    then press Play once. Every listener must receive one canonical replay from position 0. Manually seek
+    the same item to its duration and press Play separately; that must not be reinterpreted as the natural
+    terminal replay case.
+18. On API 30/32, connect Bluetooth and USB/wired outputs without selecting them for media and verify
+    Unison reports route `UNKNOWN` rather than generating a confident route transition. On API 33/36,
+    change the actual selected media route and verify the routed-device classification and convergence
+    reset/reacquisition occur exactly once.
+19. Start an inbound authenticated connection to room A, immediately leave/end A and create room B,
+    then allow the delayed A connection to finish. Verify B never gains a ghost member, loses/replaces a
+    valid B connection, refreshes stale liveness, or advances canonical state from the A socket.
+20. Reconnect the same peer while messages are in flight so socket B replaces socket A. Deliver a command
+    already decoded by A and then A's delayed close. Verify neither affects B and only B refreshes liveness.
+21. Change the source or destination room while a transfer is completing/failing and while progress is
+    updating. Verify the old generation cannot publish READY/failure/progress into the new room. Repeat
+    with a temporary-track delete racing upload startup; if upload wins its final leased file must remain
+    present until streaming finishes.
+22. In a controlled development build, have an authenticated peer connected from host X announce a
+    different permitted private host Y and request a transfer. Verify the canonical endpoint remains X,
+    the port may update, a host-mismatch diagnostic is recorded, and Y receives no TCP connection.
+23. During a large transfer, keep lower-priority transfer/telemetry/playback-reference traffic active and
+    repeatedly issue room commands while clock sync is active. Verify room commands remain responsive,
+    clock traffic continues, and diagnostics show no starvation/reconnect storm.
+
 ## Evidence to retain
+
+For every prerelease/stable candidate retain enough information to reproduce exactly what was tested:
+
+- release tag and full Git commit SHA;
+- exact **GitHub-produced** signed APK SHA-256 and signing-certificate SHA-256 fingerprint;
+- source-package SHA-256;
+- device manufacturer/model, Android/API and build fingerprint where useful;
+- network topology and audio route;
+- scenario outcomes and relevant sanitized diagnostic trace/analysis;
+- tester/date, known issues, and final beta/stable decision.
+
+A locally built debug/release APK is not interchangeable with the final GitHub-produced artifact.
+After tag CI succeeds, download/install that exact APK and repeat a focused smoke test before approving
+publication/announcement.
+
 
 - APK version and git/source archive checksum;
 - device model, API level and build fingerprint;

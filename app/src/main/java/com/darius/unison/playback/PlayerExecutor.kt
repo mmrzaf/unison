@@ -400,6 +400,8 @@ class PlayerExecutor(
                 "Replaced by a newer action",
             )
         }
+        val scheduledAtNs = clock.nowNs()
+        val arrivalLateAtScheduleMs = targetLatenessMs(executeAtCoordinatorNs)
         val replacement =
             scope.launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
                 try {
@@ -423,11 +425,27 @@ class PlayerExecutor(
                         val remainingNs = latestLocalTarget - clock.nowNs()
                         if (remainingNs <= 0) break
                         if (remainingNs > 2_000_000L) {
-                            delay(((remainingNs - 1_000_000L) / 1_000_000L).coerceAtLeast(1L))
+                            // Coordinator→local mapping is an estimate that can move while the
+                            // command waits (STALE → ACQUIRING → LOCKED, route changes, new RTT
+                            // samples). Never sleep almost the whole remaining interval using one
+                            // mapping; periodically recompute exactly like RoomRuntime's queue timer.
+                            delay(
+                                minOf(
+                                    CLOCK_RECHECK_INTERVAL_MS,
+                                    ((remainingNs - 1_000_000L) / 1_000_000L).coerceAtLeast(1L),
+                                )
+                            )
                         } else {
                             yield()
                         }
                     }
+                    val executingAtNs = clock.nowNs()
+                    val totalLateMs =
+                        ((executingAtNs - latestLocalTarget).coerceAtLeast(0) / 1_000_000L)
+                    val executorLateMs =
+                        arrivalLateAtScheduleMs?.let { arrival ->
+                            (totalLateMs - arrival).coerceAtLeast(0L)
+                        }
                     log.info(
                         TAG,
                         DiagnosticCategory.PLAYBACK,
@@ -437,8 +455,11 @@ class PlayerExecutor(
                                 "command.type" to name,
                                 "command.id" to commandId?.take(12),
                                 "queue.item_id" to queueItemId.value.take(12),
-                                "playback.late_ms" to
-                                    ((clock.nowNs() - latestLocalTarget).coerceAtLeast(0) /
+                                "playback.late_ms" to totalLateMs,
+                                "playback.arrival_late_ms" to arrivalLateAtScheduleMs,
+                                "playback.executor_late_ms" to executorLateMs,
+                                "playback.schedule_wait_ms" to
+                                    ((executingAtNs - scheduledAtNs).coerceAtLeast(0) /
                                         1_000_000L),
                             ),
                     )
@@ -534,7 +555,14 @@ class PlayerExecutor(
             "queue.item_id" to queueItemId.value.take(12),
             "playback.position_ms" to positionMs,
             "playback.execute_at_coordinator_ns" to executeAtCoordinatorNs,
+            "playback.arrival_late_ms" to targetLatenessMs(executeAtCoordinatorNs),
         )
+
+    private fun targetLatenessMs(executeAtCoordinatorNs: Long): Long? {
+        if (!usesLocalCoordinatorClock() && !clockSync.synchronized) return null
+        return ((clock.nowNs() - localTargetNs(executeAtCoordinatorNs)).coerceAtLeast(0) /
+            1_000_000L)
+    }
 
     private fun localTargetNs(executeAtCoordinatorNs: Long): Long =
         if (usesLocalCoordinatorClock()) executeAtCoordinatorNs

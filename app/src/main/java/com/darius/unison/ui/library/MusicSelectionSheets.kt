@@ -93,7 +93,7 @@ internal fun MusicDestinationSheet(
 
             ListItem(
                 headlineContent = {
-                    Text(if (pending.isM3u) "Save playlist to your library" else "Save to Library")
+                    Text(if (pending.isM3u) "Keep playlist in library" else "Keep in library")
                 },
                 supportingContent = {
                     Text(
@@ -121,7 +121,7 @@ internal fun MusicDestinationSheet(
 
             if (roomActive) {
                 ListItem(
-                    headlineContent = { Text("Add to current room") },
+                    headlineContent = { Text("Add to room") },
                     supportingContent = {
                         Text(
                             if (addToRoom) "Adds this music to the shared queue."

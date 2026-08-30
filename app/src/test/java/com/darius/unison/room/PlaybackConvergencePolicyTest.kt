@@ -158,4 +158,52 @@ class PlaybackConvergencePolicyTest {
         )
         assertEquals(PlaybackConvergencePolicy.Action.None, duplicate)
     }
+    @Test
+    fun unavailableMediaSuppressesWrongItemRepairStorm() {
+        val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
+        val action =
+            policy.decide(
+                guest,
+                snapshot(),
+                report(itemId = null, playing = false),
+                coordinatorNowNs = 2_000_000_000L,
+                playbackExecutable = false,
+            )
+
+        assertEquals(PlaybackConvergencePolicy.Action.None, action)
+    }
+
+    @Test
+    fun unavailableMediaStillAllowsQueueRevisionRepair() {
+        val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
+        val action =
+            policy.decide(
+                guest,
+                snapshot(),
+                report(queueRevision = 6, itemId = null, playing = false),
+                coordinatorNowNs = 2_000_000_000L,
+                playbackExecutable = false,
+            )
+
+        assertEquals(
+            PlaybackConvergencePolicy.Action.SendSnapshot("QUEUE_REVISION_BEHIND"),
+            action,
+        )
+    }
+
+    @Test
+    fun unavailableMediaSuppressesPlaybackRevisionRepairToo() {
+        val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
+        val action =
+            policy.decide(
+                guest,
+                snapshot(),
+                report(playbackRevision = 11, itemId = null, playing = false),
+                coordinatorNowNs = 2_000_000_000L,
+                playbackExecutable = false,
+            )
+
+        assertEquals(PlaybackConvergencePolicy.Action.None, action)
+    }
+
 }

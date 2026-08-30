@@ -3,47 +3,59 @@ package com.darius.unison.ui
 import androidx.compose.runtime.Immutable
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RepeatMode
-import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.TrackId
-import com.darius.unison.sync.PlaybackSyncProfile
 import com.darius.unison.util.DiagnosticEvent
 
-/**
- * Stable interaction surface for the room screen.
- *
- * Keeping the large callback set behind one object materially reduces the Compose/JIT method
- * signature and keeps room rendering focused on state rather than wiring.
- */
+/** Small interaction groups keep room rendering readable without introducing an event framework. */
 @Immutable
 internal class SharedRoomActions(
-    val loadRoomLogs: () -> List<DiagnosticEvent>,
-    val onClearRoomLogs: () -> Unit,
-    val onPickerQueryChange: (String) -> Unit,
-    val onPlay: () -> Unit,
-    val onPause: () -> Unit,
-    val onSeek: (Long) -> Unit,
-    val onNext: () -> Unit,
-    val onPrevious: () -> Unit,
-    val onPlayQueueItem: (QueueItemId) -> Unit,
-    val onShuffle: () -> Unit,
-    val onRepeat: (RepeatMode) -> Unit,
-    val onChooseFiles: () -> Unit,
-    val onImportM3u: () -> Unit,
-    val onSelectAllTracks: (String, (Set<TrackId>) -> Unit) -> Unit,
-    val onAddLibrarySelectionToRoom: (Boolean, List<String>, List<TrackId>) -> Unit,
-    val onRemoveQueueItem: (QueueItemId) -> Unit,
-    val onMoveQueueItem: (QueueItemId, Int) -> Unit,
-    val onMoveQueueItemNext: (QueueItemId) -> Unit,
-    val onKeepTrack: (TrackId) -> Unit,
-    val onUpdateOptions: (RoomOptions) -> Unit,
-    val onSetRetentionPolicy: (RetentionPolicy) -> Unit,
-    val onSetPlaybackSyncProfile: (PlaybackSyncProfile) -> Unit,
-    val onSaveQueue: (String, List<TrackId>) -> Unit,
-    val onClearPlayed: () -> Unit,
-    val onClearQueue: () -> Unit,
-    val onShowAbout: () -> Unit,
-    val onLeave: () -> Unit,
-    val onRetryIssue: () -> Unit,
-    val onDismissIssue: (String) -> Unit,
+    val playback: RoomPlaybackActions,
+    val queue: RoomQueueActions,
+    val session: RoomSessionUiActions,
+    val diagnostics: RoomDiagnosticsActions,
+)
+
+@Immutable
+internal class RoomPlaybackActions(
+    val play: () -> Unit,
+    val pause: () -> Unit,
+    val seek: (Long) -> Unit,
+    val next: () -> Unit,
+    val previous: () -> Unit,
+    val playQueueItem: (QueueItemId) -> Unit,
+    val prepareQueueItem: (QueueItemId) -> Unit,
+)
+
+@Immutable
+internal class RoomQueueActions(
+    val shuffle: () -> Unit,
+    val repeat: (RepeatMode) -> Unit,
+    val chooseFiles: () -> Unit,
+    val importM3u: () -> Unit,
+    val pickerQueryChange: (String) -> Unit,
+    val selectAllTracks: (String, (Set<TrackId>) -> Unit) -> Unit,
+    val addLibrarySelectionToRoom: (Boolean, List<String>, List<TrackId>, Boolean) -> Unit,
+    val removeQueueItem: (QueueItemId) -> Unit,
+    val moveQueueItem: (QueueItemId, Int) -> Unit,
+    val moveQueueItemNext: (QueueItemId) -> Unit,
+    val keepTrack: (TrackId) -> Unit,
+    val saveQueue: (String, List<TrackId>) -> Unit,
+    val clearPlayed: () -> Unit,
+    val clearQueue: () -> Unit,
+)
+
+@Immutable
+internal class RoomSessionUiActions(
+    val updateOptions: (RoomOptions) -> Unit,
+    val showAbout: () -> Unit,
+    val leave: () -> Unit,
+    val retryIssue: () -> Unit,
+    val dismissIssue: (String) -> Unit,
+)
+
+@Immutable
+internal class RoomDiagnosticsActions(
+    val loadLogs: () -> List<DiagnosticEvent>,
+    val clearLogs: () -> Unit,
 )

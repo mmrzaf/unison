@@ -17,8 +17,14 @@ class PlayerEventInterpreter {
         ) : Action
     }
 
+    private data class EndCycleKey(
+        val queueItemId: QueueItemId,
+        val seekRevision: Long,
+        val itemTransitionRevision: Long,
+    )
+
     private var lastHandledBoundaryRevision = 0L
-    private var lastHandledFinalEndedItem: QueueItemId? = null
+    private var lastHandledEndCycle: EndCycleKey? = null
 
     fun observe(state: PlayerState, coordinator: Boolean, nowNs: Long): Action {
         @Suppress("UNUSED_VARIABLE") val observedAtNs = nowNs
@@ -32,7 +38,12 @@ class PlayerEventInterpreter {
             lastHandledBoundaryRevision = state.itemBoundaryRevision
             val ended = state.boundaryEndedQueueItemId
             if (ended != null) {
-                lastHandledFinalEndedItem = ended
+                val cycle = state.endCycleKey(ended)
+                // Some Media3 timelines report STATE_ENDED immediately before the explicit
+                // END_OF_MEDIA_ITEM callback. Both observations describe the same physical
+                // boundary and must collapse to one canonical PlaybackEnded event.
+                if (lastHandledEndCycle == cycle) return Action.None
+                lastHandledEndCycle = cycle
                 return Action.PlaybackEnded(
                     queueItemId = ended,
                     positionMs = state.boundaryEndedPositionMs,
@@ -42,13 +53,22 @@ class PlayerEventInterpreter {
         }
 
         val itemId = state.queueItemId
-        if (!state.ended || itemId == null || lastHandledFinalEndedItem == itemId) return Action.None
-        lastHandledFinalEndedItem = itemId
+        if (!state.ended || itemId == null) return Action.None
+        val cycle = state.endCycleKey(itemId)
+        if (lastHandledEndCycle == cycle) return Action.None
+        lastHandledEndCycle = cycle
         return Action.PlaybackEnded(itemId, state.positionMs, state.durationMs)
     }
 
     fun reset(currentState: PlayerState) {
         lastHandledBoundaryRevision = currentState.itemBoundaryRevision
-        lastHandledFinalEndedItem = null
+        lastHandledEndCycle = null
     }
+
+    private fun PlayerState.endCycleKey(queueItemId: QueueItemId): EndCycleKey =
+        EndCycleKey(
+            queueItemId = queueItemId,
+            seekRevision = seekRevision,
+            itemTransitionRevision = itemTransitionRevision,
+        )
 }

@@ -10,9 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.DropdownMenu
@@ -41,12 +38,13 @@ import com.darius.unison.model.TransportAction
 internal fun SharedCompactPlayer(
     track: TrackDescriptor?,
     isPlaying: Boolean,
+    primaryControl: RoomPlaybackUiPolicy.PrimaryControl,
     pendingAction: TransportAction?,
     onPrevious: () -> Unit,
-    onPlayPause: () -> Unit,
+    onPrimary: () -> Unit,
     onNext: () -> Unit,
     navigationEnabled: Boolean,
-    playPauseEnabled: Boolean,
+    primaryEnabled: Boolean,
     modifier: Modifier = Modifier,
     statusText: String? = null,
 ) {
@@ -85,12 +83,12 @@ internal fun SharedCompactPlayer(
             ) {
                 Icon(Icons.Default.SkipPrevious, null)
             }
-            TransportPlayPauseButton(
-                isPlaying = isPlaying,
+            TransportPrimaryButton(
+                control = primaryControl,
                 pending =
                     pendingAction == TransportAction.PLAY || pendingAction == TransportAction.PAUSE,
-                onClick = onPlayPause,
-                enabled = playPauseEnabled,
+                onClick = onPrimary,
+                enabled = primaryEnabled,
                 compact = true,
             )
             TransportControlButton(
@@ -113,7 +111,9 @@ internal fun RoomQueueToolbar(
     shuffleAvailable: Boolean,
     canSaveQueue: Boolean,
     canClearPlayed: Boolean,
+    reorderMode: Boolean,
     onQueryChange: (String) -> Unit,
+    onToggleReorder: () -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
     onSaveQueue: () -> Unit,
@@ -132,31 +132,44 @@ internal fun RoomQueueToolbar(
             placeholder = "Search queue",
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onShuffle, enabled = shuffleAvailable) {
-            Icon(
-                Icons.Default.Shuffle,
-                "Shuffle upcoming songs",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        IconButton(onClick = onRepeat, enabled = queueEnabled) {
-            Icon(
-                if (repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                when (repeatMode) {
-                    RepeatMode.OFF -> "Repeat off"
-                    RepeatMode.ALL -> "Repeat queue"
-                    RepeatMode.ONE -> "Repeat one"
-                },
-                tint =
-                    if (repeatMode == RepeatMode.OFF) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.primary,
-            )
-        }
         Box {
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Default.MoreVert, "Queue options")
             }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Shuffle upcoming songs") },
+                    enabled = shuffleAvailable,
+                    onClick = {
+                        menuOpen = false
+                        onShuffle()
+                    },
+                )
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            when (repeatMode) {
+                                RepeatMode.OFF -> "Repeat: Off"
+                                RepeatMode.ALL -> "Repeat: Queue"
+                                RepeatMode.ONE -> "Repeat: One song"
+                            }
+                        )
+                    },
+                    enabled = queueEnabled,
+                    onClick = {
+                        menuOpen = false
+                        onRepeat()
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (reorderMode) "Done reordering" else "Reorder queue") },
+                    enabled = queueEnabled,
+                    onClick = {
+                        menuOpen = false
+                        onToggleReorder()
+                    },
+                )
+                HorizontalDivider()
                 DropdownMenuItem(
                     text = { Text("Save queue as playlist") },
                     enabled = canSaveQueue,

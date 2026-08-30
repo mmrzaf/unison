@@ -44,6 +44,17 @@ class RoomStateSeparationTest {
         assertEquals(snapshot.members, store.currentState().snapshot!!.members)
     }
 
+
+    @Test
+    fun pendingSuccessorRemainsStructuralPresentationState() {
+        val pending = QueueItemId("pending-next")
+        val store = RoomStore()
+        store.updateStructure { it.copy(pendingSuccessorQueueItemId = pending) }
+
+        assertEquals(pending, store.structure.value.pendingSuccessorQueueItemId)
+        assertEquals(pending, store.currentState().pendingSuccessorQueueItemId)
+    }
+
     @Test
     fun unknownLocalPositionIsNotRepresentedAsZeroInTelemetry() {
         val store = RoomStore()
