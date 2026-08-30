@@ -2,6 +2,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  python3 ./scripts/check-dependency-verification.py
+elif [[ "${UNISON_SKIP_LOCAL_DEPENDENCY_VERIFICATION:-}" == "true" ]]; then
+  echo 'Skipping dependency-verification metadata check for this local offline run.' >&2
+  echo 'GitHub Actions and release publication always require reviewed SHA-256 metadata.' >&2
+else
+  python3 ./scripts/check-dependency-verification.py
+fi
 ./scripts/check-static.sh
 ./scripts/check-data.sh
 python3 ./scripts/analyze-playback-log.py --self-test

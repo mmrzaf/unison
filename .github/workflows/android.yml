@@ -18,66 +18,37 @@ concurrency:
 
 jobs:
   verify:
-    name: Test, lint, and build
+    uses: ./.github/workflows/verify.yml
+
+  instrumentation:
+    name: Android instrumentation (API 33)
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
       - name: Set up Java 21
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-provider: basic
           add-job-summary: on-failure
 
-      - name: Prepare pinned standalone Kotlin checks
-        run: ./gradlew --no-daemon :app:prepareStandaloneKotlinChecks
-
-      - name: Verify repository
-        run: ./scripts/check-release-quality.sh
-
-      - name: Test, lint, and build APKs
-        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease :app:compileDebugAndroidTestKotlin
-
-      - name: Name debug APK
-        id: debug_apk
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          short_sha="${GITHUB_SHA::7}"
-          apk_stem="Unison-debug-${short_sha}"
-
-          apk_path="app/build/outputs/apk/debug/${apk_stem}.apk"
-          mv app/build/outputs/apk/debug/app-debug.apk "$apk_path"
-
-          echo "artifact_name=$apk_stem" >> "$GITHUB_OUTPUT"
-          echo "apk_path=$apk_path" >> "$GITHUB_OUTPUT"
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v7
+      - name: Run instrumented tests
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
-          name: ${{ steps.debug_apk.outputs.artifact_name }}
-          path: ${{ steps.debug_apk.outputs.apk_path }}
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-
-      - name: Upload unsigned release APK
-        uses: actions/upload-artifact@v7
-        with:
-          name: Unison-release-unsigned
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
-          if-no-files-found: error
-          retention-days: 30
-          compression-level: 0
+          api-level: 33
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: ./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
