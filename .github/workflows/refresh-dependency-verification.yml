@@ -1,6 +1,17 @@
 name: Refresh dependency verification metadata
 
 on:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/refresh-dependency-verification.yml'
+      - 'app/build.gradle.kts'
+      - 'build.gradle.kts'
+      - 'gradle.properties'
+      - 'gradle/libs.versions.toml'
+      - 'gradle/wrapper/**'
+      - 'scripts/refresh-dependency-verification.sh'
+      - 'settings.gradle.kts'
   workflow_dispatch:
 
 permissions:
