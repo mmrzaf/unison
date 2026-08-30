@@ -16,12 +16,13 @@ class RoomReconnectPolicyTest {
 
     @Test
     fun terminalRecoveryWindowsStayShortAndBounded() {
-        assertTrue(RoomReconnectPolicy.LOCAL_NETWORK_GRACE_MS in 1_000L..5_000L)
-        assertTrue(RoomReconnectPolicy.PEER_DISCONNECT_GRACE_MS in 1_000L..15_000L)
-        assertTrue(
-            RoomReconnectPolicy.PEER_DISCONNECT_GRACE_MS >=
-                RoomReconnectPolicy.LOCAL_NETWORK_GRACE_MS
+        assertEquals(
+            RoomReconnectPolicy.NETWORK_GRACE_MS,
+            RoomReconnectPolicy.LOCAL_NETWORK_GRACE_MS,
         )
+        assertTrue(RoomReconnectPolicy.LOCAL_NETWORK_GRACE_MS in 10_000L..30_000L)
+        assertTrue(RoomReconnectPolicy.PEER_DISCONNECT_GRACE_MS in 1_000L..15_000L)
         assertTrue(RoomReconnectPolicy.NETWORK_POLL_MS in 100L..1_000L)
+        assertTrue(RoomReconnectPolicy.ENDPOINT_REDISCOVERY_MS in 1_000L..5_000L)
     }
 }

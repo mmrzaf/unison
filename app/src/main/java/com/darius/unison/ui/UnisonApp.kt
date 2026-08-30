@@ -397,6 +397,7 @@ fun UnisonApp(viewModel: MainViewModel) {
                                     PermissionController.localNetworkPermissions(),
                                 )
                             },
+                            onDismissRoomIssue = viewModel::clearRoomError,
                             onStartDiscovery = {
                                 viewModel.command(AppCommand.StartDiscovery, feedback = null)
                             },

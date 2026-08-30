@@ -595,6 +595,7 @@ class RoomRuntime(
 
     private suspend fun processLocalAddressChanged(address: String?) {
         container.roomStore.update { it.copy(roomAddress = address) }
+        clearRecoveredLocalNetworkIssue(address)
         if (!::identity.isInitialized || engine == null) return
 
         if (address == null) {
@@ -623,6 +624,7 @@ class RoomRuntime(
     private suspend fun processHotspotChanged(value: HotspotInfo?, address: String?) {
         val previous = container.roomStore.structure.value.hotspot
         container.roomStore.update { it.copy(hotspot = value, roomAddress = address) }
+        clearRecoveredLocalNetworkIssue(address)
         if (!::identity.isInitialized || engine == null) return
 
         // A hosted LocalOnlyHotspot is the room's network, not a cosmetic setting. If Android or
@@ -633,6 +635,26 @@ class RoomRuntime(
             return
         }
         if (value != null && isCoordinator()) refreshLocalCoordinatorEndpoint()
+    }
+
+    private fun clearRecoveredLocalNetworkIssue(address: String?) {
+        if (address == null || engine != null) return
+        container.roomStore.update { state ->
+            if (
+                state.snapshot == null &&
+                    state.issue?.code == RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE
+            ) {
+                state.copy(
+                    lifecycle = RoomLifecycleState.IDLE,
+                    status = UserFacingStatus.IDLE,
+                    statusMessage = null,
+                    errorMessage = null,
+                    issue = null,
+                )
+            } else {
+                state
+            }
+        }
     }
 
     private suspend fun beginLocalConnectivityInterruption() {
@@ -896,7 +918,17 @@ class RoomRuntime(
             AppCommand.StartDiscovery -> startDiscovery()
             AppCommand.StopDiscovery -> stopDiscovery()
             AppCommand.LeaveRoom -> leaveRoom()
-            AppCommand.CreateOfflineNetwork -> hotspot.start { message -> setError(message) }
+            AppCommand.CreateOfflineNetwork ->
+                hotspot.start { message ->
+                    setIssue(
+                        RoomIssue(
+                            code = RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE,
+                            message = message,
+                            recoveryAction = RoomRecoveryAction.NONE,
+                            deduplicationKey = "local-network:$message",
+                        )
+                    )
+                }
             AppCommand.StopOfflineNetwork -> {
                 if (
                     engine != null &&
@@ -1120,7 +1152,10 @@ class RoomRuntime(
         resetSession(keepDiscovery = false)
         container.roomStore.reset()
         if (selectedLocalAddress() == null) {
-            setFailure("Connect to Wi-Fi or create an offline network before creating a room")
+            setFailure(
+                "Connect to Wi-Fi or create a local connection before starting a room",
+                RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE,
+            )
             return
         }
         ensureServerAndTransfers()
@@ -1138,7 +1173,8 @@ class RoomRuntime(
             localEndpointOrNull()
                 ?: run {
                     setFailure(
-                        "The local network became unavailable. Connect to Wi-Fi and try again"
+                        "The local network became unavailable. Connect to Wi-Fi or create a local connection and try again",
+                        RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE,
                     )
                     return
                 }
@@ -1162,8 +1198,15 @@ class RoomRuntime(
 
     private suspend fun joinRoom(room: DiscoveredRoom, credential: RoomJoinCredential) {
         resetSession(keepDiscovery = false)
-        ensureServerAndTransfers()
         container.roomStore.reset()
+        if (selectedLocalAddress() == null) {
+            setFailure(
+                "Connect to Wi-Fi or a local connection before joining a room",
+                RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE,
+            )
+            return
+        }
+        ensureServerAndTransfers()
         diagnostics.begin(room.roomId, role = "participant")
         pendingJoin =
             PendingJoin(
@@ -4847,12 +4890,18 @@ class RoomRuntime(
     private suspend fun attemptReconnectThenRecover(lostCoordinator: PeerId) {
         val generation = sessionJobs.generation
         val snapshot = engine?.snapshot() ?: return
-        val endpoint = peerDirectory[lostCoordinator]
-        val secret = roomSecret?.copyOf()
-        if (endpoint == null || secret == null) {
-            roomEvents.submit(RoomEvent.ReconnectExhausted(generation, lostCoordinator))
-            return
-        }
+        var endpoint =
+            peerDirectory[lostCoordinator]
+                ?: run {
+                    roomEvents.submit(RoomEvent.ReconnectExhausted(generation, lostCoordinator))
+                    return
+                }
+        val secret =
+            roomSecret?.copyOf()
+                ?: run {
+                    roomEvents.submit(RoomEvent.ReconnectExhausted(generation, lostCoordinator))
+                    return
+                }
         try {
             val networkDeadline =
                 SystemClock.elapsedRealtime() + RoomReconnectPolicy.NETWORK_GRACE_MS
@@ -4878,6 +4927,7 @@ class RoomRuntime(
             }
             if (!sessionJobs.isCurrent(generation)) return
 
+            var endpointRediscoveryAttempted = false
             for (attempt in 1..RoomReconnectPolicy.MAX_ATTEMPTS) {
                 delay(RoomReconnectPolicy.delayBeforeAttemptMs(attempt))
                 if (!sessionJobs.isCurrent(generation)) return
@@ -4920,6 +4970,22 @@ class RoomRuntime(
                         "operation.duration_ms" to
                             SystemClock.elapsedRealtime() - attemptStartedAtMs,
                     )
+                    if (!endpointRediscoveryAttempted && attempt >= 2) {
+                        endpointRediscoveryAttempted = true
+                        rediscoverCoordinatorRoom(snapshot.roomId)?.let { rediscovered ->
+                            endpoint =
+                                endpoint.copy(
+                                    hostAddress = rediscovered.hostAddress,
+                                    port = rediscovered.port,
+                                    lastSeenElapsedMs = SystemClock.elapsedRealtime(),
+                                )
+                            peerDirectory[lostCoordinator] = endpoint
+                            diagnostics.info(
+                                "network.reconnect.endpoint_refreshed",
+                                "reconnect.attempt" to attempt,
+                            )
+                        }
+                    }
                     continue
                 }
                 diagnostics.info(
@@ -4950,6 +5016,22 @@ class RoomRuntime(
             secret.fill(0)
         }
     }
+
+    private suspend fun rediscoverCoordinatorRoom(roomId: String): DiscoveredRoom? =
+        try {
+            val event =
+                withTimeoutOrNull(RoomReconnectPolicy.ENDPOINT_REDISCOVERY_MS) {
+                    discovery.discover().first { candidate ->
+                        candidate is NsdDiscoveryEvent.Found && candidate.room.roomId == roomId
+                    }
+                }
+            (event as? NsdDiscoveryEvent.Found)?.room
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            diagnostics.warn("network.reconnect.rediscovery_failed", error)
+            null
+        }
 
     private suspend fun processReconnectSucceeded(event: RoomEvent.ReconnectSucceeded) {
         recoveryJob = null
@@ -5504,7 +5586,10 @@ class RoomRuntime(
         }
     }
 
-    private suspend fun setFailure(message: String) {
+    private suspend fun setFailure(
+        message: String,
+        code: RoomIssueCode = RoomIssueCode.CONNECTION_FAILED,
+    ) {
         teardownTerminalSession()
         container.roomStore.update {
             it.copy(
@@ -5513,10 +5598,10 @@ class RoomRuntime(
                 errorMessage = message,
                 issue =
                     RoomIssue(
-                        code = RoomIssueCode.CONNECTION_FAILED,
+                        code = code,
                         message = message,
                         recoveryAction = RoomRecoveryAction.NONE,
-                        deduplicationKey = "terminal:$message",
+                        deduplicationKey = "terminal:${code.name}:$message",
                     ),
                 statusMessage = null,
             )

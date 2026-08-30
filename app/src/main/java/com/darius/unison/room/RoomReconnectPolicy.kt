@@ -8,9 +8,13 @@ internal object RoomReconnectPolicy {
     const val NETWORK_GRACE_MS = 20_000L
     const val NETWORK_POLL_MS = 400L
     /**
+     * One bounded NSD refresh lets a participant follow the same room after host IP reassignment.
+     */
+    const val ENDPOINT_REDISCOVERY_MS = 3_000L
+    /**
      * Coordinator-local route loss may be a brief Android network transition, but never indefinite.
      */
-    const val LOCAL_NETWORK_GRACE_MS = 5_000L
+    const val LOCAL_NETWORK_GRACE_MS = NETWORK_GRACE_MS
     /**
      * Ungraceful peer loss is kept briefly for fast reconnect, then removed from canonical
      * membership.

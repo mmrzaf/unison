@@ -344,6 +344,22 @@ class RoomPlaybackUiPolicyTest {
     }
 
     @Test
+    fun localNetworkFailureExplainsTheActualProblem() {
+        val issue =
+            RoomIssue(
+                code = RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE,
+                message = "Connect to Wi-Fi or create a local connection before starting a room",
+                recoveryAction = RoomRecoveryAction.NONE,
+            )
+
+        val presentation = RoomPlaybackUiPolicy.issuePresentation(issue)
+
+        assertEquals("No local network", presentation.title)
+        assertEquals(issue.message, presentation.message)
+        assertNull(RoomPlaybackUiPolicy.issueAction(issue, null))
+    }
+
+    @Test
     fun roomEndedUsesTerminalHumanFacingIssueCopy() {
         val issue =
             RoomIssue(
