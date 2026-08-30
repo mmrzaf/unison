@@ -12,6 +12,7 @@ These checks do not require an Android device:
 ./scripts/check-data.sh
 python3 ./scripts/analyze-playback-log.py --self-test
 python3 ./scripts/analyze-stability-log.py --self-test
+python3 ./scripts/check-log-analyzer-fixtures.py
 ```
 
 With the repository-pinned Gradle/Kotlin dependency cache available:
@@ -62,9 +63,17 @@ python3 ./scripts/analyze-playback-log.py unison-playback.ndjson --strict
 python3 ./scripts/analyze-stability-log.py unison-playback.ndjson --strict
 ```
 
-The playback analyzer checks transition/player/convergence failures. The stability analyzer checks
-unavailable-media rejection, duplicate assignments, handshake timeouts, transfer reconnect/retry
-storms, materially late scheduled playback, malformed diagnostics, and unclean room teardown.
+The playback analyzer checks transition/player/convergence failures plus the physical boundary,
+pending-successor, content-readiness, local rejoin, and clock-domain invariants exercised by the
+physical-device incidents. The stability analyzer checks unavailable-media rejection, duplicate
+assignments, handshake timeouts, transfer reconnect/retry storms, malformed diagnostics, unclean room
+teardown, and materially late scheduled playback. Playback arrival lateness is reported separately
+from PlayerExecutor execution lateness so a slow network/room-actor delivery is not misdiagnosed as a
+player scheduler failure.
+
+`scripts/check-log-analyzer-fixtures.py` runs sanitized regression traces derived from real 1.2.0
+qualification failures. A release-quality change must keep the healthy fixture green and every bad
+fixture red for the intended reason.
 
 ## Android/build qualification
 

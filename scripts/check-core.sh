@@ -67,6 +67,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/room/PlaybackQueuePolicy.kt
   app/src/main/java/com/darius/unison/room/PlaybackSyncCadencePolicy.kt
   app/src/main/java/com/darius/unison/room/PlaybackSynchronizationRuntime.kt
+  app/src/main/java/com/darius/unison/room/LocalPlaybackSyncController.kt
   app/src/main/java/com/darius/unison/room/PlaybackConvergencePolicy.kt
   app/src/main/java/com/darius/unison/room/PlaybackSessionCoordinator.kt
   app/src/main/java/com/darius/unison/room/RoomDiagnostics.kt
@@ -88,6 +89,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/playback/PlaybackPausePolicy.kt
   app/src/main/java/com/darius/unison/playback/PlayerExecutor.kt
   app/src/main/java/com/darius/unison/playback/PlayerStateEventPolicy.kt
+  app/src/main/java/com/darius/unison/playback/NaturalBoundaryLatch.kt
   app/src/main/java/com/darius/unison/playback/PlayerEventInterpreter.kt
   app/src/main/java/com/darius/unison/sync/ClockSyncEngine.kt
   app/src/main/java/com/darius/unison/sync/PlaybackSyncTuning.kt
@@ -136,6 +138,7 @@ SOURCES=(
   app/src/test/java/com/darius/unison/room/PlaybackQueuePolicyTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackSyncCadencePolicyTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackSynchronizationRuntimeTest.kt
+  app/src/test/java/com/darius/unison/room/LocalPlaybackSyncControllerTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackConvergencePolicyTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackSessionCoordinatorTest.kt
   app/src/test/java/com/darius/unison/room/LocalPlaybackParticipationCoordinatorTest.kt
@@ -150,6 +153,7 @@ SOURCES=(
   app/src/test/java/com/darius/unison/playback/PlaybackReconciliationKeyTest.kt
   app/src/test/java/com/darius/unison/playback/CanonicalPlaybackDispatcherTest.kt
   app/src/test/java/com/darius/unison/playback/PlayerStateEventPolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/NaturalBoundaryLatchTest.kt
   app/src/test/java/com/darius/unison/playback/PlayerEventInterpreterTest.kt
   app/src/test/java/com/darius/unison/room/RoomReducerTest.kt
   app/src/test/java/com/darius/unison/room/RoomEngineValidationTest.kt

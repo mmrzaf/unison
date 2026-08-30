@@ -25,6 +25,7 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/model/Commands.kt \
   app/src/main/java/com/darius/unison/app/RoomCommandBus.kt \
   app/src/main/java/com/darius/unison/playback/PlayerPort.kt \
+  app/src/main/java/com/darius/unison/playback/NaturalBoundaryLatch.kt \
   app/src/main/java/com/darius/unison/playback/ExpectedPlayerIntentTracker.kt \
   app/src/main/java/com/darius/unison/playback/PlaybackPausePolicy.kt \
   app/src/main/java/com/darius/unison/playback/PlaybackQueueDiffPolicy.kt \

@@ -299,9 +299,26 @@ def main() -> int:
         require("NEEDS_PREPARATION" in readiness_policy and "PREPARING" in readiness_policy and "READY" in readiness_policy, "Room media readiness states drifted")
         require("locallyAvailableTrackIds" in readiness_policy, "READY no longer requires verified local availability")
         require("data class PrepareQueueItem" in commands, "Explicit Prepare command is missing")
-        require("Prepare this song before playing it" in transport_target_policy, "Unready playback no longer requires explicit preparation")
-        require("PendingTrackTransition" not in production, "Deferred prepare-then-play machinery returned")
-        require("pendingTarget" not in transport_target_policy, "Deferred navigation target returned")
+        require(
+            "Prepare this song before playing it" in transport_target_policy,
+            "Arbitrary unready selection no longer requires explicit preparation",
+        )
+        require(
+            "waitForPreparationQueueItemId" in transport_target_policy and
+            "PendingSuccessor" in room_runtime and
+            "PendingSuccessorReason.USER_NEXT" in room_runtime,
+            "Sequential Next no longer converges through one pending successor",
+        )
+        media3_adapter = text("app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt")
+        player_state_event_policy = text("app/src/main/java/com/darius/unison/playback/PlayerStateEventPolicy.kt")
+        require(
+            "PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM" in media3_adapter and
+            "recordNaturalBoundary" in media3_adapter and
+            "itemBoundaryRevision = state.itemBoundaryRevision" in player_state_event_policy,
+            "Natural Media3 boundaries are no longer guaranteed to reach the room actor",
+        )
+        require("PendingTrackTransition" not in production, "Generic deferred prepare-then-play machinery returned")
+        require("pendingTarget" not in transport_target_policy, "Deferred navigation target returned to target policy")
         require("playback.execution.waiting_for_media" in room_runtime, "Local execution no longer gates unavailable media")
         require("playbackExecutable" in text("app/src/main/java/com/darius/unison/room/PlaybackConvergencePolicy.kt"), "Coordinator convergence no longer gates unavailable media")
         room_service = text("app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt")

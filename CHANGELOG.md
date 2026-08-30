@@ -2,6 +2,13 @@
 
 ## 1.2.0
 
+- Natural Media3 end-of-item signals now hand off exactly once to canonical room ownership; an unready successor is prepared urgently, waited for without skipping, and started automatically when ready. Explicit Next uses the same exact-successor convergence model.
+- Transient audio-focus interruption now converges back into the live room automatically after platform suppression, room clock, and media readiness recover; becoming-noisy/unsuitable-output conditions remain intentionally silent until a user rejoins.
+- Content readiness is independent from audible participation, so temporarily silencing a device cannot erase verified media readiness or deadlock playback.
+- Room playback controls now expose Play, Pause, Prepare, Preparing, Recovering, and Preparing next song from actual runtime state, while a solo coordinator normalizes to 1x and stops pointless self-drift correction.
+- Release diagnostics now reject the real 1.2.0 qualification failure shapes: missing natural-boundary handoff, post-end repair, empty readiness, generic SYSTEM_POLICY inhibition, stuck automatic rejoin, unlocked-clock projection, impossible unavailable-media commands, dirty teardown, and materially late playback. Arrival lateness and PlayerExecutor lateness are reported separately.
+- Sanitized regression fixtures derived from the physical-device incidents are part of the release-quality gate.
+
 - Media readiness is explicit: unavailable queue items are prepared first and only verified room-ready items can be played.
 - Transfer orchestration has one capacity model and one coordinator-side lifecycle owner; same-peer admission, cancellation, retry/backoff, and duplicate demand are deterministic.
 - Active useful transfers are no longer blindly preempted by changing speculative demand; partial verified progress is preserved and genuine failures resume with bounded retry.
