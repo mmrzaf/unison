@@ -3,12 +3,15 @@ package com.darius.unison.ui
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.CanonicalPlaybackState
 import com.darius.unison.model.CoordinatorTerm
+import com.darius.unison.model.LocalPlaybackInhibitionReason
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomLifecycleState
+import com.darius.unison.model.RoomMediaReadiness
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -33,7 +36,7 @@ class RoomPlaybackUiPolicyTest {
             RoomPlaybackUiPolicy.controls(
                 hasCurrentItem = true,
                 hasSeekableDuration = true,
-                localIsPlaying = true,
+                canonicalIsPlaying = true,
                 status = status(TransportAction.NEXT, TransportCommandPhase.SCHEDULED),
             )
 
@@ -41,7 +44,7 @@ class RoomPlaybackUiPolicyTest {
         assertTrue(controls.canNavigate)
         assertTrue(controls.canSelectItem)
         assertFalse(controls.canSeek)
-        assertTrue(controls.canPlayPause)
+        assertTrue(controls.primaryActionEnabled)
     }
 
     @Test
@@ -50,13 +53,13 @@ class RoomPlaybackUiPolicyTest {
             RoomPlaybackUiPolicy.controls(
                 hasCurrentItem = true,
                 hasSeekableDuration = true,
-                localIsPlaying = false,
+                canonicalIsPlaying = false,
                 status = status(TransportAction.PLAY, TransportCommandPhase.ACCEPTED),
             )
 
         assertTrue(controls.playPausePending)
         assertTrue(controls.displayedPlaying)
-        assertTrue(controls.canPlayPause)
+        assertTrue(controls.primaryActionEnabled)
         assertTrue(controls.canNavigate)
     }
 
@@ -66,7 +69,7 @@ class RoomPlaybackUiPolicyTest {
             RoomPlaybackUiPolicy.controls(
                 hasCurrentItem = true,
                 hasSeekableDuration = true,
-                localIsPlaying = false,
+                canonicalIsPlaying = false,
                 status = status(TransportAction.NEXT, TransportCommandPhase.SETTLED),
             )
 
@@ -81,15 +84,86 @@ class RoomPlaybackUiPolicyTest {
             RoomPlaybackUiPolicy.controls(
                 hasCurrentItem = false,
                 hasSeekableDuration = false,
-                localIsPlaying = false,
+                canonicalIsPlaying = false,
                 status = null,
             )
 
         assertFalse(controls.canNavigate)
-        assertFalse(controls.canPlayPause)
+        assertFalse(controls.primaryActionEnabled)
         assertTrue(controls.canSelectItem)
     }
 
+
+
+    @Test
+    fun unreadyCurrentItemOffersPrepareInsteadOfImpossiblePlay() {
+        val controls =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = true,
+                hasSeekableDuration = true,
+                canonicalIsPlaying = false,
+                currentReadiness = RoomMediaReadiness.NEEDS_PREPARATION,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.PrimaryControl.PREPARE, controls.primaryControl)
+        assertTrue(controls.primaryActionEnabled)
+        assertFalse(controls.canSeek)
+    }
+
+    @Test
+    fun preparingCurrentItemShowsBusyControlWithoutAnotherAction() {
+        val controls =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = true,
+                hasSeekableDuration = true,
+                canonicalIsPlaying = false,
+                currentReadiness = RoomMediaReadiness.PREPARING,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.PrimaryControl.PREPARING, controls.primaryControl)
+        assertFalse(controls.primaryActionEnabled)
+    }
+
+    @Test
+    fun audioFocusInterruptionShowsRecoveringWhileNoisyRouteRequiresExplicitRejoin() {
+        val recovering =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = true,
+                hasSeekableDuration = true,
+                canonicalIsPlaying = true,
+                localParticipation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                localInhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+            )
+        val rejoin =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = true,
+                hasSeekableDuration = true,
+                canonicalIsPlaying = true,
+                localParticipation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                localInhibitionReason = LocalPlaybackInhibitionReason.BECOMING_NOISY,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.PrimaryControl.RECOVERING, recovering.primaryControl)
+        assertFalse(recovering.primaryActionEnabled)
+        assertEquals(RoomPlaybackUiPolicy.PrimaryControl.REJOIN, rejoin.primaryControl)
+        assertTrue(rejoin.primaryActionEnabled)
+    }
+
+    @Test
+    fun pendingSuccessorOwnsCenterControlAndDisablesSeek() {
+        val controls =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = true,
+                hasSeekableDuration = true,
+                canonicalIsPlaying = false,
+                pendingSuccessorQueueItemId = QueueItemId("next"),
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.PrimaryControl.WAITING_FOR_NEXT, controls.primaryControl)
+        assertFalse(controls.primaryActionEnabled)
+        assertFalse(controls.canSeek)
+        assertTrue(controls.canNavigate)
+    }
 
     @Test
     fun activeTargetTransferIsPresentedAsWaitingForContent() {
@@ -141,6 +215,49 @@ class RoomPlaybackUiPolicyTest {
         assertEquals(RoomPlaybackUiPolicy.TransitionKind.WAITING_FOR_CONTENT, presentation?.kind)
         assertEquals(0.5f, presentation?.progressFraction)
         assertTrue(presentation?.message?.contains("Target song") == true)
+    }
+
+
+    @Test
+    fun pendingSuccessorIsPresentedEvenWithoutUserTransportCommand() {
+        val peer = PeerId("peer-123456789012")
+        val currentTrack = TrackDescriptor(TrackId("a".repeat(64)), 1_000, durationMs = 60_000, title = "A")
+        val nextTrack = TrackDescriptor(TrackId("b".repeat(64)), 2_000, durationMs = 60_000, title = "B")
+        val current = QueueItem(QueueItemId("current"), currentTrack, peer, 1)
+        val next = QueueItem(QueueItemId("next"), nextTrack, peer, 2)
+        val snapshot =
+            RoomSnapshot(
+                roomId = "room",
+                roomName = "Room",
+                term = CoordinatorTerm(1, peer),
+                sequence = 2,
+                members = listOf(MemberSnapshot(peer, "Phone")),
+                queue = listOf(current, next),
+                playback = CanonicalPlaybackState(queueItemId = current.queueItemId, revision = 2),
+                queueRevision = 2,
+            )
+        val transfer =
+            TransferProgress(
+                trackId = nextTrack.trackId,
+                bytesTransferred = 1_000,
+                totalBytes = 2_000,
+                sourcePeerId = peer,
+                destinationPeerId = peer,
+                state = MemberTrackState.RECEIVING,
+            )
+
+        val presentation =
+            RoomPlaybackUiPolicy.transition(
+                snapshot = snapshot,
+                lifecycle = RoomLifecycleState.CONNECTED,
+                status = null,
+                transfers = mapOf(nextTrack.trackId to transfer),
+                pendingSuccessorQueueItemId = next.queueItemId,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.TransitionKind.WAITING_FOR_CONTENT, presentation?.kind)
+        assertEquals("Preparing next song…", presentation?.message)
+        assertEquals(0.5f, presentation?.progressFraction)
     }
 
     @Test

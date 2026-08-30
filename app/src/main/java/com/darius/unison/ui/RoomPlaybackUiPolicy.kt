@@ -1,11 +1,14 @@
 package com.darius.unison.ui
 
 import com.darius.unison.model.AppCommand
+import com.darius.unison.model.LocalPlaybackInhibitionReason
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomIssue
 import com.darius.unison.model.RoomIssueCode
 import com.darius.unison.model.RoomLifecycleState
+import com.darius.unison.model.RoomMediaReadiness
 import com.darius.unison.model.RoomRecoveryAction
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackId
@@ -16,9 +19,21 @@ import com.darius.unison.model.TransportCommandStatus
 
 /** Pure presentation policy for room playback controls and user-facing room status. */
 internal object RoomPlaybackUiPolicy {
+    enum class PrimaryControl {
+        NONE,
+        PLAY,
+        PAUSE,
+        PREPARE,
+        PREPARING,
+        WAITING_FOR_NEXT,
+        REJOIN,
+        RECOVERING,
+    }
+
     data class Controls(
         val displayedPlaying: Boolean,
-        val canPlayPause: Boolean,
+        val primaryControl: PrimaryControl,
+        val primaryActionEnabled: Boolean,
         val canSeek: Boolean,
         val canNavigate: Boolean,
         val canSelectItem: Boolean,
@@ -56,8 +71,13 @@ internal object RoomPlaybackUiPolicy {
     fun controls(
         hasCurrentItem: Boolean,
         hasSeekableDuration: Boolean,
-        localIsPlaying: Boolean,
-        status: TransportCommandStatus?,
+        canonicalIsPlaying: Boolean,
+        localParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
+        localInhibitionReason: LocalPlaybackInhibitionReason? = null,
+        currentReadiness: RoomMediaReadiness = RoomMediaReadiness.READY,
+        currentTransfer: TransferProgress? = null,
+        pendingSuccessorQueueItemId: QueueItemId? = null,
+        status: TransportCommandStatus? = null,
     ): Controls {
         val active = status?.takeIf { it.active }
         val playPausePending =
@@ -67,18 +87,58 @@ internal object RoomPlaybackUiPolicy {
             active?.action == TransportAction.NEXT ||
                 active?.action == TransportAction.PREVIOUS ||
                 active?.action == TransportAction.PLAY_ITEM
+        val outputInhibited = localParticipation == LocalPlaybackParticipation.OUTPUT_INHIBITED
         val displayedPlaying =
-            when (active?.action) {
-                TransportAction.PLAY -> true
-                TransportAction.PAUSE -> false
-                else -> localIsPlaying
+            if (outputInhibited) {
+                false
+            } else {
+                when (active?.action) {
+                    TransportAction.PLAY -> true
+                    TransportAction.PAUSE -> false
+                    else -> canonicalIsPlaying
+                }
             }
+
+        val transferPreparing =
+            currentTransfer?.state == MemberTrackState.RECEIVING ||
+                currentTransfer?.state == MemberTrackState.VERIFYING ||
+                currentTransfer?.state == MemberTrackState.PREPARING_PLAYER
+        val transferFailed = currentTransfer?.state == MemberTrackState.FAILED
+        val manualRejoinPending = outputInhibited && active?.action == TransportAction.PLAY
+        val primaryControl =
+            when {
+                !hasCurrentItem -> PrimaryControl.NONE
+                manualRejoinPending -> PrimaryControl.RECOVERING
+                outputInhibited && localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
+                    PrimaryControl.RECOVERING
+                outputInhibited -> PrimaryControl.REJOIN
+                pendingSuccessorQueueItemId != null -> PrimaryControl.WAITING_FOR_NEXT
+                transferFailed -> PrimaryControl.PREPARE
+                transferPreparing || currentReadiness == RoomMediaReadiness.PREPARING ->
+                    PrimaryControl.PREPARING
+                currentReadiness == RoomMediaReadiness.NEEDS_PREPARATION -> PrimaryControl.PREPARE
+                displayedPlaying -> PrimaryControl.PAUSE
+                else -> PrimaryControl.PLAY
+            }
+        val primaryActionEnabled =
+            primaryControl == PrimaryControl.PLAY ||
+                primaryControl == PrimaryControl.PAUSE ||
+                primaryControl == PrimaryControl.PREPARE ||
+                primaryControl == PrimaryControl.REJOIN
+        val currentReady = currentReadiness == RoomMediaReadiness.READY
+
         return Controls(
             displayedPlaying = displayedPlaying,
-            canPlayPause = hasCurrentItem,
-            canSeek = hasCurrentItem && hasSeekableDuration && !navigationPending,
-            // Navigation is intentionally reversible. The deterministic transport-intent processor
-            // can supersede a pending target, so UI locking would only make preparation feel stuck.
+            primaryControl = primaryControl,
+            primaryActionEnabled = primaryActionEnabled,
+            canSeek =
+                hasCurrentItem &&
+                    currentReady &&
+                    pendingSuccessorQueueItemId == null &&
+                    hasSeekableDuration &&
+                    !navigationPending,
+            // Next is intentionally allowed even when the successor is unready: Phase 1 turns that
+            // intent into prepare -> wait -> advance instead of rejecting an impossible command.
             canNavigate = hasCurrentItem,
             canSelectItem = true,
             playPausePending = playPausePending,
@@ -92,6 +152,9 @@ internal object RoomPlaybackUiPolicy {
         lifecycle: RoomLifecycleState,
         status: TransportCommandStatus?,
         transfers: Map<TrackId, TransferProgress>,
+        pendingSuccessorQueueItemId: QueueItemId? = null,
+        localParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
+        localInhibitionReason: LocalPlaybackInhibitionReason? = null,
     ): TransitionPresentation? {
         if (lifecycle == RoomLifecycleState.RECONNECTING) {
             return TransitionPresentation(
@@ -100,7 +163,41 @@ internal object RoomPlaybackUiPolicy {
             )
         }
 
-        val command = status ?: return null
+        pendingSuccessorQueueItemId?.let { queueItemId ->
+            val target = snapshot.queue.firstOrNull { it.queueItemId == queueItemId }
+            val transfer = target?.track?.trackId?.let(transfers::get)
+            return TransitionPresentation(
+                kind = TransitionKind.WAITING_FOR_CONTENT,
+                queueItemId = queueItemId,
+                trackId = target?.track?.trackId,
+                message = "Preparing next song…",
+                progressFraction =
+                    transfer?.fraction?.takeIf {
+                        transfer.state == MemberTrackState.RECEIVING ||
+                            transfer.state == MemberTrackState.VERIFYING ||
+                            transfer.state == MemberTrackState.PREPARING_PLAYER
+                    },
+            )
+        }
+
+        val outputInhibited = localParticipation == LocalPlaybackParticipation.OUTPUT_INHIBITED
+        val command = status
+        if (outputInhibited && snapshot.playback.isPlaying) {
+            if (command?.active == true && command.action == TransportAction.PLAY) {
+                return TransitionPresentation(
+                    kind = TransitionKind.RECOVERING,
+                    message = "Rejoining playback…",
+                )
+            }
+            if (localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS) {
+                return TransitionPresentation(
+                    kind = TransitionKind.RECOVERING,
+                    message = "Recovering your audio…",
+                )
+            }
+        }
+
+        command ?: return null
         if (command.phase == TransportCommandPhase.REJECTED) {
             return TransitionPresentation(
                 kind = TransitionKind.FAILED,

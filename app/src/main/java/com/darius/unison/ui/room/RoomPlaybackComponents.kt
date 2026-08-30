@@ -22,10 +22,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
@@ -310,8 +313,8 @@ internal fun TransportControlButton(
 }
 
 @Composable
-internal fun TransportPlayPauseButton(
-    isPlaying: Boolean,
+internal fun TransportPrimaryButton(
+    control: RoomPlaybackUiPolicy.PrimaryControl,
     pending: Boolean,
     enabled: Boolean = true,
     onClick: () -> Unit,
@@ -323,12 +326,20 @@ internal fun TransportPlayPauseButton(
     val outerSize = if (compact) 48.dp else 72.dp
     val buttonSize = if (compact) 44.dp else 64.dp
     val iconSize = if (compact) 24.dp else 34.dp
+    val busy =
+        control == RoomPlaybackUiPolicy.PrimaryControl.PREPARING ||
+            control == RoomPlaybackUiPolicy.PrimaryControl.WAITING_FOR_NEXT ||
+            control == RoomPlaybackUiPolicy.PrimaryControl.RECOVERING
     val contentDescription =
-        when {
-            isPlaying && pending -> "Pause; play is scheduled"
-            isPlaying -> "Pause"
-            pending -> "Play; pause is scheduled"
-            else -> "Play"
+        when (control) {
+            RoomPlaybackUiPolicy.PrimaryControl.NONE -> "Playback unavailable"
+            RoomPlaybackUiPolicy.PrimaryControl.PLAY -> "Play"
+            RoomPlaybackUiPolicy.PrimaryControl.PAUSE -> "Pause"
+            RoomPlaybackUiPolicy.PrimaryControl.PREPARE -> "Prepare song"
+            RoomPlaybackUiPolicy.PrimaryControl.PREPARING -> "Preparing song"
+            RoomPlaybackUiPolicy.PrimaryControl.WAITING_FOR_NEXT -> "Preparing next song"
+            RoomPlaybackUiPolicy.PrimaryControl.REJOIN -> "Rejoin playback"
+            RoomPlaybackUiPolicy.PrimaryControl.RECOVERING -> "Recovering playback"
         }
     Box(Modifier.size(outerSize), contentAlignment = Alignment.Center) {
         FilledIconButton(
@@ -341,13 +352,29 @@ internal fun TransportPlayPauseButton(
                     scaleY = controlScale
                 },
         ) {
-            Icon(
-                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription,
-                Modifier.size(iconSize),
-            )
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(if (compact) 20.dp else 28.dp),
+                    strokeWidth = if (compact) 2.dp else 3.dp,
+                )
+            } else {
+                Icon(
+                    when (control) {
+                        RoomPlaybackUiPolicy.PrimaryControl.PAUSE -> Icons.Default.Pause
+                        RoomPlaybackUiPolicy.PrimaryControl.PREPARE -> Icons.Default.Download
+                        RoomPlaybackUiPolicy.PrimaryControl.REJOIN -> Icons.Default.Refresh
+                        RoomPlaybackUiPolicy.PrimaryControl.NONE,
+                        RoomPlaybackUiPolicy.PrimaryControl.PLAY,
+                        RoomPlaybackUiPolicy.PrimaryControl.PREPARING,
+                        RoomPlaybackUiPolicy.PrimaryControl.WAITING_FOR_NEXT,
+                        RoomPlaybackUiPolicy.PrimaryControl.RECOVERING -> Icons.Default.PlayArrow
+                    },
+                    contentDescription,
+                    Modifier.size(iconSize),
+                )
+            }
         }
-        if (pending) {
+        if (pending && !busy) {
             PendingActionIndicator(
                 modifier = Modifier.align(Alignment.TopEnd),
                 size = if (compact) 9.dp else 11.dp,

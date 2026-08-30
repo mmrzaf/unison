@@ -14,7 +14,6 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -47,7 +46,6 @@ internal fun RoomHeader(
     lifecycle: RoomLifecycleState,
     onShowListeners: () -> Unit,
     onShowLogs: () -> Unit,
-    onShowSettings: () -> Unit,
     onShowAbout: () -> Unit,
     onLeave: () -> Unit,
 ) {
@@ -122,11 +120,6 @@ internal fun RoomHeader(
                     text = { Text("Diagnostics") },
                     leadingIcon = { Icon(Icons.Default.Info, null) },
                     onClick = { runAndClose(onShowLogs) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Room settings") },
-                    leadingIcon = { Icon(Icons.Default.Settings, null) },
-                    onClick = { runAndClose(onShowSettings) },
                 )
                 DropdownMenuItem(
                     text = { Text("About Unison") },

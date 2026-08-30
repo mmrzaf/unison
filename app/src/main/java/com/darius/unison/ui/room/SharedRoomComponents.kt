@@ -38,12 +38,13 @@ import com.darius.unison.model.TransportAction
 internal fun SharedCompactPlayer(
     track: TrackDescriptor?,
     isPlaying: Boolean,
+    primaryControl: RoomPlaybackUiPolicy.PrimaryControl,
     pendingAction: TransportAction?,
     onPrevious: () -> Unit,
-    onPlayPause: () -> Unit,
+    onPrimary: () -> Unit,
     onNext: () -> Unit,
     navigationEnabled: Boolean,
-    playPauseEnabled: Boolean,
+    primaryEnabled: Boolean,
     modifier: Modifier = Modifier,
     statusText: String? = null,
 ) {
@@ -82,12 +83,12 @@ internal fun SharedCompactPlayer(
             ) {
                 Icon(Icons.Default.SkipPrevious, null)
             }
-            TransportPlayPauseButton(
-                isPlaying = isPlaying,
+            TransportPrimaryButton(
+                control = primaryControl,
                 pending =
                     pendingAction == TransportAction.PLAY || pendingAction == TransportAction.PAUSE,
-                onClick = onPlayPause,
-                enabled = playPauseEnabled,
+                onClick = onPrimary,
+                enabled = primaryEnabled,
                 compact = true,
             )
             TransportControlButton(

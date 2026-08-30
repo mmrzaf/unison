@@ -52,7 +52,6 @@ import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.RoomMediaReadiness
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomUiState
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -98,19 +97,31 @@ internal fun SharedRoomScreen(
     val transportStatus = room.transportStatus
     val localOutputInhibited =
         room.localPlaybackParticipation == LocalPlaybackParticipation.OUTPUT_INHIBITED
+    val currentReadiness =
+        nowPlaying?.queueItemId?.let { room.mediaReadiness[it] }
+            ?: RoomMediaReadiness.NEEDS_PREPARATION
+    val currentTransfer = nowPlaying?.track?.trackId?.let(room.transfers::get)
     val transportControls =
         remember(
             nowPlaying?.queueItemId,
             hasSeekableDuration,
             snapshot.playback.isPlaying,
-            localOutputInhibited,
+            room.localPlaybackParticipation,
+            room.localPlaybackInhibitionReason,
+            currentReadiness,
+            currentTransfer,
+            room.pendingSuccessorQueueItemId,
             transportStatus,
         ) {
             RoomPlaybackUiPolicy.controls(
                 hasCurrentItem = nowPlaying != null,
                 hasSeekableDuration = hasSeekableDuration,
-                localIsPlaying =
-                    snapshot.playback.isPlaying && !localOutputInhibited,
+                canonicalIsPlaying = snapshot.playback.isPlaying,
+                localParticipation = room.localPlaybackParticipation,
+                localInhibitionReason = room.localPlaybackInhibitionReason,
+                currentReadiness = currentReadiness,
+                currentTransfer = currentTransfer,
+                pendingSuccessorQueueItemId = room.pendingSuccessorQueueItemId,
                 status = transportStatus,
             )
         }
@@ -154,13 +165,27 @@ internal fun SharedRoomScreen(
         command()
     }
 
-    val requestPlayPause = {
-        val action =
-            if (localOutputInhibited) TransportAction.PLAY
-            else if (displayedPlaying) TransportAction.PAUSE
-            else TransportAction.PLAY
-        submitTransport(action, transportControls.canPlayPause) {
-            if (displayedPlaying) actions.playback.pause() else actions.playback.play()
+    val requestPrimaryControl: () -> Unit = {
+        when (transportControls.primaryControl) {
+            RoomPlaybackUiPolicy.PrimaryControl.PLAY,
+            RoomPlaybackUiPolicy.PrimaryControl.REJOIN ->
+                submitTransport(TransportAction.PLAY, transportControls.primaryActionEnabled) {
+                    actions.playback.play()
+                }
+            RoomPlaybackUiPolicy.PrimaryControl.PAUSE ->
+                submitTransport(TransportAction.PAUSE, transportControls.primaryActionEnabled) {
+                    actions.playback.pause()
+                }
+            RoomPlaybackUiPolicy.PrimaryControl.PREPARE ->
+                nowPlaying?.let { item ->
+                    if (transportControls.primaryActionEnabled) {
+                        actions.playback.prepareQueueItem(item.queueItemId)
+                    }
+                }
+            RoomPlaybackUiPolicy.PrimaryControl.NONE,
+            RoomPlaybackUiPolicy.PrimaryControl.PREPARING,
+            RoomPlaybackUiPolicy.PrimaryControl.WAITING_FOR_NEXT,
+            RoomPlaybackUiPolicy.PrimaryControl.RECOVERING -> Unit
         }
     }
     val requestPrevious = {
@@ -192,12 +217,23 @@ internal fun SharedRoomScreen(
     }
 
     val transitionPresentation =
-        remember(snapshot, room.lifecycle, transportStatus, room.transfers) {
+        remember(
+            snapshot,
+            room.lifecycle,
+            transportStatus,
+            room.transfers,
+            room.pendingSuccessorQueueItemId,
+            room.localPlaybackParticipation,
+            room.localPlaybackInhibitionReason,
+        ) {
             RoomPlaybackUiPolicy.transition(
                 snapshot = snapshot,
                 lifecycle = room.lifecycle,
                 status = transportStatus,
                 transfers = room.transfers,
+                pendingSuccessorQueueItemId = room.pendingSuccessorQueueItemId,
+                localParticipation = room.localPlaybackParticipation,
+                localInhibitionReason = room.localPlaybackInhibitionReason,
             )
         }
     val currentIndex =
@@ -220,7 +256,6 @@ internal fun SharedRoomScreen(
     var showListeners by remember { mutableStateOf(false) }
     var showLogs by remember { mutableStateOf(false) }
     var showAddMusic by remember { mutableStateOf(false) }
-    var showOptions by remember { mutableStateOf(false) }
     var saveQueueOpen by remember { mutableStateOf(false) }
     var confirmClearQueue by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
@@ -349,7 +384,6 @@ internal fun SharedRoomScreen(
                     lifecycle = room.lifecycle,
                     onShowListeners = { showListeners = true },
                     onShowLogs = { showLogs = true },
-                    onShowSettings = { showOptions = true },
                     onShowAbout = actions.session.showAbout,
                     onLeave = { confirmLeave = true },
                 )
@@ -438,13 +472,13 @@ internal fun SharedRoomScreen(
                             ) {
                                 Icon(Icons.Default.SkipPrevious, null, Modifier.size(32.dp))
                             }
-                            TransportPlayPauseButton(
-                                isPlaying = displayedPlaying,
+                            TransportPrimaryButton(
+                                control = transportControls.primaryControl,
                                 pending =
                                     feedbackAction == TransportAction.PLAY ||
                                         feedbackAction == TransportAction.PAUSE,
-                                enabled = transportControls.canPlayPause,
-                                onClick = requestPlayPause,
+                                enabled = transportControls.primaryActionEnabled,
+                                onClick = requestPrimaryControl,
                             )
                             TransportControlButton(
                                 active = feedbackAction == TransportAction.NEXT,
@@ -657,6 +691,7 @@ internal fun SharedRoomScreen(
             SharedCompactPlayer(
                 track = nowPlaying.track,
                 isPlaying = displayedPlaying,
+                primaryControl = transportControls.primaryControl,
                 pendingAction = feedbackAction,
                 statusText = transitionPresentation?.let { transition ->
                     transition.progressFraction?.let {
@@ -664,10 +699,10 @@ internal fun SharedRoomScreen(
                     } ?: transition.message
                 },
                 onPrevious = requestPrevious,
-                onPlayPause = requestPlayPause,
+                onPrimary = requestPrimaryControl,
                 onNext = requestNext,
                 navigationEnabled = transportControls.canNavigate,
-                playPauseEnabled = transportControls.canPlayPause,
+                primaryEnabled = transportControls.primaryActionEnabled,
                 modifier =
                     Modifier.align(Alignment.TopCenter)
                         .zIndex(2f)
@@ -737,16 +772,6 @@ internal fun SharedRoomScreen(
         )
     }
 
-    if (showOptions) {
-        RoomOptionsDialog(
-            initialOptions = snapshot.options,
-            onSave = { options ->
-                showOptions = false
-                actions.session.updateOptions(options)
-            },
-            onDismiss = { showOptions = false },
-        )
-    }
 
     if (confirmClearQueue) {
         RoomConfirmationDialog(

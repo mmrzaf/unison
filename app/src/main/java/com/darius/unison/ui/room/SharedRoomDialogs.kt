@@ -40,7 +40,6 @@ import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.MemberRuntimeState
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RoomLifecycleState
-import com.darius.unison.model.RoomOptions
 
 @Composable
 internal fun RoomCodeDialog(
@@ -159,28 +158,6 @@ internal fun SaveQueueDialog(
                 Text("Save")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-internal fun RoomOptionsDialog(
-    initialOptions: RoomOptions,
-    onSave: (RoomOptions) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var options by remember(initialOptions) { mutableStateOf(initialOptions) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Room settings") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SwitchRow("Wait for ready listeners before each song", options.waitAtTrackBoundary) {
-                    options = options.copy(waitAtTrackBoundary = it)
-                }
-            }
-        },
-        confirmButton = { Button(onClick = { onSave(options) }) { Text("Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
