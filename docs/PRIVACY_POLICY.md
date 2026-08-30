@@ -7,8 +7,11 @@ Unison operates locally and does not require an account.
 Unison may store imported audio, track metadata, playlists, a generated peer identity, display name,
 recent room diagnostic state, temporary received tracks, and local structured diagnostic logs.
 Diagnostic records are app-private, bounded/rotated, sanitized, and never uploaded automatically.
-The user can explicitly view current-room records and copy a filtered NDJSON view. Managed audio is
-stored in the application's private directory. Android backups are disabled.
+The user can explicitly view current-room records and copy a filtered NDJSON view. The diagnostics
+console's **Clear view** action clears the current in-memory view; already-persisted app-private NDJSON
+remains subject to the documented bounded rotation/retention policy rather than being presented as
+secure erasure. Managed audio is stored in the application's private directory. Android backups are
+disabled.
 
 ## Local communication
 

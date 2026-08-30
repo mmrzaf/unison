@@ -1,23 +1,61 @@
 # Changelog
 
-## 1.2.0
+## Unreleased
 
-- Natural Media3 end-of-item signals now hand off exactly once to canonical room ownership; an unready successor is prepared urgently, waited for without skipping, and started automatically when ready. Explicit Next uses the same exact-successor convergence model.
-- Transient audio-focus interruption now converges back into the live room automatically after platform suppression, room clock, and media readiness recover; becoming-noisy/unsuitable-output conditions remain intentionally silent until a user rejoins.
-- Content readiness is independent from audible participation, so temporarily silencing a device cannot erase verified media readiness or deadlock playback.
-- Room playback controls now expose Play, Pause, Prepare, Preparing, Recovering, and Preparing next song from actual runtime state, while a solo coordinator normalizes to 1x and stops pointless self-drift correction.
-- Release diagnostics now reject the real 1.2.0 qualification failure shapes: missing natural-boundary handoff, post-end repair, empty readiness, generic SYSTEM_POLICY inhibition, stuck automatic rejoin, unlocked-clock projection, impossible unavailable-media commands, dirty teardown, and materially late playback. Arrival lateness and PlayerExecutor lateness are reported separately.
-- Sanitized regression fixtures derived from the physical-device incidents are part of the release-quality gate.
+Changes after `1.2.0-beta.1` should be recorded here until the next prerelease or stable release is
+cut.
 
-- Media readiness is explicit: unavailable queue items are prepared first and only verified room-ready items can be played.
-- Transfer orchestration has one capacity model and one coordinator-side lifecycle owner; same-peer admission, cancellation, retry/backoff, and duplicate demand are deterministic.
-- Active useful transfers are no longer blindly preempted by changing speculative demand; partial verified progress is preserved and genuine failures resume with bounded retry.
-- Playback execution gates unavailable media instead of repeatedly mutating Media3, eliminating the 1.1.0 unavailable-song repair storm.
-- Room lifecycle is truthful: app/task exit leaves the room, temporary connectivity loss enters bounded recovery, unrecoverable coordinator/network loss ends the room, and stale participants are removed after reconnect grace.
-- Scheduled playback rechecks changing coordinator clock mapping during long waits so clock reacquisition cannot leave stale multi-second timers.
-- Room UX distinguishes Ready, Preparing, and Needs preparation; unavailable songs prepare on tap, ready songs play, and music can be inserted with Add next or appended with Add to queue.
-- Reliability coverage adds deterministic high-count transfer/readiness stress, repeated interrupted-file resume checks, causal transfer diagnostics, and a strict stability-log analyzer.
-- The public architecture is documented around explicit invariants and Protocol 2 remains the strict 1.2.0 wire contract; no incompatible Protocol 3 change was required.
+## 1.2.0-beta.1
+
+### Fixed
+
+- Prevented stale room/library preparation results from terminating the persistent serialized room
+  actor through synthetic `CancellationException` paths.
+- Rejected old-room accepted control connections and messages from superseded control sockets before
+  they can mutate membership, liveness, peer directories, replay state, or canonical room state.
+- Bound transfer endpoint host authority to the authenticated control socket rather than trusting an
+  announced private-LAN host.
+- Fenced transfer completion, failure, progress, heartbeat, and reconnect-state callbacks by the room
+  session generation that created them.
+- Made the upload readable-file-to-lease handoff atomic against managed deletion without blocking
+  legitimate repair/replacement of corrupt managed content.
+- Added durable pending deletion so logically deleted managed media is eventually removed after the
+  final active lease, including across process restart and valid republication races.
+- Made Play after genuine natural completion of the final queue item restart canonically from position
+  zero while keeping manual seek-to-end semantics distinct.
+- Stopped Android 11/12 route detection from treating merely connected Bluetooth/USB/wired devices as
+  the active media route; those platforms now report `UNKNOWN` when active routing cannot be proven.
+- Stopped advertising arbitrary MediaSession seek-to-media-item support when canonical playback only
+  implements the supported navigation surface.
+
+### Changed
+
+- Added immutable room/session provenance and explicit ingress-authority policies for asynchronous room
+  work.
+- Hardened `SerializedEventLoop` so handler-thrown cancellation cannot silently kill a healthy owner
+  coroutine while genuine owner cancellation still terminates normally.
+- Kept Protocol 2 and Room schema 1 unchanged; no Protocol 3 or database migration was required.
+- Retained `targetSdk 33` for the 1.2 release line while compiling against SDK 36 and qualifying API
+  30/33/36 behavior explicitly.
+
+### Security
+
+- Added RFC 5054 Appendix B SRP-6a arithmetic conformance coverage and documented the JVM
+  `BigInteger.modPow` timing limitation and 1.2 threat-model decision.
+- Added endpoint-host spoof rejection, stale-session/socket diagnostics, and stronger lifecycle
+  authority regression coverage.
+- Added sustained control-lane priority/no-starvation stress coverage.
+
+### Reliability and testing
+
+- Added deterministic lifecycle seam regressions for stale admission, connection replacement,
+  transfer/session callbacks, heartbeat, reconnect state, and terminal replay.
+- Added real Media3 instrumentation scenarios for two-item natural transition, final-item completion,
+  repeat-one, replay re-arm, and queue mutation near a boundary.
+- Expanded storage stress/regression coverage for corruption repair, upload/delete races, pending
+  deletion, and publication protection.
+- Expanded structured diagnostics and strict release analyzers for unexpected actor-handler
+  cancellation and stale-work rejection evidence.
 
 ## 1.1.0
 

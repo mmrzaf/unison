@@ -80,6 +80,21 @@ only and are cleared when the session ends.
 - Diagnostic files rotate at about 6 MiB total, are app-private, and have no automatic network
   exporter. Room-log copy is an explicit user action.
 
+## Build and supply-chain controls
+
+The public repository defaults to Google's/Maven Central/Gradle Plugin Portal resolution path. Optional
+regional mirrors are an explicit developer opt-in rather than a repository default. Release dependency
+artifacts are intended to be protected by committed Gradle dependency-verification metadata generated
+from a trusted resolution path and reviewed whenever dependencies change.
+
+Privileged GitHub release automation pins third-party Actions to full commit SHAs, builds only from an
+immutable version tag that is proven to resolve to the workflow commit, separates signing secrets from
+release-write permission, and refuses to replace assets for an existing release tag. Public releases
+contain the signed production APK and provenance/checksum/source artifacts; debug APKs remain CI-only.
+
+The public vulnerability-reporting process lives in [`.github/SECURITY.md`](../.github/SECURITY.md).
+Technical security reports should use that private path rather than a public issue.
+
 ## Out of scope
 
 - malicious code running on an admitted phone;

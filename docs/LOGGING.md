@@ -98,7 +98,9 @@ The console provides:
 - category filters;
 - text search over event name, component, body, and attributes;
 - expandable structured attributes and exception summary;
-- bounded clipboard export of the current filtered view as chronological NDJSON.
+- bounded clipboard export of the current filtered view as chronological NDJSON;
+- **Clear view**, which clears the in-memory room view only. It does not promise secure erasure of
+  already-persisted NDJSON; durable records remain subject to the bounded rotation/retention policy.
 
 ## Device capture and analysis
 
