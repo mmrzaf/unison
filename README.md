@@ -7,62 +7,57 @@
 
 Unison is a **local-first Android app for synchronized music playback across nearby phones**.
 
-One phone coordinates the room while every listener plays a verified local copy of the same track. Unison works over the local network and does not require an account, cloud backend, hosted relay, analytics service, advertising SDK, or Internet connection.
+One phone coordinates the room while every listener plays a verified local copy of the same track.
+Unison works over the local network and does not require an account, cloud backend, hosted relay,
+analytics service, advertising SDK, or Internet connection.
 
 ## Features
 
 - Synchronized playback across nearby Android devices
-- Create or join rooms over the local network
-- Discover nearby rooms automatically
-- Add music from the local library, playlists, share sheet, or file picker
-- Transfer missing tracks directly between devices
-- Verify transferred audio with SHA-256 before playback
+- Nearby room discovery and four-digit room codes
+- Local library, playlist, share-sheet, and file-picker imports
+- Direct transfer of missing tracks between devices
+- SHA-256 verification before transferred audio becomes playable
 - Shared room queue and playback controls
-- Local playlists and library management
-- Resilient handling of temporary connectivity loss
+- Bounded recovery from temporary connectivity loss
 - Local-only structured diagnostics
-- No account, cloud service, analytics, advertising, or hosted relay
+- No accounts, cloud service, analytics, advertising, or hosted relay
 
 ## Install
 
 Unison requires **Android 11 or newer**.
 
-Download the latest APK from:
+Download the latest available APK from [GitHub Releases](https://github.com/mmrzaf/unison/releases).
+Release notes, checksums, source packages, and release metadata are published with each release.
 
-**[GitHub Releases](https://github.com/mmrzaf/unison/releases)**
-
-Because Unison is distributed as an APK, Android may ask you to allow installation from your browser or file manager.
-
-Release notes, checksums, and other release artifacts are available alongside each release.
+Because Unison is distributed as an APK, Android may ask you to allow installation from your browser
+or file manager.
 
 ## How it works
 
 1. **Create a room** on one phone or join a nearby room.
-2. **Add music** from your device.
-3. **Invite nearby listeners** to the room.
+2. **Add music** from the local device.
+3. **Invite nearby listeners** to join.
 4. If another device is missing a track, Unison transfers it directly over the local network.
 5. The received file is verified before it becomes playable.
 6. Playback is coordinated across participating devices.
 
-Every listener ultimately plays a local copy of the same audio rather than receiving a live audio stream from the host.
-
-This keeps playback local and allows Unison to focus on maintaining a shared, synchronized room state across nearby devices.
+Every listener ultimately plays a local copy of the same audio instead of receiving a live audio stream
+from the coordinator.
 
 ## Media readiness
 
-Tracks in a room have an explicit readiness state:
+Tracks have an explicit readiness state:
 
 - **Not ready** — the device does not yet have a verified playable copy.
 - **Preparing** — the track is being transferred or verified.
 - **Ready** — the track is available for synchronized playback.
 
-Unison does not mark transferred media as playable until verification has completed successfully.
+Unison does not mark transferred media as playable until verification succeeds.
 
 ## Local-first by design
 
-Unison is designed for nearby devices on private networks.
-
-It does not depend on:
+Unison is designed for nearby devices on private networks. It does not depend on:
 
 - user accounts
 - cloud storage
@@ -74,12 +69,24 @@ It does not depend on:
 
 Public network addresses and Internet-based room joining are intentionally outside the product model.
 
+## Technical contract
+
+- Application ID: `com.darius.unison`
+- Wire protocol: **2 only**
+- Room database schema: **1 only**
+- Runtime floor: Android 11 (`minSdk 30`)
+- Audio identity and transferred-file verification use SHA-256
+- Public addresses and DNS joins are rejected
+
+Version history and current release status belong in [CHANGELOG.md](CHANGELOG.md) and
+[GitHub Releases](https://github.com/mmrzaf/unison/releases), not in this README.
+
 ## Architecture
 
 At a high level:
 
 - A serialized room actor owns canonical room mutations.
-- `RoomReducer` handles deterministic room state transitions.
+- `RoomReducer` handles deterministic room-state transitions.
 - `TransferCoordinator` manages transfer demand and routing.
 - `TransferManager` performs authenticated, resumable transfers and verified commits.
 - `RoomMediaReadinessPolicy` derives runtime media readiness.
@@ -113,7 +120,7 @@ util/       structured diagnostics and shared utilities
 
 ## Development
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the full development environment and setup guide.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for setup details.
 
 Bootstrap a development environment:
 
@@ -145,7 +152,8 @@ The repository's shell and release tooling are primarily qualified on Linux.
 
 ## Testing
 
-Testing covers protocol behavior, room state, playback coordination, transfer integrity, storage, Android integration, and supported device/API configurations.
+Testing covers protocol behavior, room state, playback coordination, transfer integrity, storage,
+Android integration, and the release API matrix.
 
 See [docs/TESTING.md](docs/TESTING.md) for details.
 
@@ -161,41 +169,32 @@ See [docs/TESTING.md](docs/TESTING.md) for details.
 - [Structured diagnostics](docs/LOGGING.md)
 - [Testing](docs/TESTING.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Release qualification](docs/RELEASE_QUALIFICATION.md)
+- [Release evidence](docs/release-evidence/README.md)
+- [Local release](docs/LOCAL_RELEASE.md)
 - [Changelog](CHANGELOG.md)
 - [Support](SUPPORT.md)
 
-Release and project-maintenance documentation is also available under `docs/` for contributors and maintainers.
-
 ## Contributing
 
-Contributions are welcome.
+Contributions are welcome. Bug fixes, tests, documentation improvements, Android/OEM compatibility
+reports, and changes that preserve Unison's local-first design are especially useful.
 
-Bug fixes, tests, documentation improvements, Android/OEM compatibility reports, and changes that preserve Unison's local-first design are especially useful.
-
-Start with [CONTRIBUTING.md](CONTRIBUTING.md).
-
-For questions and ideas, use [GitHub Discussions](https://github.com/mmrzaf/unison/discussions).
-
-For reproducible bugs, use [GitHub Issues](https://github.com/mmrzaf/unison/issues).
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). Use
+[GitHub Discussions](https://github.com/mmrzaf/unison/discussions) for questions and ideas and
+[GitHub Issues](https://github.com/mmrzaf/unison/issues) for reproducible bugs.
 
 ## Security
 
-Please do **not** report security vulnerabilities through public GitHub issues.
-
-See [.github/SECURITY.md](.github/SECURITY.md) for vulnerability reporting instructions and [docs/SECURITY.md](docs/SECURITY.md) for the application's security model.
+Do **not** report security vulnerabilities through public GitHub issues. See
+[.github/SECURITY.md](.github/SECURITY.md) for reporting instructions and
+[docs/SECURITY.md](docs/SECURITY.md) for the application security model.
 
 ## Privacy
 
-Unison is designed around local communication and local storage.
-
-See the [Privacy Policy](docs/PRIVACY_POLICY.md) for details.
-
-## Support
-
-For troubleshooting and support information, see [SUPPORT.md](SUPPORT.md).
+See the [Privacy Policy](docs/PRIVACY_POLICY.md).
 
 ## License
 
-Unison is licensed under the [Apache License 2.0](LICENSE).
-
-Third-party components remain under their respective licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Unison is licensed under the [Apache License 2.0](LICENSE). Third-party components remain under their
+respective licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

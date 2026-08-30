@@ -1,162 +1,102 @@
 # Release qualification
 
-Unison uses the same production build/signing path for prereleases and stable releases. A beta is not
-an excuse to skip correctness/security gates; it is a way to expose a production-style candidate to
-more real devices before declaring the release line stable.
+Unison uses the same production verification, signing, packaging, and publication path for beta, RC,
+and stable releases. Prereleases do **not** receive a reduced automated test gate: they are how the
+actual release path is exercised before the stable version is declared.
 
-Qualification belongs to an exact source commit/tag and exact APK checksum. Procedures alone are not
-release evidence: record actual results under [`release-evidence/`](release-evidence/README.md).
+The goal is strict automation with minimal human ceremony.
 
-## Release classes
+## Automated release gate
 
-### Public beta / RC gate
+Every tag-triggered beta, RC, and stable release must pass the same automated gate:
 
-A public prerelease requires:
+- repository/static/data/tooling checks;
+- dependency-verification checks;
+- focused hardening, protocol, playback, diagnostics, lifecycle, and network tests;
+- formatting checks and JVM unit tests;
+- debug and release lint/build checks;
+- Android instrumentation on API 30, 33, and 36;
+- immutable tag/version/commit validation;
+- signed release APK build;
+- APK signing and zipalign verification;
+- deterministic source packaging;
+- SHA-256 checksum and release metadata generation;
+- GitHub/Sigstore provenance attestation;
+- immutable GitHub Release publication.
 
-- clean repository checks, unit tests, lint, debug/release assembly;
-- real Android instrumentation on API 30, 33, and 36;
-- no known security, corruption, canonical-state-authority, or actor-liveness blocker;
-- basic multi-device physical qualification on at least three phones/two manufacturers;
-- successful install/smoke of the exact GitHub-produced signed APK;
-- explicit known-issues review and release-evidence record.
+A failure in any required automated step blocks publication.
 
-Device/OEM-specific non-critical issues may remain if documented honestly in prerelease notes.
+GitHub normal CI also runs Android instrumentation on API 33. The release workflow intentionally
+re-runs the full release matrix on API 30/33/36 so prereleases continuously test the production path.
 
-### Stable gate
+## Release evidence
 
-Stable `1.2.0` requires all prerelease gates plus the complete physical-device matrix, soak/stress
-qualification, retained diagnostic evidence, and no unresolved high-priority beta regression.
+Keep one concise record for every public version under [`release-evidence/`](release-evidence/README.md).
+The record is a human qualification note, not a duplicate of machine-generated evidence.
 
-## Repository and Android gate
+Do not manually copy information that already exists authoritatively in the release assets or GitHub
+run unless it is useful for investigation. In particular:
 
-On a fully bootstrapped release machine:
+- `SHA256SUMS.txt` is authoritative for published artifact hashes;
+- `release-info.txt` is authoritative for commit/signing metadata emitted by the release build;
+- the GitHub Actions run is authoritative for automated gate results;
+- GitHub attestation is authoritative for build provenance.
 
-```bash
-./scripts/verify-offline-ready.sh
-./scripts/check-release-quality.sh
-./gradlew --offline --no-daemon --stacktrace \
-  clean spotlessCheck testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
-  :app:compileDebugAndroidTestKotlin
-```
+The per-version evidence file should retain the information automation cannot replace cleanly:
 
-Then execute Android instrumentation rather than stopping at compilation:
+- release/tag identity;
+- GitHub Release or Actions run reference;
+- exact published APK physical-device smoke result;
+- devices/networks used for human qualification;
+- notable soak/stress results when performed;
+- known issues accepted for the release;
+- reviewer/date and final human disposition.
 
-```bash
-./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
-```
+The evidence file may start as a small pre-tag stub and be completed after the immutable GitHub artifact
+exists. Never claim a human test was performed on a local/debug/different build when the record says it
+covered the published APK.
 
-GitHub normal CI runs the real instrumentation suite on API 33. The tag release workflow executes the
-suite on API 30/33/36 before signing/publication.
+## Physical-device qualification
 
-The instrumented set includes the actual pinned-Media3 natural-boundary scenarios and Android managed
-storage stress coverage; these tests exist specifically for behavior that JVM/stub tests cannot prove.
+The detailed scenario catalog lives in
+[`PHYSICAL_DEVICE_QUALIFICATION.md`](PHYSICAL_DEVICE_QUALIFICATION.md). It remains the reference for
+manual device testing and investigation.
 
-The generated Room schema must remain exactly schema `1.json` with the four production tables. Protocol
-constants, NSD advertisement, handshakes, framing, envelopes, and documentation must remain strict
-Protocol 2 for the 1.2 release line.
+For a beta or RC, record the physical scenarios actually exercised and any known limitations. For the
+stable release, complete the project-selected stable device/soak qualification before treating the line
+as fully qualified.
 
-`check-release-quality.sh` includes the focused hardening suite: RFC SRP arithmetic conformance,
-production PIN-handshake tests, lifecycle seam regressions, session-generation fences, endpoint
-authority checks, and control-priority/no-starvation stress coverage.
+Human physical testing complements the automated gate; it does not replace or weaken it.
 
-## Dependency/tooling integrity gate
+## Security and compatibility invariants
 
-Before a public release:
+A release is blocked by a known issue that can cause security compromise, media corruption, invalid
+canonical-state mutation, unbounded actor/lifecycle failure, or a violation of the 1.2 protocol/storage
+contract.
 
+For the 1.2 line:
+
+- wire protocol remains Protocol 2;
+- Room database schema remains schema 1;
 - GitHub Actions remain pinned to reviewed full commit SHAs;
-- the tag workflow produces a GitHub/Sigstore provenance attestation for the checksummed release subjects;
-- public Gradle defaults use official repositories; optional regional mirrors are opt-in only;
-- `gradle/verification-metadata.xml` exists, was generated from a trusted dependency-resolution path,
-  reviewed, and matches the intended dependency graph;
-- ShellCheck/actionlint/Python workflow/tooling checks pass;
-- unexpected dependency-verification changes are investigated rather than auto-accepted.
+- dependency-verification changes are reviewed rather than blindly accepted;
+- release assets are immutable and are never replaced in place.
 
-Use `scripts/refresh-dependency-verification.sh` only when intentionally refreshing dependency
-metadata. Keep the metadata change reviewable and separate from unrelated behavior changes.
+The focused hardening suite in `scripts/check-release-quality.sh` remains part of every release gate,
+including SRP conformance, lifecycle seam regressions, session-generation fences, endpoint authority,
+and control-priority/no-starvation coverage.
 
-## Playback/stability-log gate
+## Normal release flow
 
-For retained physical candidates:
+1. Update `appVersionName`/`appVersionCode` in `gradle/libs.versions.toml`.
+2. Add the version section to `CHANGELOG.md`.
+3. Add `docs/release-evidence/<version>.md` from the concise template.
+4. Run local verification.
+5. Commit the release source.
+6. Create and push the matching immutable `v<version>` tag.
+7. Let GitHub Actions run the full release gate and publish the immutable release.
+8. Install/smoke-test the exact published APK and update the evidence record with the human result.
+9. If the published candidate has a blocker, do not replace it; fix forward with a new beta/RC/patch.
 
-```bash
-./scripts/capture-playback-log.sh unison-playback.ndjson
-./scripts/analyze-playback-log.py unison-playback.ndjson --strict
-./scripts/analyze-stability-log.py unison-playback.ndjson --strict
-```
-
-Retain the sanitized trace or its approved summary together with device details, tag/commit, source
-package checksum, and exact APK checksum.
-
-## Device/API matrix
-
-The signed candidate must be exercised on physical Android 11 (API 30), Android 13 (API 33), and
-Android 16 (API 36) devices. Across the matrix, qualify discovery/control, verified file transfer, and
-playback. Include private router Wi-Fi and LocalOnlyHotspot on at least one supported device.
-
-The selected network route should be `SYSTEM_DEFAULT` when the owning LAN is Android's active network,
-`NETWORK_BOUND` for a non-default owning `Network`, and `ENDPOINT_FALLBACK` only for genuine hotspot or
-downstream cases where Android exposes no owning `Network`.
-
-Use the detailed scenario list in [`PHYSICAL_DEVICE_QUALIFICATION.md`](PHYSICAL_DEVICE_QUALIFICATION.md).
-
-## Critical scenarios
-
-At minimum retain evidence for:
-
-- one-hour normal playback and a 30-minute mixed-control three-device room;
-- rapid transport/current-item changes and unavailable-successor preparation;
-- final natural completion followed by canonical replay from position 0;
-- actual Media3 natural-boundary attribution/duplicate suppression;
-- queue mutations during preparation/import;
-- coordinator loss and bounded recovery/clean end;
-- listener Wi-Fi interruption and complete reconciliation;
-- API 30/32 connected-but-unselected output-route behavior (`UNKNOWN`) and API 33/36 actual route changes;
-- audio-focus interruption/rejoin and becoming-noisy silence semantics;
-- transfer interruption/resume, corruption, insufficient storage, source loss;
-- room-A delayed admission delivered after room-B creation;
-- superseded control socket with already-queued envelope and delayed close;
-- stale transfer completion/failure/progress crossing a room generation;
-- authenticated endpoint host spoof attempt;
-- concurrent temporary deletion/upload resolution including corrupt-file repair;
-- sustained lower-priority control traffic with repeated guaranteed/clock work;
-- background/screen-off/process/task-removal lifecycle scenarios.
-
-## Acceptance invariants
-
-A candidate fails if any of these are violated:
-
-- a stale asynchronous operation mutates the current authoritative room/session/connection;
-- a connected ready listener remains on a different canonical item/play-pause intent without bounded repair;
-- a stale scheduled command reaches Media3;
-- natural completion resurrects the finished item or attributes one physical boundary more than once;
-- final-item Play after genuine terminal natural pause fails to become canonical replay from zero;
-- unavailable content mutates current playback or creates a preparation/command storm;
-- cleared transient audio-focus suppression leaves automatic rejoin stuck indefinitely;
-- a participant projects canonical time while its room clock is unlocked;
-- leaving leaks player work, transfers, sockets, leases, jobs, or notification ownership;
-- diagnostics are malformed/unbounded, drop under candidate soak, or include
-  `room.event.unexpected_handler_cancellation`;
-- a spoofed endpoint host receives an outbound transfer connection;
-- an upload-readable file disappears after its atomic upload lease handoff;
-- pending deletion can remove newly republished valid media;
-- guaranteed room commands or clock traffic starve under sustained lower-priority traffic;
-- repository/SRP/admission/authorization/security gates fail.
-
-Stale admission/envelope/transfer/session diagnostic events may appear as bounded forensic evidence only
-when the corresponding obsolete work was rejected before current-state mutation.
-
-## Exact-artifact publication gate
-
-For a tag such as `v1.2.0-beta.4`:
-
-1. tag the exact qualified commit and push that immutable tag;
-2. let the GitHub release workflow re-run verification/instrumentation and build/sign the APK;
-3. download the APK, source package, `release-info.txt`, and `SHA256SUMS.txt` from that workflow/release;
-4. verify published checksums/signing identity and, for the public repository, verify the GitHub artifact
-   attestation (for example with `gh attestation verify` against the repository);
-5. install the exact downloaded APK (clean install and supported upgrade path where applicable);
-6. repeat a focused physical smoke test using that artifact;
-7. update `docs/release-evidence/<version>.md` with real hashes/results/known issues;
-8. only then approve prerelease/stable publication/announcement.
-
-Never backfill a release-evidence checkbox from a different debug/local build or another commit.
+That is the release ceremony. Automated test coverage should stay strict; duplicated bookkeeping should
+not grow around it.
