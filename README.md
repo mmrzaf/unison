@@ -10,7 +10,7 @@ phone temporarily coordinates the room; every listener plays a verified local co
 There is no account, cloud backend, hosted relay, analytics service, advertising SDK, or required
 Internet connection.
 
-> **Public beta:** `1.2.0-beta.1` is the first 1.2 production-style beta. It uses the same signed
+> **Public beta:** `1.2.0-beta.3` is the first 1.2 production-style beta. It uses the same signed
 > release build path intended for stable releases, but it is published as a GitHub prerelease while
 > real-device and contributor feedback is collected.
 
@@ -36,7 +36,7 @@ then keep one shared playback experience synchronized with as little ongoing wor
 ## Product contract
 
 - Application ID: `com.darius.unison`
-- Version: `1.2.0-beta.1` (`versionCode` 5)
+- Version: `1.2.0-beta.3` (`versionCode` 6)
 - Wire protocol: **2 only**
 - Room database schema: **1 only**
 - Runtime floor: Android 11 (`minSdk 30`, `targetSdk 33`); release qualification covers Android 11,
@@ -122,7 +122,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 `develop` is the normal development branch. Release-style builds are created from immutable tags such
-as `v1.2.0-beta.1`; a release build does not imply a stable release.
+as `v1.2.0-beta.3`; a release build does not imply a stable release.
 
 ## Contributing
 
