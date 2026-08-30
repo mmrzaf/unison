@@ -16,6 +16,14 @@ public interface Player {
   int COMMAND_SEEK_TO_NEXT = 9;
   int COMMAND_SEEK_BACK = 10;
   int COMMAND_SEEK_FORWARD = 11;
+  int COMMAND_GET_CURRENT_MEDIA_ITEM = 16;
+  int COMMAND_GET_TIMELINE = 17;
+  int COMMAND_GET_METADATA = 18;
+  int COMMAND_GET_AUDIO_ATTRIBUTES = 21;
+  int COMMAND_GET_VOLUME = 22;
+  int COMMAND_GET_DEVICE_VOLUME = 23;
+  int COMMAND_GET_TEXT = 28;
+  int COMMAND_GET_TRACKS = 30;
 
   int getCurrentMediaItemIndex();
   int getNextMediaItemIndex();
@@ -56,7 +64,10 @@ public interface Player {
     public static final class Builder {
       private final Set<Integer> commands = new LinkedHashSet<>();
 
-      public Builder addAllReadOnlyCommands() {
+      public Builder addAll(int... commandValues) {
+        for (int command : commandValues) {
+          commands.add(command);
+        }
         return this;
       }
 

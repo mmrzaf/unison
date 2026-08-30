@@ -29,19 +29,6 @@ import kotlinx.coroutines.launch
 import com.darius.unison.util.DiagnosticCategory
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
-private fun Player.Commands.Builder.addAllReadOnlyCommands(): Player.Commands.Builder =
-    addAll(
-        Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
-        Player.COMMAND_GET_TIMELINE,
-        Player.COMMAND_GET_METADATA,
-        Player.COMMAND_GET_AUDIO_ATTRIBUTES,
-        Player.COMMAND_GET_VOLUME,
-        Player.COMMAND_GET_DEVICE_VOLUME,
-        Player.COMMAND_GET_TEXT,
-        Player.COMMAND_GET_TRACKS,
-    )
-
-@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class UnisonRoomService : MediaSessionService() {
     private data class NotificationContent(
         val queueItemId: String?,
