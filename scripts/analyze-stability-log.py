@@ -221,6 +221,10 @@ def analyze(events, malformed=0):
     if retry_storm_routes:
         detail = ", ".join(f"{track}->{dest}:{count}" for (track, dest), count in sorted(retry_storm_routes.items()))
         violations.append(f"transfer retry storm ({detail})")
+    if counts["room.event.unexpected_handler_cancellation"]:
+        violations.append(
+            f"{counts['room.event.unexpected_handler_cancellation']} unexpected room actor handler cancellations"
+        )
     if max_arrival_late_ms > LATE_THRESHOLD_MS:
         violations.append(f"scheduled playback arrived {max_arrival_late_ms} ms late before PlayerExecutor")
     if max_executor_late_ms > LATE_THRESHOLD_MS:
@@ -291,6 +295,7 @@ def self_test():
             },
             {"eventName": "transfer.download.duplicate_ignored", "attributes": {"track.id": "deadbeef"}},
             {"eventName": "room.session.ended", "attributes": {"coroutine.remaining_jobs": 2, "transfer.active_count": 1}},
+            {"eventName": "room.event.unexpected_handler_cancellation", "attributes": {"room.event_type": "Synthetic"}},
             {
                 "eventName": "transfer.track.failed",
                 "attributes": {"track.id": "deadbeef", "transfer.phase": "HANDSHAKE", "transfer.operation_id": "op"},
@@ -306,7 +311,8 @@ def self_test():
     )
     result = analyze(bad)
     assert result["failures_by_phase"] == {"HANDSHAKE": 1}, result
-    assert len(result["violations"]) >= 7, result
+    assert any("unexpected room actor handler cancellations" in value for value in result["violations"]), result
+    assert len(result["violations"]) >= 8, result
     print("STABILITY_LOG_ANALYZER_SELF_TEST_OK")
 
 

@@ -35,6 +35,10 @@ def main() -> int:
             "app/src/main/AndroidManifest.xml",
             "app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt",
             "app/src/main/java/com/darius/unison/protocol/ProtocolJson.kt",
+            "app/src/main/java/com/darius/unison/protocol/Srp6aCore.kt",
+            "app/src/test/java/com/darius/unison/protocol/Srp6aCoreRfc5054Test.kt",
+            "app/src/test/java/com/darius/unison/network/ControlConnectionPriorityTest.kt",
+            "app/src/test/java/com/darius/unison/room/RoomLifecycleSeamRegressionTest.kt",
             "app/src/main/java/com/darius/unison/storage/Database.kt",
             "app/src/main/java/com/darius/unison/ui/UnisonApp.kt",
             "app/src/main/java/com/darius/unison/ui/AboutUnisonDialog.kt",
@@ -44,6 +48,8 @@ def main() -> int:
             "scripts/build-debug.sh",
             "scripts/build-release.sh",
             "scripts/check-release-quality.sh",
+            "scripts/check-hardening-kotlin.sh",
+            "docs/SRP_REVIEW_1.2.md",
             "scripts/archive.sh",
             "CONTRIBUTING.md",
             "docs/INVARIANTS.md",
@@ -126,12 +132,19 @@ def main() -> int:
         changelog = text("CHANGELOG.md")
         local_release = text("docs/LOCAL_RELEASE.md")
         physical_qualification = text("docs/PHYSICAL_DEVICE_QUALIFICATION.md")
+        release_quality = text("scripts/check-release-quality.sh")
+        security_doc = text("docs/SECURITY.md")
+        srp_review = text("docs/SRP_REVIEW_1.2.md")
         require("# Unison 1.2.0" in readme, "README version is not 1.2.0")
         require("versionCode` 4" in readme and "Wire protocol: **2 only**" in readme, "README release facts drifted")
         require("## 1.2.0\n" in changelog and "1.2.0 (in development)" not in changelog, "Changelog is not final")
         require("v1.2.0" in local_release, "Local release guide is stale")
         require("bounded recovery" in physical_qualification and "zombie room UI" in physical_qualification, "Coordinator-loss qualification is stale")
         require("Room actions → Room logs" not in physical_qualification, "Diagnostics naming is stale")
+        require("./scripts/check-hardening-kotlin.sh" in release_quality, "Release quality gate omits Milestone-5 hardening tests")
+        require("Srp6aCoreRfc5054Test" in srp_review and "BigInteger.modPow" in srp_review, "SRP 1.2 review is incomplete")
+        require("SRP_REVIEW_1.2.md" in security_doc, "Security model does not link the SRP 1.2 review")
+        require("room A" in physical_qualification, "Cross-room admission qualification is missing")
         room_code_test = text("app/src/androidTest/java/com/darius/unison/ui/RoomCodeComposeTest.kt")
         require("RoomScreen(" not in room_code_test, "Android room-code test uses removed RoomScreen")
         require(re.search(r'compileSdk\s*=\s*"36"', versions) is not None, "compileSdk changed unexpectedly")
@@ -159,6 +172,14 @@ def main() -> int:
         require("explicitNulls = true" in protocol_json, "Protocol nullability is not explicit")
         require("QueuePreparedSetChanged" not in protocol, "Canonical prepared-set mutation returned")
         require("PlaybackReadinessChanged" in protocol, "Runtime readiness projection is missing")
+        srp_core = text("app/src/main/java/com/darius/unison/protocol/Srp6aCore.kt")
+        srp_vector_test = text("app/src/test/java/com/darius/unison/protocol/Srp6aCoreRfc5054Test.kt")
+        priority_test = text("app/src/test/java/com/darius/unison/network/ControlConnectionPriorityTest.kt")
+        lifecycle_seam_test = text("app/src/test/java/com/darius/unison/room/RoomLifecycleSeamRegressionTest.kt")
+        require("BigInteger.modPow" in srp_core, "SRP arithmetic core no longer documents JVM modular exponentiation")
+        require("RFC 5054 Appendix B" in srp_vector_test, "Published SRP conformance vector test is missing")
+        require("repeat(2_000)" in priority_test, "Control priority no-starvation stress coverage is missing")
+        require("obsoleteRoomAdmissionAndSupersededSocketAreRejectedAtConsumeTime" in lifecycle_seam_test, "Lifecycle seam regression coverage is missing")
 
         domain = text("app/src/main/java/com/darius/unison/model/DomainModels.kt")
         member_snapshot = domain.split("data class MemberSnapshot(", 1)[1].split(")", 1)[0]
@@ -234,6 +255,8 @@ def main() -> int:
         player_executor = text("app/src/main/java/com/darius/unison/playback/PlayerExecutor.kt")
         media3_adapter = text("app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt")
         room_runtime = text("app/src/main/java/com/darius/unison/room/RoomRuntime.kt")
+        require("room.event.unexpected_handler_cancellation" in room_runtime, "Unexpected actor-handler cancellation diagnostic is missing")
+        require("room.event.stale_session" in room_runtime, "Stale session diagnostic is missing")
         room_event = text("app/src/main/java/com/darius/unison/room/RoomEvent.kt")
         require("mutationMutex" in player_executor, "PlayerExecutor lost its single Media3 mutation boundary")
         require("setPauseAtEndOfMediaItems(true)" in media3_adapter, "Media3 may auto-run across canonical item boundaries")

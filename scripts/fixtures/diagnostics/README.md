@@ -20,3 +20,6 @@ media metadata.
 - `bad-teardown.ndjson`: room teardown leaves active transfers/jobs.
 - `bad-arrival-late.ndjson`: a command is already materially late before PlayerExecutor receives it.
 - `bad-executor-late.ndjson`: PlayerExecutor itself misses a materially scheduled execution time.
+- `bad-actor-handler-cancellation.ndjson`: a room-event handler throws `CancellationException` while
+  the persistent actor owner is still active; this must be classified as a release failure, not normal
+  owner cancellation.

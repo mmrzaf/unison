@@ -38,6 +38,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/protocol/RoomSnapshotValidator.kt
   app/src/main/java/com/darius/unison/protocol/EnvelopeReplayProtector.kt
   app/src/main/java/com/darius/unison/protocol/Crypto.kt
+  app/src/main/java/com/darius/unison/protocol/Srp6aCore.kt
   app/src/main/java/com/darius/unison/protocol/PinPake.kt
   app/src/main/java/com/darius/unison/room/RoomReducer.kt
   app/src/main/java/com/darius/unison/room/RoomEngine.kt
@@ -47,6 +48,9 @@ SOURCES=(
   app/src/main/java/com/darius/unison/room/RoomMessageRouter.kt
   app/src/main/java/com/darius/unison/room/AdmissionGuard.kt
   app/src/main/java/com/darius/unison/room/ControlAdmissionController.kt
+  app/src/main/java/com/darius/unison/room/RoomSessionProvenance.kt
+  app/src/main/java/com/darius/unison/room/RoomIngressAuthority.kt
+  app/src/main/java/com/darius/unison/room/PeerEndpointAuthority.kt
   app/src/main/java/com/darius/unison/room/SerializedEventLoop.kt
   app/src/main/java/com/darius/unison/room/SessionJobRegistry.kt
   app/src/main/java/com/darius/unison/room/JoinRetryPolicy.kt
@@ -65,6 +69,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/room/TransportLeadTimePolicy.kt
   app/src/main/java/com/darius/unison/room/TransportCommandTracker.kt
   app/src/main/java/com/darius/unison/room/PlaybackQueuePolicy.kt
+  app/src/main/java/com/darius/unison/room/TerminalReplayPolicy.kt
   app/src/main/java/com/darius/unison/room/PlaybackSyncCadencePolicy.kt
   app/src/main/java/com/darius/unison/room/PlaybackSynchronizationRuntime.kt
   app/src/main/java/com/darius/unison/room/LocalPlaybackSyncController.kt
@@ -75,6 +80,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/room/RoomTransportTiming.kt
   app/src/main/java/com/darius/unison/room/PlaybackRequestPolicy.kt
   app/src/main/java/com/darius/unison/playback/SystemMediaCommandPolicy.kt
+  app/src/main/java/com/darius/unison/playback/OutputRouteQueryPolicy.kt
   app/src/main/java/com/darius/unison/playback/RoomServicePolicy.kt
   app/src/main/java/com/darius/unison/playback/PlaybackQueueDiffPolicy.kt
   app/src/main/java/com/darius/unison/playback/MediaNotificationUpdatePolicy.kt
@@ -130,12 +136,14 @@ SOURCES=(
   app/src/test/java/com/darius/unison/network/DiscoveredRoomRegistryTest.kt
   app/src/test/java/com/darius/unison/protocol/CryptoTest.kt
   app/src/test/java/com/darius/unison/protocol/PinPakeTest.kt
+  app/src/test/java/com/darius/unison/protocol/Srp6aCoreRfc5054Test.kt
   app/src/test/java/com/darius/unison/protocol/AuthenticatedFileStreamCodecTest.kt
   app/src/test/java/com/darius/unison/protocol/RoomSnapshotValidatorTest.kt
   app/src/test/java/com/darius/unison/protocol/EnvelopeReplayProtectorTest.kt
   app/src/test/java/com/darius/unison/protocol/PlaybackTelemetryProtocolTest.kt
   app/src/test/java/com/darius/unison/network/ControlTrafficClassifierTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackQueuePolicyTest.kt
+  app/src/test/java/com/darius/unison/room/TerminalReplayPolicyTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackSyncCadencePolicyTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackSynchronizationRuntimeTest.kt
   app/src/test/java/com/darius/unison/room/LocalPlaybackSyncControllerTest.kt
@@ -144,6 +152,7 @@ SOURCES=(
   app/src/test/java/com/darius/unison/room/LocalPlaybackParticipationCoordinatorTest.kt
   app/src/test/java/com/darius/unison/room/PlaybackRequestPolicyTest.kt
   app/src/test/java/com/darius/unison/playback/SystemMediaCommandPolicyTest.kt
+  app/src/test/java/com/darius/unison/playback/OutputRouteQueryPolicyTest.kt
   app/src/test/java/com/darius/unison/playback/RoomServicePolicyTest.kt
   app/src/test/java/com/darius/unison/playback/PlaybackQueueDiffPolicyTest.kt
   app/src/test/java/com/darius/unison/playback/MediaNotificationUpdatePolicyTest.kt
@@ -163,6 +172,9 @@ SOURCES=(
   app/src/test/java/com/darius/unison/room/RoomMessageRouterTest.kt
   app/src/test/java/com/darius/unison/room/AdmissionGuardTest.kt
   app/src/test/java/com/darius/unison/room/ControlAdmissionControllerTest.kt
+  app/src/test/java/com/darius/unison/room/RoomIngressAuthorityTest.kt
+  app/src/test/java/com/darius/unison/room/PeerEndpointAuthorityTest.kt
+  app/src/test/java/com/darius/unison/room/RoomLifecycleSeamRegressionTest.kt
   app/src/test/java/com/darius/unison/room/SerializedEventLoopTest.kt
   app/src/test/java/com/darius/unison/room/SessionJobRegistryTest.kt
   app/src/test/java/com/darius/unison/room/JoinRetryPolicyTest.kt

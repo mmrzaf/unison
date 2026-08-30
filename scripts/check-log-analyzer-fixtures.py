@@ -78,6 +78,12 @@ CASES = (
         False,
         stability_marker="PlayerExecutor missed scheduled playback",
     ),
+    Case(
+        "bad-actor-handler-cancellation.ndjson",
+        True,
+        False,
+        stability_marker="unexpected room actor handler cancellations",
+    ),
 )
 
 

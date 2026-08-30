@@ -13,6 +13,7 @@ run_standalone_kotlinc \
   scripts/core-check/stubs/android/net/Uri.kt \
   scripts/core-check/stubs/android/os/SystemClock.kt \
   scripts/core-check/stubs/kotlinx/serialization/Stubs.kt \
+  scripts/core-check/stubs/org/junit/JUnitStubs.kt \
   scripts/risky-kotlin-check/stubs/android/util/Log.kt \
   scripts/risky-kotlin-check/stubs/com/darius/unison/library/TrackRepository.kt \
   scripts/risky-kotlin-check/stubs/com/darius/unison/protocol/ProtocolJson.kt \
@@ -23,6 +24,7 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt \
   app/src/main/java/com/darius/unison/protocol/ProtocolException.kt \
   app/src/main/java/com/darius/unison/protocol/Crypto.kt \
+  app/src/main/java/com/darius/unison/protocol/Srp6aCore.kt \
   app/src/main/java/com/darius/unison/protocol/PinPake.kt \
   app/src/main/java/com/darius/unison/protocol/AuthenticatedFileStreamCodec.kt \
   app/src/main/java/com/darius/unison/protocol/FileWireCodec.kt \
@@ -38,6 +40,7 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/sync/PlaybackSyncTuning.kt \
   app/src/main/java/com/darius/unison/room/TransportCommandTracker.kt \
   app/src/main/java/com/darius/unison/room/QueuePreparationFence.kt \
+  app/src/main/java/com/darius/unison/room/RoomSessionProvenance.kt \
   app/src/main/java/com/darius/unison/room/RoomEvent.kt \
   app/src/main/java/com/darius/unison/storage/ManagedFileStore.kt \
   app/src/main/java/com/darius/unison/transfer/TransferCancellationRegistry.kt \
@@ -49,7 +52,10 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/util/DiagnosticEvent.kt \
   app/src/main/java/com/darius/unison/util/DiagnosticLog.kt \
   app/src/main/java/com/darius/unison/sync/SynchronizationDiagnostics.kt \
+  app/src/test/java/com/darius/unison/network/ControlConnectionPriorityTest.kt \
+  scripts/risky-kotlin-check/ControlConnectionPriorityCheck.kt \
   -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
   -d "$OUT_DIR/risky-kotlin.jar"
 
 echo RISKY_KOTLIN_COMPILE_OK
+java -cp "$OUT_DIR/risky-kotlin.jar:$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" ControlConnectionPriorityCheckKt

@@ -31,6 +31,7 @@ run_standalone_kotlinc \
   app/src/main/java/com/darius/unison/playback/PlaybackQueueDiffPolicy.kt \
   app/src/main/java/com/darius/unison/playback/PlaybackTimelinePlan.kt \
   app/src/main/java/com/darius/unison/playback/SystemMediaCommandPolicy.kt \
+  app/src/main/java/com/darius/unison/playback/OutputRouteQueryPolicy.kt \
   app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt \
   -classpath "$STANDALONE_KOTLIN_RUNTIME_CLASSPATH" \
   -d "$OUT_DIR/player-kotlin.jar"
