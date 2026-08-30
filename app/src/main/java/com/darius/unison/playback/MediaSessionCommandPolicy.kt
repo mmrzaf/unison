@@ -2,21 +2,20 @@ package com.darius.unison.playback
 
 import androidx.media3.common.Player
 
-@androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
-internal fun Player.Commands.Builder.addAllReadOnlyCommands(): Player.Commands.Builder =
-    addAll(
-        Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
-        Player.COMMAND_GET_TIMELINE,
-        Player.COMMAND_GET_METADATA,
-        Player.COMMAND_GET_AUDIO_ATTRIBUTES,
-        Player.COMMAND_GET_VOLUME,
-        Player.COMMAND_GET_DEVICE_VOLUME,
-        Player.COMMAND_GET_TEXT,
-        Player.COMMAND_GET_TRACKS,
-    )
-
 /** MediaSession capabilities that Unison can faithfully translate into canonical room commands. */
 internal object MediaSessionCommandPolicy {
+    val readOnlyPlayerCommands: Set<Int> =
+        setOf(
+            Player.COMMAND_GET_CURRENT_MEDIA_ITEM,
+            Player.COMMAND_GET_TIMELINE,
+            Player.COMMAND_GET_METADATA,
+            Player.COMMAND_GET_AUDIO_ATTRIBUTES,
+            Player.COMMAND_GET_VOLUME,
+            Player.COMMAND_GET_DEVICE_VOLUME,
+            Player.COMMAND_GET_TEXT,
+            Player.COMMAND_GET_TRACKS,
+        )
+
     val supportedPlayerCommands: Set<Int> =
         setOf(
             Player.COMMAND_PLAY_PAUSE,
@@ -31,9 +30,4 @@ internal object MediaSessionCommandPolicy {
             Player.COMMAND_SEEK_FORWARD,
         )
 
-    fun systemCommands(): Player.Commands {
-        val builder = Player.Commands.Builder().addAllReadOnlyCommands()
-        supportedPlayerCommands.forEach(builder::add)
-        return builder.build()
-    }
 }
