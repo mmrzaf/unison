@@ -54,8 +54,8 @@ data class DiagnosticEvent(
     /**
      * A valid structured record sized for Android's Logcat transport. Persistent NDJSON keeps the
      * complete sanitized event; Logcat gets the same schema with bounded body/error strings and,
-     * only when necessary, a priority-preserving attribute projection so a log entry is never
-     * split into invalid JSON by Logcat.
+     * only when necessary, a priority-preserving attribute projection so a log entry is never split
+     * into invalid JSON by Logcat.
      */
     fun toLogcatJsonLine(maxChars: Int = MAX_LOGCAT_RECORD_CHARS): String {
         val compactAttributes =
@@ -99,60 +99,61 @@ data class DiagnosticEvent(
     private fun compactLogcatValue(value: Any?): Any? =
         if (value is String) value.take(MAX_LOGCAT_ATTRIBUTE_VALUE_CHARS) else value
 
-    fun toJsonLine(): String = buildString(384) {
-        append('{')
-        appendJsonField("schemaVersion", SCHEMA_VERSION)
-        append(',')
-        appendJsonField("sequence", sequence)
-        append(',')
-        appendJsonField("timestamp", timestamp)
-        append(',')
-        appendJsonField("observedTimestamp", observedTimestamp)
-        append(',')
-        appendJsonField("monotonicTimeNs", monotonicTimeNs)
-        append(',')
-        appendJsonField("severityText", severity.severityText)
-        append(',')
-        appendJsonField("severityNumber", severity.severityNumber)
-        append(',')
-        appendJsonField("eventName", eventName)
-        body?.let {
+    fun toJsonLine(): String =
+        buildString(384) {
+            append('{')
+            appendJsonField("schemaVersion", SCHEMA_VERSION)
             append(',')
-            appendJsonField("body", it)
-        }
-        append(',')
-        append("\"resource\":{")
-        appendJsonField("service.name", "unison")
-        append('}')
-        append(',')
-        append("\"instrumentationScope\":{")
-        appendJsonField("name", component)
-        append('}')
-        append(',')
-        append("\"attributes\":{")
-        val normalizedAttributes =
-            linkedMapOf<String, Any?>("log.category" to category.wireName).apply {
-                putAll(attributes.toSortedMap())
-            }
-        normalizedAttributes.entries.forEachIndexed { index, (key, value) ->
-            if (index > 0) append(',')
-            appendJsonString(key)
-            append(':')
-            appendJsonValue(value)
-        }
-        append('}')
-        error?.let { diagnosticError ->
+            appendJsonField("sequence", sequence)
             append(',')
-            append("\"exception\":{")
-            appendJsonField("type", diagnosticError.type)
-            diagnosticError.message?.let {
+            appendJsonField("timestamp", timestamp)
+            append(',')
+            appendJsonField("observedTimestamp", observedTimestamp)
+            append(',')
+            appendJsonField("monotonicTimeNs", monotonicTimeNs)
+            append(',')
+            appendJsonField("severityText", severity.severityText)
+            append(',')
+            appendJsonField("severityNumber", severity.severityNumber)
+            append(',')
+            appendJsonField("eventName", eventName)
+            body?.let {
                 append(',')
-                appendJsonField("message", it)
+                appendJsonField("body", it)
+            }
+            append(',')
+            append("\"resource\":{")
+            appendJsonField("service.name", "unison")
+            append('}')
+            append(',')
+            append("\"instrumentationScope\":{")
+            appendJsonField("name", component)
+            append('}')
+            append(',')
+            append("\"attributes\":{")
+            val normalizedAttributes =
+                linkedMapOf<String, Any?>("log.category" to category.wireName).apply {
+                    putAll(attributes.toSortedMap())
+                }
+            normalizedAttributes.entries.forEachIndexed { index, (key, value) ->
+                if (index > 0) append(',')
+                appendJsonString(key)
+                append(':')
+                appendJsonValue(value)
+            }
+            append('}')
+            error?.let { diagnosticError ->
+                append(',')
+                append("\"exception\":{")
+                appendJsonField("type", diagnosticError.type)
+                diagnosticError.message?.let {
+                    append(',')
+                    appendJsonField("message", it)
+                }
+                append('}')
             }
             append('}')
         }
-        append('}')
-    }
 
     private fun StringBuilder.appendJsonField(name: String, value: Any?) {
         appendJsonString(name)

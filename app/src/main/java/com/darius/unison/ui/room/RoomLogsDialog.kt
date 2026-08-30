@@ -40,14 +40,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.FileProvider
-import java.io.File
-import java.util.ArrayDeque
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticEvent
-import kotlinx.coroutines.flow.StateFlow
+import java.io.File
+import java.util.ArrayDeque
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -78,11 +78,14 @@ internal fun RoomLogsDialog(
     var copied by remember { mutableStateOf(false) }
 
     val availableCategories =
-        remember(events) { events.map(DiagnosticEvent::category).distinct().sortedBy { it.wireName } }
+        remember(events) {
+            events.map(DiagnosticEvent::category).distinct().sortedBy { it.wireName }
+        }
     val filtered =
         remember(events, query, severityFilter, categoryFilter) {
             val normalizedQuery = query.trim()
-            events.asSequence()
+            events
+                .asSequence()
                 .filter { it.severity.severityNumber >= severityFilter.minimumSeverityNumber }
                 .filter { categoryFilter == null || it.category == categoryFilter }
                 .filter { event ->
@@ -92,7 +95,8 @@ internal fun RoomLogsDialog(
                         event.component.contains(normalizedQuery, ignoreCase = true) ||
                         event.attributes.any { (key, value) ->
                             key.contains(normalizedQuery, ignoreCase = true) ||
-                                value?.toString()?.contains(normalizedQuery, ignoreCase = true) == true
+                                value?.toString()?.contains(normalizedQuery, ignoreCase = true) ==
+                                    true
                         }
                 }
                 .toList()
@@ -134,7 +138,8 @@ internal fun RoomLogsDialog(
                         enabled = filtered.isNotEmpty(),
                         onClick = {
                             val clipboard =
-                                context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                    as ClipboardManager
                             val text = roomLogClipboardText(filtered)
                             copied =
                                 runCatching {
@@ -149,7 +154,10 @@ internal fun RoomLogsDialog(
                             if (copied) Icons.Default.CheckCircle else Icons.Default.ContentCopy,
                             contentDescription = null,
                         )
-                        Text(if (copied) "Copied" else "Copy", modifier = Modifier.padding(start = 6.dp))
+                        Text(
+                            if (copied) "Copied" else "Copy",
+                            modifier = Modifier.padding(start = 6.dp),
+                        )
                     }
                     TextButton(
                         enabled = filtered.isNotEmpty(),
@@ -166,17 +174,23 @@ internal fun RoomLogsDialog(
                                         clipData = ClipData.newRawUri("Unison diagnostics", uri)
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share diagnostics"))
+                                context.startActivity(
+                                    Intent.createChooser(shareIntent, "Share diagnostics")
+                                )
                             }
                         },
-                    ) { Text("Share") }
+                    ) {
+                        Text("Share")
+                    }
                     TextButton(
                         enabled = events.isNotEmpty(),
                         onClick = {
                             onClear()
                             copied = false
                         },
-                    ) { Text("Clear view") }
+                    ) {
+                        Text("Clear view")
+                    }
                     TextButton(onClick = onDismiss) { Text("Done") }
                 }
 
@@ -193,7 +207,8 @@ internal fun RoomLogsDialog(
                 )
 
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(RoomLogSeverityFilter.entries, key = { "severity:${it.name}" }) { filter ->
+                    items(RoomLogSeverityFilter.entries, key = { "severity:${it.name}" }) { filter
+                        ->
                         FilterChip(
                             selected = severityFilter == filter,
                             onClick = {
@@ -224,7 +239,9 @@ internal fun RoomLogsDialog(
                                     categoryFilter = category
                                     copied = false
                                 },
-                                label = { Text(category.wireName.replaceFirstChar { it.uppercase() }) },
+                                label = {
+                                    Text(category.wireName.replaceFirstChar { it.uppercase() })
+                                },
                             )
                         }
                     }

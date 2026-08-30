@@ -5,7 +5,6 @@ import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
-import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RepeatMode
 import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
@@ -13,7 +12,6 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.protocol.ProtocolBody
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -130,10 +128,11 @@ class PlaybackQueuePolicyTest {
     @Test
     fun immediateNextTracksCurrentQueueOrderAfterReorder() {
         val reordered =
-            snapshot().copy(
-                queue = listOf(first, third, second),
-                playback = CanonicalPlaybackState(first.queueItemId, 0, 1, true),
-            )
+            snapshot()
+                .copy(
+                    queue = listOf(first, third, second),
+                    playback = CanonicalPlaybackState(first.queueItemId, 0, 1, true),
+                )
         assertEquals(
             third.queueItemId,
             PlaybackQueuePolicy.immediateNextQueueItemId(reordered, first.queueItemId),
@@ -143,10 +142,11 @@ class PlaybackQueuePolicyTest {
     @Test
     fun naturalSuccessorHonorsRepeatAllWrap() {
         val room =
-            snapshot().copy(
-                playback = CanonicalPlaybackState(third.queueItemId, 0, 1, true),
-                repeatMode = RepeatMode.ALL,
-            )
+            snapshot()
+                .copy(
+                    playback = CanonicalPlaybackState(third.queueItemId, 0, 1, true),
+                    repeatMode = RepeatMode.ALL,
+                )
         assertEquals(
             first.queueItemId,
             PlaybackQueuePolicy.naturalSuccessorQueueItemId(room, third.queueItemId),

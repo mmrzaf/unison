@@ -17,10 +17,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * [trySubmit] and explicitly handle a false result.
  *
  * [onDropped] is invoked for accepted events that cannot finish because the loop or its owning
- * scope is cancelled. Completion-bearing events must use it so shutdown never strands callers.
- * A [CancellationException] thrown by one handler while this loop's owner is still active is
- * reported through [onFailure] like any other event failure; only cancellation of the owner job
- * itself is allowed to terminate the persistent consumer.
+ * scope is cancelled. Completion-bearing events must use it so shutdown never strands callers. A
+ * [CancellationException] thrown by one handler while this loop's owner is still active is reported
+ * through [onFailure] like any other event failure; only cancellation of the owner job itself is
+ * allowed to terminate the persistent consumer.
  */
 class SerializedEventLoop<E>(
     scope: CoroutineScope,

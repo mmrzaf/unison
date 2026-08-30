@@ -187,8 +187,7 @@ internal constructor(
     ) {
         val requestedEventName = eventName.trim().take(MAX_EVENT_NAME_CHARS)
         val validEventName = EVENT_NAME.matches(requestedEventName)
-        val safeEventName =
-            if (validEventName) requestedEventName else INVALID_EVENT_NAME
+        val safeEventName = if (validEventName) requestedEventName else INVALID_EVENT_NAME
         val safeBody = body?.let(DiagnosticSanitizer::sanitize)?.takeIf(String::isNotBlank)
         val room = roomContext.get()
         val safeAttributes =
@@ -202,17 +201,18 @@ internal constructor(
                 },
                 room,
             )
-        val error =
-            throwable?.let {
-                DiagnosticError(
-                    type = (it::class.qualifiedName ?: it::class.simpleName ?: "Throwable")
-                        .take(MAX_ERROR_TYPE_CHARS),
-                    message =
-                        DiagnosticSanitizer.sanitize(it.message.orEmpty())
-                            .take(MAX_ERROR_MESSAGE_CHARS)
-                            .ifBlank { null },
-                )
-            }
+        val error = throwable?.let {
+            DiagnosticError(
+                type =
+                    (it::class.qualifiedName ?: it::class.simpleName ?: "Throwable").take(
+                        MAX_ERROR_TYPE_CHARS
+                    ),
+                message =
+                    DiagnosticSanitizer.sanitize(it.message.orEmpty())
+                        .take(MAX_ERROR_MESSAGE_CHARS)
+                        .ifBlank { null },
+            )
+        }
         val now = Instant.now().toString()
         val event =
             DiagnosticEvent(
@@ -223,7 +223,8 @@ internal constructor(
                 severity = severity,
                 eventName = safeEventName,
                 body = safeBody,
-                component = DiagnosticSanitizer.sanitizeAttribute(component).take(MAX_COMPONENT_CHARS),
+                component =
+                    DiagnosticSanitizer.sanitizeAttribute(component).take(MAX_COMPONENT_CHARS),
                 category = category,
                 attributes = safeAttributes,
                 error = error,
@@ -340,9 +341,11 @@ internal constructor(
 
     private fun flushPending() {
         try {
-            writer.submit {
-                synchronized(lock) { flushWriter() }
-            }.get(READ_FLUSH_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            writer
+                .submit {
+                    synchronized(lock) { flushWriter() }
+                }
+                .get(READ_FLUSH_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         } catch (_: Throwable) {
             // Diagnostics are best-effort; never block application teardown/export indefinitely.
         }
@@ -357,9 +360,9 @@ internal constructor(
 
     private fun writerForCurrentFile(): BufferedWriter =
         bufferedWriter
-            ?: FileOutputStream(file, true)
-                .bufferedWriter(Charsets.UTF_8)
-                .also { bufferedWriter = it }
+            ?: FileOutputStream(file, true).bufferedWriter(Charsets.UTF_8).also {
+                bufferedWriter = it
+            }
 
     private fun flushWriter(nowNs: Long = System.nanoTime()) {
         bufferedWriter?.flush()
@@ -393,7 +396,9 @@ internal constructor(
 
     private fun hashIdentifier(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-        return digest.take(8).joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return digest.take(8).joinToString(separator = "") { byte ->
+            "%02x".format(byte.toInt() and 0xff)
+        }
     }
 
     companion object {
@@ -417,11 +422,14 @@ internal constructor(
         private val EVENT_NAME = Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+")
         private val ATTRIBUTE_KEY = Regex("[a-z][a-z0-9_.-]*")
         private val SENSITIVE_ATTRIBUTE_KEY =
-            Regex("(?i)(secret|token|passphrase|pin|password|credential|authorization|proof|key_material)")
+            Regex(
+                "(?i)(secret|token|passphrase|pin|password|credential|authorization|proof|key_material)"
+            )
     }
 }
 
-class DiagnosticLogger internal constructor(
+class DiagnosticLogger
+internal constructor(
     private val sink: DiagnosticLog,
     private val component: String,
     private val category: DiagnosticCategory,

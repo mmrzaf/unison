@@ -10,16 +10,17 @@ phone temporarily coordinates the room; every listener plays a verified local co
 There is no account, cloud backend, hosted relay, analytics service, advertising SDK, or required
 Internet connection.
 
-> **Public alpha:** `1.2.0-alpha.1` is an early 1.2 prerelease. It uses the signed release build
-> path intended for stable releases while focused compatibility feedback is collected before beta.
+> **Public beta:** `1.2.0-beta.1` is the first 1.2 production-style beta. It uses the same signed
+> release build path intended for stable releases, but it is published as a GitHub prerelease while
+> real-device and contributor feedback is collected.
 
-## Download the alpha
+## Download the beta
 
 Download the latest prerelease APK from [GitHub Releases](https://github.com/mmrzaf/unison/releases).
-Unison supports Android 11+ (`minSdk 30`). APKs are sideloaded; stable and prerelease builds can update one
+Unison supports Android 11+ (`minSdk 30`). APKs are sideloaded; stable and beta builds can update one
 another when signed by the same release key and when `versionCode` increases.
 
-Before installing an alpha, read the release notes and verify the published SHA-256 checksum if you want
+Before installing a beta, read the release notes and verify the published SHA-256 checksum if you want
 to validate the downloaded artifact independently.
 
 ## How it works
@@ -35,7 +36,7 @@ then keep one shared playback experience synchronized with as little ongoing wor
 ## Product contract
 
 - Application ID: `com.darius.unison`
-- Version: `1.2.0-alpha.1` (`versionCode` 4)
+- Version: `1.2.0-beta.1` (`versionCode` 5)
 - Wire protocol: **2 only**
 - Room database schema: **1 only**
 - Runtime floor: Android 11 (`minSdk 30`, `targetSdk 33`); release qualification covers Android 11,
@@ -45,19 +46,19 @@ then keep one shared playback experience synchronized with as little ongoing wor
 - Public addresses and DNS joins are rejected
 - Audio identity is SHA-256; a received file becomes playable only after full verification
 
-The 1.2 alpha line is expected to upgrade forward into later 1.2 alphas, betas/RCs, and stable `1.2.0` while
+The 1.2 beta line is expected to upgrade forward into later 1.2 betas/RCs and stable `1.2.0` while
 Protocol 2 and database schema 1 remain unchanged. The signed 1.1.x/1.0.x release line is also a
 supported installation source for the 1.2 release line.
 
-## Alpha status and known limitations
+## Beta status and known limitations
 
 - Nearby/private-network operation only; there is no Internet relay.
 - Every listener ultimately needs the exact track bytes. Unison transfers missing content locally.
 - Android/OEM Wi-Fi, background, audio-focus, and output-route behavior can vary; device-specific
-  reports are especially valuable during alpha.
+  reports are especially valuable during beta.
 - `targetSdk 33` is intentionally retained for the 1.2 line and qualified separately from
   `compileSdk 36`; a target-SDK upgrade is not mixed into this stabilization cycle.
-- Alpha releases are prereleases. Use [Issues](https://github.com/mmrzaf/unison/issues) for reproducible
+- Beta releases are prereleases. Use [Issues](https://github.com/mmrzaf/unison/issues) for reproducible
   bugs and [Discussions](https://github.com/mmrzaf/unison/discussions) for questions and ideas.
 
 ## Experience
@@ -121,7 +122,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 `develop` is the normal development branch. Release-style builds are created from immutable tags such
-as `v1.2.0-alpha.1`; a release build does not imply a stable release.
+as `v1.2.0-beta.1`; a release build does not imply a stable release.
 
 ## Contributing
 

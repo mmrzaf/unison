@@ -300,7 +300,7 @@ class PlayerExecutorTest {
             val controller =
                 PlayerExecutor(
                     player = player,
-                            clock = clock,
+                    clock = clock,
                     clockSync = clockSync,
                     scope = scope,
                     log = testLog(),
@@ -353,7 +353,7 @@ class PlayerExecutorTest {
             val clock = MonotonicClock { 0L }
             PlayerExecutor(
                     player = player,
-                            clock = clock,
+                    clock = clock,
                     clockSync = ClockSyncEngine(clock),
                     scope = scope,
                     log = testLog(),
@@ -386,7 +386,7 @@ class PlayerExecutorTest {
             val clock = MonotonicClock { 0L }
             PlayerExecutor(
                     player = player,
-                            clock = clock,
+                    clock = clock,
                     clockSync = ClockSyncEngine(clock),
                     scope = scope,
                     log = testLog(),
@@ -436,7 +436,6 @@ class PlayerExecutorTest {
         }
     }
 
-
     @Test
     fun cancelWhileReservationWaitsCannotResurrectScheduledCommand() = runBlocking {
         val player = FakePlayer(PlayerState(queueItemId = itemId, positionMs = 0L, prepared = true))
@@ -455,13 +454,12 @@ class PlayerExecutorTest {
                     onError = {},
                     usesLocalCoordinatorClock = { true },
                 )
-            val maintenance =
-                async {
-                    controller.maintenance {
-                        maintenanceStarted.complete(Unit)
-                        releaseMaintenance.await()
-                    }
+            val maintenance = async {
+                controller.maintenance {
+                    maintenanceStarted.complete(Unit)
+                    releaseMaintenance.await()
                 }
+            }
 
             maintenanceStarted.await()
             val scheduling = async { controller.schedulePlay(itemId, 0L, 0L, "cancelled") }
@@ -496,9 +494,11 @@ class PlayerExecutorTest {
         val settled = CompletableDeferred<Unit>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val controller = controller(player, scope) { id, phase, _ ->
-                if (id == "new" && phase == TransportCommandPhase.SETTLED) settled.complete(Unit)
-            }
+            val controller =
+                controller(player, scope) { id, phase, _ ->
+                    if (id == "new" && phase == TransportCommandPhase.SETTLED)
+                        settled.complete(Unit)
+                }
             val maintenance = async {
                 controller.maintenance {
                     maintenanceStarted.complete(Unit)
@@ -530,14 +530,16 @@ class PlayerExecutorTest {
         val phases = mutableListOf<Pair<String, TransportCommandPhase>>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val controller = controller(player, scope) { id, phase, _ ->
-                synchronized(phases) { phases += id to phase }
-            }
+            val controller =
+                controller(player, scope) { id, phase, _ ->
+                    synchronized(phases) { phases += id to phase }
+                }
             controller.schedulePlay(itemId, 0L, 10_000_000_000L, "old")
-            val immediate = controller.executeImmediateTransport("now") {
-                pause(PlaybackPauseCause.SCHEDULED_TRANSPORT)
-                true
-            }
+            val immediate =
+                controller.executeImmediateTransport("now") {
+                    pause(PlaybackPauseCause.SCHEDULED_TRANSPORT)
+                    true
+                }
             delay(80L)
 
             assertEquals(PlayerExecutor.ExecutionResult.SUCCESS, immediate.result)
@@ -596,7 +598,13 @@ class PlayerExecutorTest {
                     if (id == "inhibited-seek" && phase == TransportCommandPhase.SETTLED)
                         settled.complete(Unit)
                 }
-                .scheduleSeek(itemId, 5_000L, resume = true, executeAtCoordinatorNs = 0L, commandId = "inhibited-seek")
+                .scheduleSeek(
+                    itemId,
+                    5_000L,
+                    resume = true,
+                    executeAtCoordinatorNs = 0L,
+                    commandId = "inhibited-seek",
+                )
 
             withTimeout(2_000L) { settled.await() }
             assertEquals(0, player.playCalls)

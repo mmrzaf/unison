@@ -35,14 +35,17 @@ class RoomEngine(initialSnapshot: RoomSnapshot) {
         playPositionOverrideMs: Long? = null,
         acceptsSnapshot: (RoomSnapshot) -> Boolean = { true },
     ): RoomReducer.Decision = mutex.withLock {
-        when (val decision = RoomReducer.decide(
-            current,
-            command,
-            coordinatorNowNs,
-            leadNs,
-            preparedQueueItemIds,
-            playPositionOverrideMs,
-        )) {
+        when (
+            val decision =
+                RoomReducer.decide(
+                    current,
+                    command,
+                    coordinatorNowNs,
+                    leadNs,
+                    preparedQueueItemIds,
+                    playPositionOverrideMs,
+                )
+        ) {
             is RoomReducer.Decision.Accepted -> {
                 if (decision.mutations.all { acceptsSnapshot(it.snapshot) }) {
                     current = decision.mutations.lastOrNull()?.snapshot ?: current

@@ -80,7 +80,8 @@ class AndroidLocalNetworkRouter(
         val routed =
             when {
                 network == null -> endpointFallbackRoute(remoteAddress)
-                network == connectivityManager.activeNetwork -> systemDefaultRoute(remoteAddress, network)
+                network == connectivityManager.activeNetwork ->
+                    systemDefaultRoute(remoteAddress, network)
                 else -> createNetworkBoundRoute(remoteAddress, network, purpose)
             }
 
@@ -148,10 +149,9 @@ class AndroidLocalNetworkRouter(
         error: Exception,
     ): RoutedSocket? {
         val activeNetwork =
-            connectivityManager.activeNetwork
-                ?.takeIf(::isLocalNetworkUsable)
-                ?.takeIf { network -> networkRoutesTo(network, remoteAddress) }
-                ?: return null
+            connectivityManager.activeNetwork?.takeIf(::isLocalNetworkUsable)?.takeIf { network ->
+                networkRoutesTo(network, remoteAddress)
+            } ?: return null
 
         log.warn(
             TAG,
@@ -191,9 +191,7 @@ class AndroidLocalNetworkRouter(
             "network.socket.connected",
             attributes =
                 routedAttributes(route) +
-                    mapOf(
-                        "network.local_address_family" to localAddress?.let(::addressFamily),
-                    ),
+                    mapOf("network.local_address_family" to localAddress?.let(::addressFamily)),
         )
     }
 
@@ -223,21 +221,25 @@ class AndroidLocalNetworkRouter(
      * interface enumeration for hotspot/downstream cases where Android exposes no usable [Network].
      */
     fun preferredLocalAddress(preferHotspot: Boolean): InetAddress? {
-        activeLocalAddress
-            ?.takeIf(NetworkAddressPolicy::isAllowed)
-            ?.let { address -> return address }
+        activeLocalAddress?.takeIf(NetworkAddressPolicy::isAllowed)?.let { address ->
+            return address
+        }
 
         activeRoomNetwork
             ?.takeIf(::isLocalNetworkUsable)
             ?.let(::linkProperties)
             ?.let { properties -> bestAddress(properties, preferHotspot) }
-            ?.let { address -> return address }
+            ?.let { address ->
+                return address
+            }
 
         val active = connectivityManager.activeNetwork
         if (active != null && isLocalNetworkUsable(active)) {
             linkProperties(active)
                 ?.let { properties -> bestAddress(properties, preferHotspot) }
-                ?.let { address -> return address }
+                ?.let { address ->
+                    return address
+                }
         }
 
         currentNetworks()
@@ -276,7 +278,9 @@ class AndroidLocalNetworkRouter(
         activeRoomNetwork
             ?.takeIf(::isLocalNetworkUsable)
             ?.takeIf { network -> networkRoutesTo(network, remoteAddress) }
-            ?.let { network -> return network }
+            ?.let { network ->
+                return network
+            }
 
         return inferNetwork(remoteAddress)?.also { network ->
             activeRoomNetwork = network
@@ -293,9 +297,9 @@ class AndroidLocalNetworkRouter(
     private fun findNetworkByLocalAddress(localAddress: InetAddress): Network? =
         currentNetworks().firstOrNull { network ->
             isLocalNetworkUsable(network) &&
-                linkProperties(network)
-                    ?.linkAddresses
-                    ?.any { linkAddress -> linkAddress.address == localAddress } == true
+                linkProperties(network)?.linkAddresses?.any { linkAddress ->
+                    linkAddress.address == localAddress
+                } == true
         }
 
     private fun resolveNetworkById(id: String?): Network? {
@@ -304,13 +308,17 @@ class AndroidLocalNetworkRouter(
         activeRoomNetwork
             ?.takeIf { network -> networkId(network) == id }
             ?.takeIf(::isLocalNetworkUsable)
-            ?.let { network -> return network }
+            ?.let { network ->
+                return network
+            }
 
         discoveredNetworks.values
             .firstOrNull { network ->
                 networkId(network) == id && isLocalNetworkUsable(network)
             }
-            ?.let { network -> return network }
+            ?.let { network ->
+                return network
+            }
 
         return currentNetworks().firstOrNull { network ->
             networkId(network) == id && isLocalNetworkUsable(network)
@@ -356,8 +364,7 @@ class AndroidLocalNetworkRouter(
             }
 
     @Suppress("DEPRECATION")
-    private fun currentNetworks(): Array<Network> =
-        connectivityManager.allNetworks
+    private fun currentNetworks(): Array<Network> = connectivityManager.allNetworks
 
     private fun routeAttributes(address: InetAddress, network: Network?): Map<String, Any?> =
         mapOf(

@@ -265,9 +265,7 @@ internal class ControlAdmissionController(
                 return rejected(HandshakeRejectionCode.WRONG_ROOM, "Wrong room")
             val identity = localIdentity()
             val isKnownPeer = current.members.any { it.peerId == hello.peerId }
-            if (
-                !isKnownPeer && current.members.size >= MAX_ROOM_MEMBERS
-            ) {
+            if (!isKnownPeer && current.members.size >= MAX_ROOM_MEMBERS) {
                 return rejected(HandshakeRejectionCode.ROOM_FULL, "Room is full")
             }
 

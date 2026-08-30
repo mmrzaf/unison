@@ -4,8 +4,8 @@ import com.darius.unison.model.LocalPlaybackInhibitionReason
 import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.QueueItemId
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class PlayerStateEventPolicyTest {
@@ -59,6 +59,7 @@ class PlayerStateEventPolicyTest {
             assertFalse(PlayerStateEventPolicy.key(base) == PlayerStateEventPolicy.key(changed))
         }
     }
+
     @Test
     fun naturalBoundaryRevisionChangesActorEventKey() {
         val base = PlayerState(queueItemId = QueueItemId("a"), itemBoundaryRevision = 4)
@@ -88,5 +89,4 @@ class PlayerStateEventPolicyTest {
 
         assertNotEquals(blocked, cleared)
     }
-
 }

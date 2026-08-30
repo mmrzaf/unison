@@ -90,7 +90,8 @@ class CacheCleanupWorker(
                 TAG,
                 DiagnosticCategory.STORAGE,
                 "storage.cleanup.failed",
-                attributes = mapOf("cleanup.attempt" to runAttemptCount + 1, "cleanup.retry" to retry),
+                attributes =
+                    mapOf("cleanup.attempt" to runAttemptCount + 1, "cleanup.retry" to retry),
                 throwable = error,
             )
             if (retry) Result.retry() else Result.failure()

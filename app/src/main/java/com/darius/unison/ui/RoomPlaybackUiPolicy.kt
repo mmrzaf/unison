@@ -109,7 +109,8 @@ internal object RoomPlaybackUiPolicy {
             when {
                 !hasCurrentItem -> PrimaryControl.NONE
                 manualRejoinPending -> PrimaryControl.RECOVERING
-                outputInhibited && localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
+                outputInhibited &&
+                    localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
                     PrimaryControl.RECOVERING
                 outputInhibited -> PrimaryControl.REJOIN
                 pendingSuccessorQueueItemId != null -> PrimaryControl.WAITING_FOR_NEXT
@@ -207,7 +208,8 @@ internal object RoomPlaybackUiPolicy {
         }
         if (!command.active) return null
 
-        val target = command.queueItemId?.let { id -> snapshot.queue.firstOrNull { it.queueItemId == id } }
+        val target =
+            command.queueItemId?.let { id -> snapshot.queue.firstOrNull { it.queueItemId == id } }
         val transfer = target?.track?.trackId?.let(transfers::get)
         val title = target?.track?.displayTitle
         val quotedTitle = title?.let { "“$it”" }

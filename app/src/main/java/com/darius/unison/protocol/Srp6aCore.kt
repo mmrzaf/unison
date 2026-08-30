@@ -66,7 +66,8 @@ internal object Srp6aCore {
         verifier: BigInteger,
         serverPrivateValue: BigInteger,
     ): BigInteger =
-        multiplier.multiply(verifier)
+        multiplier
+            .multiply(verifier)
             .add(generator.modPow(serverPrivateValue, modulus))
             .mod(modulus)
 

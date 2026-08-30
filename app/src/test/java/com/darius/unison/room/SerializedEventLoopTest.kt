@@ -175,5 +175,4 @@ class SerializedEventLoopTest {
         assertTrue(durationNs > 0L)
         loop.close()
     }
-
 }

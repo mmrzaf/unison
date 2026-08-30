@@ -10,15 +10,15 @@ import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
+import com.darius.unison.model.RoomIssue
+import com.darius.unison.model.RoomIssueCode
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.RoomMediaReadiness
+import com.darius.unison.model.RoomRecoveryAction
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransferProgress
-import com.darius.unison.model.RoomIssue
-import com.darius.unison.model.RoomIssueCode
-import com.darius.unison.model.RoomRecoveryAction
 import com.darius.unison.model.TransportAction
 import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.model.TransportCommandStatus
@@ -92,8 +92,6 @@ class RoomPlaybackUiPolicyTest {
         assertFalse(controls.primaryActionEnabled)
         assertTrue(controls.canSelectItem)
     }
-
-
 
     @Test
     fun unreadyCurrentItemOffersPrepareInsteadOfImpossiblePlay() {
@@ -217,12 +215,13 @@ class RoomPlaybackUiPolicyTest {
         assertTrue(presentation?.message?.contains("Target song") == true)
     }
 
-
     @Test
     fun pendingSuccessorIsPresentedEvenWithoutUserTransportCommand() {
         val peer = PeerId("peer-123456789012")
-        val currentTrack = TrackDescriptor(TrackId("a".repeat(64)), 1_000, durationMs = 60_000, title = "A")
-        val nextTrack = TrackDescriptor(TrackId("b".repeat(64)), 2_000, durationMs = 60_000, title = "B")
+        val currentTrack =
+            TrackDescriptor(TrackId("a".repeat(64)), 1_000, durationMs = 60_000, title = "A")
+        val nextTrack =
+            TrackDescriptor(TrackId("b".repeat(64)), 2_000, durationMs = 60_000, title = "B")
         val current = QueueItem(QueueItemId("current"), currentTrack, peer, 1)
         val next = QueueItem(QueueItemId("next"), nextTrack, peer, 2)
         val snapshot =
@@ -282,6 +281,7 @@ class RoomPlaybackUiPolicyTest {
 
         assertEquals(RoomPlaybackUiPolicy.TransitionKind.RECOVERING, presentation?.kind)
     }
+
     @Test
     fun retryCommandsPreserveTargetInformation() {
         val seek =
@@ -342,7 +342,6 @@ class RoomPlaybackUiPolicyTest {
             status(TransportAction.PLAY, TransportCommandPhase.REJECTED).retryCommandOrNull()
         )
     }
-
 
     @Test
     fun roomEndedUsesTerminalHumanFacingIssueCopy() {

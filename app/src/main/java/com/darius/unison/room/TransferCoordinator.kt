@@ -5,7 +5,9 @@ import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransferPriority
 import com.darius.unison.transfer.TransferCapacityPolicy
 
-/** One destination's request for content, ranked by playback consequence rather than arrival order. */
+/**
+ * One destination's request for content, ranked by playback consequence rather than arrival order.
+ */
 internal data class TransferDemand(
     val trackId: TrackId,
     val destinationPeerId: PeerId,
@@ -32,7 +34,7 @@ internal data class TransferRouteHealth(
  * actor, so transfer policy has one deterministic owner without adding another concurrency domain.
  */
 internal class TransferCoordinator(
-    private val capacity: TransferCapacityPolicy = TransferCapacityPolicy.DEFAULT,
+    private val capacity: TransferCapacityPolicy = TransferCapacityPolicy.DEFAULT
 ) {
 
     private val demands = mutableMapOf<Pair<TrackId, PeerId>, TransferDemand>()
@@ -65,7 +67,9 @@ internal class TransferCoordinator(
     fun removePeer(peerId: PeerId) {
         demands.keys.removeAll { (_, destination) -> destination == peerId }
         activeRoutes.entries
-            .filter { (_, route) -> route.sourcePeerId == peerId || route.destinationPeerId == peerId }
+            .filter { (_, route) ->
+                route.sourcePeerId == peerId || route.destinationPeerId == peerId
+            }
             .map { it.key }
             .forEach { key -> activeRoutes.remove(key) }
         routeHealth.keys.removeAll { it.sourcePeerId == peerId || it.destinationPeerId == peerId }
@@ -95,8 +99,9 @@ internal class TransferCoordinator(
         val previous = routeHealth[route] ?: TransferRouteHealth()
         val failures = (previous.failures + 1).coerceAtMost(MAX_FAILURE_PENALTY)
         val cooldownNs =
-            (BASE_ROUTE_RETRY_COOLDOWN_NS shl (failures - 1).coerceAtMost(3))
-                .coerceAtMost(MAX_ROUTE_RETRY_COOLDOWN_NS)
+            (BASE_ROUTE_RETRY_COOLDOWN_NS shl (failures - 1).coerceAtMost(3)).coerceAtMost(
+                MAX_ROUTE_RETRY_COOLDOWN_NS
+            )
         val retryAfter = nowCoordinatorNs + cooldownNs
         routeHealth[route] =
             previous.copy(
@@ -128,11 +133,13 @@ internal class TransferCoordinator(
         if (
             activePairCount(route.sourcePeerId, route.destinationPeerId) >=
                 capacity.maxPerSourceDestinationPair
-        ) return false
+        )
+            return false
         return true
     }
 
-    fun pendingDestinations(): Set<PeerId> = demands.values.mapTo(linkedSetOf()) { it.destinationPeerId }
+    fun pendingDestinations(): Set<PeerId> =
+        demands.values.mapTo(linkedSetOf()) { it.destinationPeerId }
 
     fun pendingDemands(destinationPeerId: PeerId): List<TransferDemand> {
         if (activeCount(destinationPeerId) >= capacity.maxInboundPerDestination) return emptyList()
@@ -153,7 +160,8 @@ internal class TransferCoordinator(
         nowCoordinatorNs: Long,
         isUsable: (PeerId) -> Boolean,
     ): PeerId? =
-        availableSources.asSequence()
+        availableSources
+            .asSequence()
             .filter { it != demand.destinationPeerId && isUsable(it) }
             .filter { source ->
                 canAdmit(TransferRouteKey(demand.trackId, source, demand.destinationPeerId))
@@ -165,10 +173,11 @@ internal class TransferCoordinator(
             }
             .minWithOrNull(
                 compareBy<PeerId> { source ->
-                    routeHealth[
-                        TransferRouteKey(demand.trackId, source, demand.destinationPeerId)
-                    ]?.failures ?: 0
-                }.thenBy { activeSourceCount(it) }
+                        routeHealth[
+                                TransferRouteKey(demand.trackId, source, demand.destinationPeerId)]
+                            ?.failures ?: 0
+                    }
+                    .thenBy { activeSourceCount(it) }
                     .thenBy { it.value }
             )
 

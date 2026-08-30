@@ -37,9 +37,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -114,177 +114,178 @@ internal fun AllMusicScreen(
             }
         }
 
-            if (selected.isNotEmpty()) {
-                SelectionToolbar(
-                    selectedCount = selected.size,
-                    allSelected = selected.size == totalCount && totalCount > 0,
-                    hasTemporary = selected.any { it in temporaryTrackIds },
-                    onClose = { selected = emptySet() },
-                    onSelectAll = {
-                        if (selected.size == totalCount) selected = emptySet()
-                        else onSelectAll(query) { selected = it }
-                    },
-                    onAddToPlaylist = { playlistPickerOpen = true },
-                    onKeep = {
-                        onKeepTracks(selected)
-                        selected = emptySet()
-                    },
-                    onRemoveTemporary = {
-                        val removable =
-                            selected.filterTo(mutableSetOf()) { it in temporaryTrackIds }
-                        onRemoveTemporaryTracks(removable)
-                        selected = emptySet()
-                    },
+        if (selected.isNotEmpty()) {
+            SelectionToolbar(
+                selectedCount = selected.size,
+                allSelected = selected.size == totalCount && totalCount > 0,
+                hasTemporary = selected.any { it in temporaryTrackIds },
+                onClose = { selected = emptySet() },
+                onSelectAll = {
+                    if (selected.size == totalCount) selected = emptySet()
+                    else onSelectAll(query) { selected = it }
+                },
+                onAddToPlaylist = { playlistPickerOpen = true },
+                onKeep = {
+                    onKeepTracks(selected)
+                    selected = emptySet()
+                },
+                onRemoveTemporary = {
+                    val removable = selected.filterTo(mutableSetOf()) { it in temporaryTrackIds }
+                    onRemoveTemporaryTracks(removable)
+                    selected = emptySet()
+                },
+            )
+        } else {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                UnisonSearchField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    placeholder = "Search music",
+                    modifier = Modifier.weight(1f),
                 )
-            } else {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    UnisonSearchField(
-                        value = query,
-                        onValueChange = onQueryChange,
-                        placeholder = "Search music",
-                        modifier = Modifier.weight(1f),
-                    )
-                    Box {
-                        IconButton(onClick = { sortOpen = true }) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, "Sort music")
-                        }
-                        DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
-                            LibrarySort.entries.forEach { item ->
-                                DropdownMenuItem(
-                                    text = { Text(item.label()) },
-                                    trailingIcon = {
-                                        if (item == sort) Icon(Icons.Default.Check, null)
-                                    },
-                                    onClick = {
-                                        sortOpen = false
-                                        onSortChange(item)
-                                    },
-                                )
-                            }
+                Box {
+                    IconButton(onClick = { sortOpen = true }) {
+                        Icon(Icons.AutoMirrored.Filled.Sort, "Sort music")
+                    }
+                    DropdownMenu(expanded = sortOpen, onDismissRequest = { sortOpen = false }) {
+                        LibrarySort.entries.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item.label()) },
+                                trailingIcon = {
+                                    if (item == sort) Icon(Icons.Default.Check, null)
+                                },
+                                onClick = {
+                                    sortOpen = false
+                                    onSortChange(item)
+                                },
+                            )
                         }
                     }
                 }
             }
+        }
 
-            if (refreshState is LoadState.Loading && stableTracks.isNotEmpty()) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
-            }
+        if (refreshState is LoadState.Loading && stableTracks.isNotEmpty()) {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
 
-            when {
-                stableTracks.isEmpty() && refreshState is LoadState.Loading ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                stableTracks.isEmpty() && refreshState is LoadState.Error ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        TextButton(onClick = tracks::retry) { Text("Try loading again") }
-                    }
-                stableTracks.isEmpty() ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        EmptyState(
-                            title = if (query.isBlank()) "No music yet" else "No songs found",
-                            text =
-                                if (query.isBlank()) "Add audio files to build your Unison library."
-                                else "Try a different title, artist, or album.",
-                            icon = if (query.isBlank()) Icons.Default.MusicNote else Icons.Default.SearchOff,
-                            actionLabel = "Add audio files".takeIf { query.isBlank() },
-                            onAction = onChooseFiles,
-                        )
-                    }
-                else ->
-                    LazyColumn(Modifier.fillMaxSize()) {
-                        items(stableTracks, key = { it.trackId.value }) { track ->
-                            val isSelected = track.trackId in selected
-                            ListItem(
-                                modifier =
-                                    Modifier.combinedClickable(
-                                        onClick = {
-                                            if (selected.isNotEmpty()) {
-                                                selected =
-                                                    if (isSelected) selected - track.trackId
-                                                    else selected + track.trackId
-                                            } else {
-                                                rowMenuTrack = track
-                                            }
-                                        },
-                                        onLongClick = {
+        when {
+            stableTracks.isEmpty() && refreshState is LoadState.Loading ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            stableTracks.isEmpty() && refreshState is LoadState.Error ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    TextButton(onClick = tracks::retry) { Text("Try loading again") }
+                }
+            stableTracks.isEmpty() ->
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState(
+                        title = if (query.isBlank()) "No music yet" else "No songs found",
+                        text =
+                            if (query.isBlank()) "Add audio files to build your Unison library."
+                            else "Try a different title, artist, or album.",
+                        icon =
+                            if (query.isBlank()) Icons.Default.MusicNote
+                            else Icons.Default.SearchOff,
+                        actionLabel = "Add audio files".takeIf { query.isBlank() },
+                        onAction = onChooseFiles,
+                    )
+                }
+            else ->
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(stableTracks, key = { it.trackId.value }) { track ->
+                        val isSelected = track.trackId in selected
+                        ListItem(
+                            modifier =
+                                Modifier.combinedClickable(
+                                    onClick = {
+                                        if (selected.isNotEmpty()) {
                                             selected =
                                                 if (isSelected) selected - track.trackId
                                                 else selected + track.trackId
-                                        },
-                                    ),
-                                headlineContent = {
-                                    Text(
-                                        track.displayTitle,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                },
-                                supportingContent = {
-                                    Text(
-                                        listOfNotNull(
-                                                track.artist?.takeIf(String::isNotBlank),
-                                                formatDuration(track.durationMs),
-                                            )
-                                            .joinToString(" · "),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                },
-                                leadingContent = {
-                                    if (selected.isNotEmpty()) {
-                                        Checkbox(
-                                            checked = isSelected,
-                                            onCheckedChange = { checked ->
-                                                selected =
-                                                    if (checked) selected + track.trackId
-                                                    else selected - track.trackId
-                                            },
-                                        )
-                                    } else {
-                                        TonalIcon(Icons.Default.MusicNote, null)
-                                    }
-                                },
-                                trailingContent = {
-                                    if (selected.isEmpty()) {
-                                        IconButton(onClick = { rowMenuTrack = track }) {
-                                            Icon(Icons.Default.MoreVert, "Song actions")
+                                        } else {
+                                            rowMenuTrack = track
                                         }
-                                    }
-                                },
-                            )
-                        }
-                        when (tracks.loadState.append) {
-                            is LoadState.Loading ->
-                                item("append-loading") {
-                                    Box(
-                                        Modifier.fillMaxWidth().padding(16.dp),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        CircularProgressIndicator(
-                                            Modifier.size(22.dp),
-                                            strokeWidth = 2.dp,
+                                    },
+                                    onLongClick = {
+                                        selected =
+                                            if (isSelected) selected - track.trackId
+                                            else selected + track.trackId
+                                    },
+                                ),
+                            headlineContent = {
+                                Text(
+                                    track.displayTitle,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    listOfNotNull(
+                                            track.artist?.takeIf(String::isNotBlank),
+                                            formatDuration(track.durationMs),
                                         )
+                                        .joinToString(" · "),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            leadingContent = {
+                                if (selected.isNotEmpty()) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { checked ->
+                                            selected =
+                                                if (checked) selected + track.trackId
+                                                else selected - track.trackId
+                                        },
+                                    )
+                                } else {
+                                    TonalIcon(Icons.Default.MusicNote, null)
+                                }
+                            },
+                            trailingContent = {
+                                if (selected.isEmpty()) {
+                                    IconButton(onClick = { rowMenuTrack = track }) {
+                                        Icon(Icons.Default.MoreVert, "Song actions")
                                     }
                                 }
-                            is LoadState.Error ->
-                                item("append-error") {
-                                    TextButton(
-                                        onClick = tracks::retry,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Text("Try loading more")
-                                    }
-                                }
-                            else -> Unit
-                        }
+                            },
+                        )
                     }
-            }
+                    when (tracks.loadState.append) {
+                        is LoadState.Loading ->
+                            item("append-loading") {
+                                Box(
+                                    Modifier.fillMaxWidth().padding(16.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    CircularProgressIndicator(
+                                        Modifier.size(22.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                }
+                            }
+                        is LoadState.Error ->
+                            item("append-error") {
+                                TextButton(
+                                    onClick = tracks::retry,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Try loading more")
+                                }
+                            }
+                        else -> Unit
+                    }
+                }
         }
+    }
 
     rowMenuTrack?.let { track ->
         AlertDialog(
@@ -349,7 +350,6 @@ internal fun AllMusicScreen(
             },
         )
     }
-
 }
 
 @Composable

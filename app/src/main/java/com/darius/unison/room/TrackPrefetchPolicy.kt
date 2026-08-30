@@ -50,14 +50,15 @@ object TrackPrefetchPolicy {
         val current = snapshot.queue.getOrNull(if (currentIndex >= 0) currentIndex else 0)
         val projectedPosition = snapshot.playback.projectedPositionMs(coordinatorNowNs)
         val remainingCurrentMs =
-            current?.track?.durationMs
+            current
+                ?.track
+                ?.durationMs
                 ?.takeIf { it > 0L }
                 ?.let { (it - projectedPosition).coerceAtLeast(0L) }
-        val nextBoundaryNs =
-            remainingCurrentMs?.let { remaining ->
-                coordinatorNowNs +
-                    (remaining - NEXT_TRACK_SAFETY_MARGIN_MS).coerceAtLeast(0L) * 1_000_000L
-            }
+        val nextBoundaryNs = remainingCurrentMs?.let { remaining ->
+            coordinatorNowNs +
+                (remaining - NEXT_TRACK_SAFETY_MARGIN_MS).coerceAtLeast(0L) * 1_000_000L
+        }
 
         val result = linkedMapOf<TrackId, TransferDemand>()
         fun add(item: QueueItem, priority: TransferPriority, deadline: Long?) {
@@ -89,5 +90,4 @@ object TrackPrefetchPolicy {
         }
         return result.values.toList()
     }
-
 }

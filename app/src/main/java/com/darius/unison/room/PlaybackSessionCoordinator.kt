@@ -132,8 +132,7 @@ internal class PlaybackSessionCoordinator(
     ): PlaybackConvergencePolicy.Action =
         convergence.decide(peerId, snapshot, report, coordinatorNowNs, playbackExecutable)
 
-    @Synchronized
-    fun forgetPeer(peerId: PeerId) = convergence.forget(peerId)
+    @Synchronized fun forgetPeer(peerId: PeerId) = convergence.forget(peerId)
 
     @Synchronized
     fun seedCanonical(playback: CanonicalPlaybackState) {

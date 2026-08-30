@@ -59,12 +59,27 @@ object RoomReducer {
             is UserCommand.Seek ->
                 seek(snapshot, command.positionMs, coordinatorNowNs, leadNs, command.commandId)
             is UserCommand.SkipNext ->
-                changeItem(snapshot, preparedQueueItemIds, +1, coordinatorNowNs, leadNs, command.commandId)
+                changeItem(
+                    snapshot,
+                    preparedQueueItemIds,
+                    +1,
+                    coordinatorNowNs,
+                    leadNs,
+                    command.commandId,
+                )
             is UserCommand.SkipPrevious -> {
                 val currentPosition = snapshot.playback.projectedPositionMs(coordinatorNowNs)
                 if (currentPosition > 4_000)
                     seek(snapshot, 0, coordinatorNowNs, leadNs, command.commandId)
-                else changeItem(snapshot, preparedQueueItemIds, -1, coordinatorNowNs, leadNs, command.commandId)
+                else
+                    changeItem(
+                        snapshot,
+                        preparedQueueItemIds,
+                        -1,
+                        coordinatorNowNs,
+                        leadNs,
+                        command.commandId,
+                    )
             }
 
             is UserCommand.PlayQueueItem ->
@@ -477,7 +492,8 @@ object RoomReducer {
     }
 
     private fun changeRepeatMode(snapshot: RoomSnapshot, repeatMode: RepeatMode): Decision {
-        if (snapshot.repeatMode == repeatMode) return Decision.Rejected("Repeat mode is already set")
+        if (snapshot.repeatMode == repeatMode)
+            return Decision.Rejected("Repeat mode is already set")
         return mutation(snapshot, ProtocolBody.RepeatModeChanged(repeatMode))
     }
 
@@ -492,8 +508,7 @@ object RoomReducer {
                 snapshot.playback.queueItemId,
                 seed,
                 preserveNextQueueItemId,
-            )
-                ?: return Decision.Rejected("Add at least two upcoming songs before shuffling")
+            ) ?: return Decision.Rejected("Add at least two upcoming songs before shuffling")
         return mutation(snapshot, ProtocolBody.QueueShuffled(orderedIds))
     }
 

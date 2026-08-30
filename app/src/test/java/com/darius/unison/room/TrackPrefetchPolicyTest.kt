@@ -9,7 +9,6 @@ import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -47,17 +46,19 @@ class TrackPrefetchPolicyTest {
 
     @Test
     fun transferDemandGivesUserSelectionAndNextBoundaryPriority() {
-        val timedQueue =
-            queue.map { item -> item.copy(track = item.track.copy(durationMs = 60_000L)) }
+        val timedQueue = queue.map { item ->
+            item.copy(track = item.track.copy(durationMs = 60_000L))
+        }
         val timedSnapshot =
             snapshot.copy(
                 queue = timedQueue,
-                playback = CanonicalPlaybackState(
-                    timedQueue[2].queueItemId,
-                    positionAtTimestampMs = 30_000L,
-                    coordinatorTimestampNs = 1_000_000_000L,
-                    isPlaying = true,
-                ),
+                playback =
+                    CanonicalPlaybackState(
+                        timedQueue[2].queueItemId,
+                        positionAtTimestampMs = 30_000L,
+                        coordinatorTimestampNs = 1_000_000_000L,
+                        isPlaying = true,
+                    ),
             )
         val demands =
             TrackPrefetchPolicy.transferDemands(
@@ -82,5 +83,4 @@ class TrackPrefetchPolicyTest {
             byTrack[timedQueue[7].track.trackId]?.priority,
         )
     }
-
 }

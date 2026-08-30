@@ -24,8 +24,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -400,7 +400,7 @@ internal fun RoomAddMusicSheet(
                                                 toggleTrack(track.trackId, !selected)
                                             },
                                     )
-                                    }
+                                }
                                 when (pickerTracks.loadState.append) {
                                     is LoadState.Loading ->
                                         item(key = "picker-loading") {

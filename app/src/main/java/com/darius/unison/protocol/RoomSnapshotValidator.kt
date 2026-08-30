@@ -129,7 +129,6 @@ class RoomSnapshotValidator(
 
         if (snapshot.options.preloadCount !in 1..3) reject("preload", "Invalid preload count")
 
-
         return if (issues.isEmpty()) SnapshotValidationResult.Valid
         else SnapshotValidationResult.Invalid(issues)
     }

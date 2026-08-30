@@ -5,8 +5,8 @@ import com.darius.unison.model.HotspotInfo
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
-import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.model.TransferPriority
+import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.model.UserCommand
 import com.darius.unison.network.ConnectedControl
 import com.darius.unison.network.ControlConnection
@@ -87,7 +87,9 @@ internal sealed interface RoomEvent {
     /** Coordinator-local network disappeared and did not return inside the bounded grace window. */
     data class LocalNetworkGraceExpired(val generation: Long) : RoomEvent
 
-    /** A disconnected participant did not reconnect before its canonical-membership grace expired. */
+    /**
+     * A disconnected participant did not reconnect before its canonical-membership grace expired.
+     */
     data class PeerDisconnectGraceExpired(
         val generation: Long,
         val peerId: PeerId,
@@ -148,7 +150,6 @@ internal sealed interface RoomEvent {
         val message: String?,
     ) : RoomEvent
 
-
     data class LocalTrackAvailabilityProbed(
         val generation: Long,
         val trackId: TrackId,
@@ -171,7 +172,6 @@ internal sealed interface RoomEvent {
     ) : RoomEvent
 
     data class HeartbeatTick(val generation: Long) : RoomEvent
-
 
     /** Low-frequency room/network consequence of the independent local playback sync loop. */
     data class LocalPlaybackStatusDue(val generation: Long) : RoomEvent
@@ -212,7 +212,9 @@ internal enum class RoomEventProvenanceRequirement {
     /** Ordered local work whose authority is established by actor ingress itself. */
     ACTOR_LOCAL,
 
-    /** Process/device state that intentionally spans room generations and is interpreted on consume. */
+    /**
+     * Process/device state that intentionally spans room generations and is interpreted on consume.
+     */
     DEVICE_GLOBAL,
 
     /** Async work produced for one room-session generation. */

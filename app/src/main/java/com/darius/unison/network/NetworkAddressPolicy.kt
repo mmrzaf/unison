@@ -54,7 +54,6 @@ object NetworkAddressPolicy {
     fun parseAllowedIpv4(value: String, allowLoopback: Boolean = false): Inet4Address? =
         parseAllowedAddress(value, allowLoopback) as? Inet4Address
 
-
     fun chooseRemoteAddress(addresses: Collection<InetAddress>): InetAddress? =
         addresses
             .asSequence()

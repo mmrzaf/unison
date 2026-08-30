@@ -58,10 +58,16 @@ class LocalPlaybackParticipationCoordinatorTest {
             assertEquals(harness.liveItem, harness.player.state.value.queueItemId)
             assertEquals(81_000L, harness.player.state.value.positionMs)
             assertTrue(harness.player.state.value.playWhenReady)
-            assertEquals(LocalPlaybackParticipation.ACTIVE, harness.player.state.value.participation)
+            assertEquals(
+                LocalPlaybackParticipation.ACTIVE,
+                harness.player.state.value.participation,
+            )
             assertEquals(null, harness.player.state.value.inhibitionReason)
             assertEquals(1, harness.clearedDrift)
-            assertEquals(LocalPlaybackParticipation.ACTIVE, harness.published.single().participation)
+            assertEquals(
+                LocalPlaybackParticipation.ACTIVE,
+                harness.published.single().participation,
+            )
         } finally {
             harness.close()
         }
@@ -93,7 +99,10 @@ class LocalPlaybackParticipationCoordinatorTest {
 
             assertEquals(1, harness.executions)
             assertTrue(harness.player.state.value.playWhenReady)
-            assertEquals(LocalPlaybackParticipation.ACTIVE, harness.player.state.value.participation)
+            assertEquals(
+                LocalPlaybackParticipation.ACTIVE,
+                harness.player.state.value.participation,
+            )
         } finally {
             harness.close()
         }
@@ -117,14 +126,20 @@ class LocalPlaybackParticipationCoordinatorTest {
             harness.coordinator.requestManualRejoin("manual-while-clock-down")
             harness.coordinator.tryPendingRejoin()
             assertEquals(0, harness.executions)
-            assertEquals(LocalPlaybackParticipation.OUTPUT_INHIBITED, harness.player.state.value.participation)
+            assertEquals(
+                LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                harness.player.state.value.participation,
+            )
 
             harness.lockParticipantClock()
             harness.clock.value += 300_000_000L
             harness.coordinator.tryPendingRejoin()
 
             assertEquals(1, harness.executions)
-            assertEquals(LocalPlaybackParticipation.ACTIVE, harness.player.state.value.participation)
+            assertEquals(
+                LocalPlaybackParticipation.ACTIVE,
+                harness.player.state.value.participation,
+            )
             assertTrue(harness.player.state.value.playWhenReady)
         } finally {
             harness.close()
@@ -150,12 +165,14 @@ class LocalPlaybackParticipationCoordinatorTest {
 
             assertEquals(0, harness.executions)
             assertFalse(harness.player.state.value.playWhenReady)
-            assertEquals(LocalPlaybackParticipation.OUTPUT_INHIBITED, harness.player.state.value.participation)
+            assertEquals(
+                LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                harness.player.state.value.participation,
+            )
         } finally {
             harness.close()
         }
     }
-
 
     @Test
     fun newerNoisyInterruptionCancelsInFlightAutomaticFocusRejoin() = runBlocking {
@@ -212,7 +229,10 @@ class LocalPlaybackParticipationCoordinatorTest {
             harness.coordinator.observe(harness.player.state.value, harness.snapshot)
             harness.coordinator.resetForSessionBoundary()
 
-            assertEquals(LocalPlaybackParticipation.ACTIVE, harness.player.state.value.participation)
+            assertEquals(
+                LocalPlaybackParticipation.ACTIVE,
+                harness.player.state.value.participation,
+            )
             assertEquals(null, harness.player.state.value.inhibitionReason)
             assertFalse(harness.player.state.value.playWhenReady)
             assertEquals(0, harness.executions)
@@ -381,7 +401,8 @@ class LocalPlaybackParticipationCoordinatorTest {
             if (
                 current.participation != LocalPlaybackParticipation.OUTPUT_INHIBITED ||
                     current.outputResumeBlocked
-            ) return false
+            )
+                return false
             mutableState.value =
                 current.copy(
                     queueItemId = queueItemId,

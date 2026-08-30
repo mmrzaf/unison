@@ -38,6 +38,7 @@ class RoomEventProvenanceTest {
 
         assertEquals(RoomEventProvenanceRequirement.ACTOR_LOCAL, event.provenanceRequirement)
     }
+
     @Test
     fun transferCompletionCarriesSessionGeneration() {
         val descriptor = TrackDescriptor(trackId = TrackId("a".repeat(64)), sizeBytes = 42L)
@@ -64,5 +65,4 @@ class RoomEventProvenanceTest {
         assertEquals(11L, event.generation)
         assertEquals(RoomEventProvenanceRequirement.SESSION, event.provenanceRequirement)
     }
-
 }

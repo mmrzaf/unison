@@ -61,8 +61,7 @@ class RoomReducerTest {
                 UserCommand.Play(requestedBy = peer),
                 now,
                 preparedQueueItemIds = setOf(item.queueItemId),
-            )
-                as RoomReducer.Decision.Accepted
+            ) as RoomReducer.Decision.Accepted
         val body = result.mutations.single().body as ProtocolBody.PlayScheduled
         assertEquals(item.queueItemId, body.queueItemId)
         assertTrue(body.executeAtCoordinatorNs > now)
@@ -145,9 +144,7 @@ class RoomReducerTest {
         val item = QueueItem.create(track, peer)
         val room =
             snapshot(listOf(item))
-                .copy(
-                    members = listOf(MemberSnapshot(peer, "A"), MemberSnapshot(guest, "B")),
-                )
+                .copy(members = listOf(MemberSnapshot(peer, "A"), MemberSnapshot(guest, "B")))
         val result =
             RoomReducer.decide(
                 room,
@@ -181,7 +178,7 @@ class RoomReducerTest {
             snapshot(listOf(first, second))
                 .copy(
                     playback =
-                        CanonicalPlaybackState(first.queueItemId, 30_000, 1_000, isPlaying = true),
+                        CanonicalPlaybackState(first.queueItemId, 30_000, 1_000, isPlaying = true)
                 )
         val result =
             RoomReducer.decide(
@@ -214,7 +211,7 @@ class RoomReducerTest {
                             positionAtTimestampMs = 0,
                             coordinatorTimestampNs = 2_000_000_000L,
                             isPlaying = true,
-                        ),
+                        )
                 )
 
         val early =
@@ -482,9 +479,7 @@ class RoomReducerTest {
             }
         val room =
             snapshot(queue)
-                .copy(
-                    playback = CanonicalPlaybackState(queue.first().queueItemId, 8_000, 1, true),
-                )
+                .copy(playback = CanonicalPlaybackState(queue.first().queueItemId, 8_000, 1, true))
         val result =
             RoomReducer.decide(
                 room,
@@ -515,9 +510,7 @@ class RoomReducerTest {
             )
         val room =
             snapshot(listOf(first, target))
-                .copy(
-                    playback = CanonicalPlaybackState(first.queueItemId, 8_000, 1, true),
-                )
+                .copy(playback = CanonicalPlaybackState(first.queueItemId, 8_000, 1, true))
         val result =
             RoomReducer.decide(
                 room,
@@ -546,9 +539,7 @@ class RoomReducerTest {
             )
         val room =
             snapshot(listOf(first, target))
-                .copy(
-                    playback = CanonicalPlaybackState(first.queueItemId, 8_000, 1, true),
-                )
+                .copy(playback = CanonicalPlaybackState(first.queueItemId, 8_000, 1, true))
         val result =
             RoomReducer.decide(
                 room,
@@ -763,6 +754,7 @@ class RoomReducerTest {
         assertTrue(mutation.snapshot.queue.isEmpty())
         assertFalse(mutation.snapshot.playback.isPlaying)
     }
+
     @Test
     fun roomOptionCannotBypassReadinessForSelectedPlayback() {
         val first = QueueItem.create(track, peer)
@@ -772,10 +764,11 @@ class RoomReducerTest {
                 peer,
             )
         val room =
-            snapshot(listOf(first, target)).copy(
-                options = RoomOptions(waitAtTrackBoundary = false),
-                playback = CanonicalPlaybackState(first.queueItemId, 0, 0, false),
-            )
+            snapshot(listOf(first, target))
+                .copy(
+                    options = RoomOptions(waitAtTrackBoundary = false),
+                    playback = CanonicalPlaybackState(first.queueItemId, 0, 0, false),
+                )
 
         val result =
             RoomReducer.decide(
@@ -791,5 +784,4 @@ class RoomReducerTest {
 
         assertTrue(result is RoomReducer.Decision.Rejected)
     }
-
 }

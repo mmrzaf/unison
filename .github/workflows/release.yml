@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -41,6 +41,16 @@ jobs:
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           add-job-summary: on-failure
+
+      - name: Enable KVM access
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e /dev/kvm ]]; then
+            echo 'KERNEL=="kvm", MODE="0666", GROUP="kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          fi
 
       - name: Run instrumented tests
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
@@ -65,7 +75,7 @@ jobs:
 
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -165,7 +175,7 @@ jobs:
           )
 
       - name: Attest release provenance
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: dist/SHA256SUMS.txt
 
@@ -220,10 +230,7 @@ jobs:
           for asset in "${assets[@]}"; do
             test -f "$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
           done
-          if [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-alpha\.([0-9]+)$ ]]; then
-            release_title="Unison ${BASH_REMATCH[1]} Alpha ${BASH_REMATCH[2]}"
-            release_kind=(--prerelease)
-          elif [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]]; then
+          if [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]]; then
             release_title="Unison ${BASH_REMATCH[1]} Beta ${BASH_REMATCH[2]}"
             release_kind=(--prerelease)
           elif [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then

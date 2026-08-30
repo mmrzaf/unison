@@ -53,37 +53,53 @@ class ControlConnectionPriorityTest {
     fun sustainedLowerPriorityReadinessCannotStarveGuaranteedOrClockTraffic() =
         withConnection { connection ->
             repeat(2_000) { iteration ->
-                assertTrue(connection.trySend(envelope(ControlTrafficClass.TRANSFER, iteration * 10 + 1)))
-                assertTrue(connection.trySend(envelope(ControlTrafficClass.TELEMETRY, iteration * 10 + 2)))
+                assertTrue(
+                    connection.trySend(envelope(ControlTrafficClass.TRANSFER, iteration * 10 + 1))
+                )
+                assertTrue(
+                    connection.trySend(envelope(ControlTrafficClass.TELEMETRY, iteration * 10 + 2))
+                )
                 assertTrue(
                     connection.trySend(
                         envelope(ControlTrafficClass.PLAYBACK_REFERENCE, iteration * 10 + 3)
                     )
                 )
-                assertTrue(connection.trySend(envelope(ControlTrafficClass.CLOCK, iteration * 10 + 4)))
+                assertTrue(
+                    connection.trySend(envelope(ControlTrafficClass.CLOCK, iteration * 10 + 4))
+                )
                 assertTrue(
                     connection.trySend(envelope(ControlTrafficClass.GUARANTEED, iteration * 10 + 5))
                 )
 
                 assertEquals(
                     ControlTrafficClass.GUARANTEED,
-                    ControlTrafficClassifier.classify(checkNotNull(connection.nextOutgoingForTest())),
+                    ControlTrafficClassifier.classify(
+                        checkNotNull(connection.nextOutgoingForTest())
+                    ),
                 )
                 assertEquals(
                     ControlTrafficClass.CLOCK,
-                    ControlTrafficClassifier.classify(checkNotNull(connection.nextOutgoingForTest())),
+                    ControlTrafficClassifier.classify(
+                        checkNotNull(connection.nextOutgoingForTest())
+                    ),
                 )
                 assertEquals(
                     ControlTrafficClass.PLAYBACK_REFERENCE,
-                    ControlTrafficClassifier.classify(checkNotNull(connection.nextOutgoingForTest())),
+                    ControlTrafficClassifier.classify(
+                        checkNotNull(connection.nextOutgoingForTest())
+                    ),
                 )
                 assertEquals(
                     ControlTrafficClass.TRANSFER,
-                    ControlTrafficClassifier.classify(checkNotNull(connection.nextOutgoingForTest())),
+                    ControlTrafficClassifier.classify(
+                        checkNotNull(connection.nextOutgoingForTest())
+                    ),
                 )
                 assertEquals(
                     ControlTrafficClass.TELEMETRY,
-                    ControlTrafficClassifier.classify(checkNotNull(connection.nextOutgoingForTest())),
+                    ControlTrafficClassifier.classify(
+                        checkNotNull(connection.nextOutgoingForTest())
+                    ),
                 )
             }
         }
@@ -148,7 +164,8 @@ class ControlConnectionPriorityTest {
                         queueRevision = 0L,
                         canonicalSequence = 0L,
                     )
-                ControlTrafficClass.TRANSFER -> ProtocolBody.TrackHave(TrackId(seed.toString(16).padStart(64, '0')))
+                ControlTrafficClass.TRANSFER ->
+                    ProtocolBody.TrackHave(TrackId(seed.toString(16).padStart(64, '0')))
             }
         return Envelope(
             protocolVersion = PROTOCOL_VERSION,

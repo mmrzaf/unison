@@ -20,10 +20,7 @@ data class MusicDestination(
     val addToRoom: Boolean = false,
 ) {
     val keepsInLibrary: Boolean
-        get() =
-            saveToLibrary ||
-                playlistIds.isNotEmpty() ||
-                !newPlaylistName.isNullOrBlank()
+        get() = saveToLibrary || playlistIds.isNotEmpty() || !newPlaylistName.isNullOrBlank()
 
     val hasDestination: Boolean
         get() = keepsInLibrary || addToRoom

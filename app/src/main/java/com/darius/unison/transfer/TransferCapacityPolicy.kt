@@ -3,10 +3,10 @@ package com.darius.unison.transfer
 /**
  * One authoritative transfer-capacity model shared by coordinator admission and transport guards.
  *
- * Capacity is directional. A destination may receive from multiple independent sources, a source may
- * serve multiple destinations, but one source/destination pair is intentionally serialized. The
- * transport semaphores remain defensive guards; normal scheduling must respect these limits before a
- * socket is opened.
+ * Capacity is directional. A destination may receive from multiple independent sources, a source
+ * may serve multiple destinations, but one source/destination pair is intentionally serialized. The
+ * transport semaphores remain defensive guards; normal scheduling must respect these limits before
+ * a socket is opened.
  */
 data class TransferCapacityPolicy(
     val maxInboundPerDestination: Int = 2,

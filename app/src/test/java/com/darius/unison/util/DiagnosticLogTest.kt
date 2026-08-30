@@ -66,6 +66,7 @@ class DiagnosticLogTest {
         assertEquals("diagnostic.invalid_event_name", event.eventName)
         assertEquals("Not Structured", event.attributes["diagnostic.original_event_name"])
     }
+
     @Test
     fun endingRoomStopsSessionScopeWithoutLosingLaterAppDiagnostics() = runBlocking {
         val log = DiagnosticLog(temporaryFolder.newFile("scope.ndjson"))
@@ -87,5 +88,4 @@ class DiagnosticLogTest {
         assertEquals("room.scope.before_end", room.single().eventName)
         assertEquals(null, all.last().roomSessionId)
     }
-
 }

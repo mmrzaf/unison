@@ -1,8 +1,8 @@
 package com.darius.unison.room
 
-import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.CanonicalPlaybackState
 import com.darius.unison.model.CoordinatorTerm
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem

@@ -202,7 +202,8 @@ internal fun PlaylistDetailScreen(
                         color = MaterialTheme.colorScheme.surfaceContainer,
                     ) {
                         Row(
-                            Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                            Modifier.fillMaxWidth()
+                                .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
@@ -232,8 +233,13 @@ internal fun PlaylistDetailScreen(
                         shape = MaterialTheme.shapes.large,
                         color = MaterialTheme.colorScheme.surfaceContainer,
                     ) {
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(
+                            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
                                 Text(
                                     "${selectedIndices.size} selected",
                                     style = MaterialTheme.typography.titleSmall,
@@ -243,7 +249,8 @@ internal fun PlaylistDetailScreen(
                                 TextButton(
                                     onClick = {
                                         selectedIndices =
-                                            if (selectedIndices.size == detail.tracks.size) emptySet()
+                                            if (selectedIndices.size == detail.tracks.size)
+                                                emptySet()
                                             else detail.tracks.indices.toSet()
                                     }
                                 ) {
@@ -346,7 +353,9 @@ internal fun PlaylistDetailScreen(
                                     },
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    text = {
+                                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                                    },
                                     leadingIcon = {
                                         Icon(
                                             Icons.Default.DeleteOutline,
@@ -531,7 +540,8 @@ private fun PlaylistTrackRow(
 
     ListItem(
         modifier =
-            Modifier.padding(horizontal = 8.dp).then(dragModifier)
+            Modifier.padding(horizontal = 8.dp)
+                .then(dragModifier)
                 .semantics {
                     if (reordering) {
                         customActions = buildList {
@@ -554,9 +564,7 @@ private fun PlaylistTrackRow(
                         }
                     }
                 }
-                .then(
-                    if (selecting) Modifier.clickable(onClick = onToggleSelected) else Modifier
-                ),
+                .then(if (selecting) Modifier.clickable(onClick = onToggleSelected) else Modifier),
         headlineContent = {
             Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },

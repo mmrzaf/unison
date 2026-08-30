@@ -5,9 +5,9 @@ import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.playback.PlaybackIntentReconciliationPolicy
+import com.darius.unison.playback.PlaybackPauseCause
 import com.darius.unison.playback.PlayerExecutor
 import com.darius.unison.playback.PlayerPort
-import com.darius.unison.playback.PlaybackPauseCause
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.sync.ClockSyncEngine
 import com.darius.unison.util.DiagnosticCategory
@@ -48,11 +48,14 @@ internal class CanonicalPlaybackCoordinator(
                 }
                 is PlaybackSessionCoordinator.IncomingSyncDecision.IgnoreStale -> {
                     log.info(
-                        TAG, DiagnosticCategory.SYNC, "sync.remote_state.stale",
-                        attributes = mapOf(
-                            "sync.incoming_revision" to decision.incomingRevision,
-                            "sync.known_revision" to decision.newestKnownRevision,
-                        ),
+                        TAG,
+                        DiagnosticCategory.SYNC,
+                        "sync.remote_state.stale",
+                        attributes =
+                            mapOf(
+                                "sync.incoming_revision" to decision.incomingRevision,
+                                "sync.known_revision" to decision.newestKnownRevision,
+                            ),
                     )
                     return
                 }
@@ -157,12 +160,16 @@ internal class CanonicalPlaybackCoordinator(
             PlaybackConvergencePolicy.Action.None -> Unit
             is PlaybackConvergencePolicy.Action.SendPlaybackState -> {
                 log.info(
-                    TAG, DiagnosticCategory.SYNC, "sync.peer.playback_repair",
-                    attributes = mapOf(
-                        "peer.id" to peerId.value.take(12), "sync.reason" to action.reason,
-                        "sync.peer_revision" to report.playbackRevision,
-                        "sync.canonical_revision" to snapshot.playback.revision,
-                    ),
+                    TAG,
+                    DiagnosticCategory.SYNC,
+                    "sync.peer.playback_repair",
+                    attributes =
+                        mapOf(
+                            "peer.id" to peerId.value.take(12),
+                            "sync.reason" to action.reason,
+                            "sync.peer_revision" to report.playbackRevision,
+                            "sync.canonical_revision" to snapshot.playback.revision,
+                        ),
                 )
                 if (peerId == localPeerId()) {
                     repairLocal(snapshot, now, action.reason)
@@ -175,12 +182,16 @@ internal class CanonicalPlaybackCoordinator(
             }
             is PlaybackConvergencePolicy.Action.SendSnapshot -> {
                 log.info(
-                    TAG, DiagnosticCategory.SYNC, "sync.peer.queue_repair",
-                    attributes = mapOf(
-                        "peer.id" to peerId.value.take(12), "sync.reason" to action.reason,
-                        "sync.peer_revision" to report.queueRevision,
-                        "sync.canonical_revision" to snapshot.queueRevision,
-                    ),
+                    TAG,
+                    DiagnosticCategory.SYNC,
+                    "sync.peer.queue_repair",
+                    attributes =
+                        mapOf(
+                            "peer.id" to peerId.value.take(12),
+                            "sync.reason" to action.reason,
+                            "sync.peer_revision" to report.queueRevision,
+                            "sync.canonical_revision" to snapshot.queueRevision,
+                        ),
                 )
                 if (peerId == localPeerId()) {
                     refreshPlayerQueue(snapshot)
@@ -214,7 +225,8 @@ internal class CanonicalPlaybackCoordinator(
                 TAG,
                 DiagnosticCategory.PLAYBACK,
                 "playback.execution.waiting_for_media",
-                attributes = mapOf("queue.item_id" to queueItemId.value.take(12), "sync.reason" to reason),
+                attributes =
+                    mapOf("queue.item_id" to queueItemId.value.take(12), "sync.reason" to reason),
             )
             return
         }
@@ -247,7 +259,9 @@ internal class CanonicalPlaybackCoordinator(
             )
         }
         log.info(
-            TAG, DiagnosticCategory.SYNC, "sync.local.playback_repaired",
+            TAG,
+            DiagnosticCategory.SYNC,
+            "sync.local.playback_repaired",
             attributes = mapOf("sync.reason" to reason),
         )
     }

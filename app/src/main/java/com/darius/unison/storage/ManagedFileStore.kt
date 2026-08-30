@@ -26,7 +26,9 @@ enum class ManagedFileLeaseReason {
     IMPORT,
     INDEXING,
     PENDING_SIDE_EFFECT,
-    /** Blocks deletion while a database/source publication is in flight, but not file replacement. */
+    /**
+     * Blocks deletion while a database/source publication is in flight, but not file replacement.
+     */
     REFERENCE_PUBLICATION,
 }
 
@@ -481,7 +483,9 @@ class ManagedFileStore(filesDir: File) {
     /** Explicit transfer-owner discard. Background cleanup never calls this method. */
     fun discardPartial(trackId: TrackId): Boolean = partialFile(trackId).delete()
 
-    /** Requests logical deletion without ever deleting bytes that currently have an active lease. */
+    /**
+     * Requests logical deletion without ever deleting bytes that currently have an active lease.
+     */
     fun requestDelete(trackId: TrackId): ManagedFileDeleteResult =
         synchronized(commitLock(trackId)) {
             writePendingDeleteMarkerLocked(trackId)
@@ -490,7 +494,8 @@ class ManagedFileStore(filesDir: File) {
             } else {
                 val existed = finalFile(trackId).exists() || partialFile(trackId).exists()
                 if (completePendingDeleteLocked(trackId)) {
-                    if (existed) ManagedFileDeleteResult.DELETED else ManagedFileDeleteResult.NOT_FOUND
+                    if (existed) ManagedFileDeleteResult.DELETED
+                    else ManagedFileDeleteResult.NOT_FOUND
                 } else {
                     ManagedFileDeleteResult.DEFERRED
                 }
@@ -505,7 +510,11 @@ class ManagedFileStore(filesDir: File) {
         root.listFiles().orEmpty().filter(File::isDirectory).forEach { directory ->
             directory.listFiles().orEmpty().forEach { file ->
                 val value = file.name.removeSuffix(PENDING_DELETE_SUFFIX)
-                if (file.isFile && file.name.endsWith(PENDING_DELETE_SUFFIX) && TRACK_ID_PATTERN.matches(value)) {
+                if (
+                    file.isFile &&
+                        file.name.endsWith(PENDING_DELETE_SUFFIX) &&
+                        TRACK_ID_PATTERN.matches(value)
+                ) {
                     add(TrackId(value))
                 }
             }

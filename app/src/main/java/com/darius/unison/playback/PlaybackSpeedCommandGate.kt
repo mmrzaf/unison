@@ -11,9 +11,7 @@ import kotlin.math.round
  * playback-speed changes. Measurement can run frequently; player actuation stays bounded and
  * deliberately sparse.
  */
-class PlaybackSpeedCommandGate(
-    tuning: PlaybackSyncTuning = PlaybackSyncProfile.BALANCED.tuning(),
-) {
+class PlaybackSpeedCommandGate(tuning: PlaybackSyncTuning = PlaybackSyncProfile.BALANCED.tuning()) {
     private var tuning = tuning
     private var lastAppliedSpeed: Float? = null
     private var lastAppliedAtNs: Long? = null
@@ -24,7 +22,9 @@ class PlaybackSpeedCommandGate(
         reset()
     }
 
-    /** Returns the speed that should be applied now, or null when the current command should hold. */
+    /**
+     * Returns the speed that should be applied now, or null when the current command should hold.
+     */
     fun select(requestedSpeed: Float, actualSpeed: Float, nowNs: Long): Float? {
         val target = quantize(requestedSpeed)
         val actual = actualSpeed.coerceIn(tuning.minimumSpeed, tuning.maximumSpeed)

@@ -128,7 +128,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         combine(
             container.settings.onboardingComplete,
             container.settings.retentionPolicy,
-        ) { onboarded, retention -> onboarded to retention }
+        ) { onboarded, retention ->
+            onboarded to retention
+        }
     private val debouncedLibraryQuery = libraryQuery.debounce(180).distinctUntilChanged()
     private val libraryControls = combine(libraryQuery, librarySort, ::LibraryControls)
 

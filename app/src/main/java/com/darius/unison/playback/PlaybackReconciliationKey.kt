@@ -7,8 +7,8 @@ import com.darius.unison.model.RoomSnapshot
 /**
  * Minimal identity for replaceable Media3 timeline/preparation reconciliation.
  *
- * Exact transport commands are ordered separately. This key intentionally contains only state
- * that can change the local timeline or preparation window; membership, clock telemetry, and
+ * Exact transport commands are ordered separately. This key intentionally contains only state that
+ * can change the local timeline or preparation window; membership, clock telemetry, and
  * playback-position revisions must not manufacture redundant Media3 work.
  */
 data class PlaybackReconciliationKey(

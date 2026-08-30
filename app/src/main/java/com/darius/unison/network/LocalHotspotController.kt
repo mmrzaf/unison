@@ -81,7 +81,8 @@ class LocalHotspotController(
                                     true
                                 }
                             }
-                        if (current) log.info(TAG, DiagnosticCategory.NETWORK, "network.hotspot.stopped")
+                        if (current)
+                            log.info(TAG, DiagnosticCategory.NETWORK, "network.hotspot.stopped")
                     }
 
                     override fun onFailed(reason: Int) {
@@ -98,7 +99,9 @@ class LocalHotspotController(
                             }
                         if (!current) return
                         log.warn(
-                            TAG, DiagnosticCategory.NETWORK, "network.hotspot.failed",
+                            TAG,
+                            DiagnosticCategory.NETWORK,
+                            "network.hotspot.failed",
                             attributes = mapOf("network.failure_reason" to reason),
                         )
                         onError("Could not create offline network")
@@ -120,7 +123,10 @@ class LocalHotspotController(
                 }
             if (!current) return
             log.warn(
-                TAG, DiagnosticCategory.NETWORK, "network.hotspot.start_failed", throwable = error,
+                TAG,
+                DiagnosticCategory.NETWORK,
+                "network.hotspot.start_failed",
+                throwable = error,
             )
             onError("Could not create offline network")
         }

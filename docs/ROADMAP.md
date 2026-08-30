@@ -2,12 +2,12 @@
 
 This roadmap describes direction, not promises or deadlines.
 
-## 1.2 alpha and beta stabilization
+## 1.2 beta stabilization
 
 - Run the full API 30/33/36 instrumentation matrix and physical-device qualification.
-- Collect focused OEM/network/audio-route feedback from `1.2.0-alpha.1` before beta.
+- Collect real OEM/network/audio-route feedback from `1.2.0-beta.1`.
 - Fix release-blocking regressions without broadening Protocol 2 or Room schema 1.
-- Improve public documentation and contributor issue triage from real prerelease questions.
+- Improve public documentation and contributor issue triage from real beta questions.
 
 ## 1.2 stable
 

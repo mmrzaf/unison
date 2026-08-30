@@ -16,6 +16,7 @@ import com.darius.unison.R
 import com.darius.unison.app.unisonContainer
 import com.darius.unison.model.AppCommand
 import com.darius.unison.room.RoomRuntime
+import com.darius.unison.util.DiagnosticCategory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import com.darius.unison.util.DiagnosticCategory
 
 @androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class UnisonRoomService : MediaSessionService() {
@@ -249,7 +249,10 @@ class UnisonRoomService : MediaSessionService() {
         // listeners that the room itself ended.
         lifecycleScope.launch {
             try {
-                if (::runtime.isInitialized && unisonContainer.roomStore.structure.value.sessionActive) {
+                if (
+                    ::runtime.isInitialized &&
+                        unisonContainer.roomStore.structure.value.sessionActive
+                ) {
                     runtime.handle(AppCommand.LeaveRoom)
                 }
             } catch (error: Exception) {
@@ -277,11 +280,12 @@ class UnisonRoomService : MediaSessionService() {
                 TAG,
                 DiagnosticCategory.PLAYBACK,
                 "playback.service.stopped",
-                attributes = mapOf(
-                    "notification.enqueued_count" to notificationEnqueueCount,
-                    "notification.deferred_count" to notificationDeferredCount,
-                    "notification.deduplicated_count" to notificationDeduplicatedCount,
-                ),
+                attributes =
+                    mapOf(
+                        "notification.enqueued_count" to notificationEnqueueCount,
+                        "notification.deferred_count" to notificationDeferredCount,
+                        "notification.deduplicated_count" to notificationDeduplicatedCount,
+                    ),
             )
         }
         if (::runtime.isInitialized) runtime.close()
@@ -360,6 +364,7 @@ class UnisonRoomService : MediaSessionService() {
         private const val IDLE_STOP_DELAY_MS = 1_000L
         private const val NOTIFICATION_UPDATE_INTERVAL_MS = 300L
         private const val FOREGROUND_START_RETRY_INTERVAL_MS = 1_000L
+
         /**
          * Refreshes Android's started-service ownership for each UI command. This is deliberately a
          * normal service start, not foreground promotion: MediaSessionService remains the sole

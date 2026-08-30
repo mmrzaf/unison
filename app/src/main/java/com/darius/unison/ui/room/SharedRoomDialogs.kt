@@ -5,7 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -36,8 +35,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.MemberRuntimeState
+import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RoomLifecycleState
 
@@ -116,10 +115,13 @@ internal fun RoomListenersSheet(
                 items(members, key = { it.peerId.value }) { member ->
                     val isLocal = member.peerId == localPeerId
                     val directlyDisconnected =
-                        isCoordinator && !isLocal && memberRuntime[member.peerId]?.connected == false
+                        isCoordinator &&
+                            !isLocal &&
+                            memberRuntime[member.peerId]?.connected == false
                     val status =
                         when {
-                            isLocal && lifecycle == RoomLifecycleState.RECONNECTING -> "Reconnecting…"
+                            isLocal && lifecycle == RoomLifecycleState.RECONNECTING ->
+                                "Reconnecting…"
                             directlyDisconnected -> "Reconnecting…"
                             isLocal -> "Listening · This phone"
                             else -> "Listening"

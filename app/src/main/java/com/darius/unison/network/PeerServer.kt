@@ -91,10 +91,13 @@ class PeerServer(
                         try {
                             server.accept()
                         } catch (error: Exception) {
-                            if (!server.isClosed) log.warn(
-                                TAG, DiagnosticCategory.NETWORK, "network.peer_server.accept_failed",
-                                throwable = error,
-                            )
+                            if (!server.isClosed)
+                                log.warn(
+                                    TAG,
+                                    DiagnosticCategory.NETWORK,
+                                    "network.peer_server.accept_failed",
+                                    throwable = error,
+                                )
                             break
                         }
                     if (!incomingSlots.tryAcquire()) {
@@ -111,7 +114,9 @@ class PeerServer(
                 }
             }
         log.info(
-            TAG, DiagnosticCategory.NETWORK, "network.peer_server.started",
+            TAG,
+            DiagnosticCategory.NETWORK,
+            "network.peer_server.started",
             attributes = mapOf("network.listen_port" to server.localPort),
         )
         return server.localPort
@@ -169,7 +174,9 @@ class PeerServer(
             throw cancelled
         } catch (error: Exception) {
             log.warn(
-                TAG, DiagnosticCategory.NETWORK, "network.peer_server.connection_failed",
+                TAG,
+                DiagnosticCategory.NETWORK,
+                "network.peer_server.connection_failed",
                 throwable = error,
             )
             runCatching { socket.close() }

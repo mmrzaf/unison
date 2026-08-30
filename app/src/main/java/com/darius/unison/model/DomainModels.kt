@@ -84,7 +84,10 @@ enum class LocalPlaybackInhibitionReason {
     AUDIO_FOCUS,
     BECOMING_NOISY,
     UNSUITABLE_OUTPUT,
-    /** Protocol-2 compatibility only. Phase 2 no longer infers inhibition from unexplained callbacks. */
+    /**
+     * Protocol-2 compatibility only. Phase 2 no longer infers inhibition from unexplained
+     * callbacks.
+     */
     SYSTEM_POLICY,
 }
 
@@ -131,9 +134,7 @@ data class MemberSnapshot(
 )
 
 /** Ephemeral per-session member status. Never serialized into canonical room state. */
-data class MemberRuntimeState(
-    val connected: Boolean = false,
-)
+data class MemberRuntimeState(val connected: Boolean = false)
 
 @Serializable
 enum class RepeatMode {

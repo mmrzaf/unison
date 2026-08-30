@@ -93,7 +93,8 @@ class ControlClient(
                         TAG,
                         com.darius.unison.util.DiagnosticCategory.NETWORK,
                         "network.control.connecting",
-                        attributes = route.diagnosticAttributes() + mapOf("network.remote_port" to port),
+                        attributes =
+                            route.diagnosticAttributes() + mapOf("network.remote_port" to port),
                     )
                     socket.apply {
                         tcpNoDelay = true
@@ -106,7 +107,8 @@ class ControlClient(
                         TAG,
                         com.darius.unison.util.DiagnosticCategory.NETWORK,
                         "network.control.connected",
-                        attributes = route.diagnosticAttributes() + mapOf("network.remote_port" to port),
+                        attributes =
+                            route.diagnosticAttributes() + mapOf("network.remote_port" to port),
                     )
                     val nonce = Crypto.randomBase64(18)
                     val pinSession =

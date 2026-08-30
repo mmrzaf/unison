@@ -23,7 +23,9 @@ internal class TransferUploadGate(
 
     init {
         require(maxConcurrentUploads > 0) { "Upload concurrency must be positive" }
-        require(maxConcurrentPerDestination > 0) { "Per-destination upload concurrency must be positive" }
+        require(maxConcurrentPerDestination > 0) {
+            "Per-destination upload concurrency must be positive"
+        }
         require(maxConcurrentPerDestination <= maxConcurrentUploads) {
             "Per-destination upload concurrency cannot exceed total upload capacity"
         }
@@ -44,7 +46,6 @@ internal class TransferUploadGate(
             }
         }
     }
-
 
     /**
      * Defensive non-blocking admission. Normal coordinator scheduling should already have reserved

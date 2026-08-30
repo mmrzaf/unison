@@ -1,8 +1,8 @@
 package com.darius.unison.room
 
-import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.CanonicalPlaybackState
 import com.darius.unison.model.CoordinatorTerm
+import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
@@ -96,7 +96,6 @@ class PlaybackConvergencePolicyTest {
         )
     }
 
-
     @Test
     fun inhibitedPeerIsNeverRepairedForIntentionalLocalSilenceOrStaleItem() {
         val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
@@ -158,6 +157,7 @@ class PlaybackConvergencePolicyTest {
         )
         assertEquals(PlaybackConvergencePolicy.Action.None, duplicate)
     }
+
     @Test
     fun unavailableMediaSuppressesWrongItemRepairStorm() {
         val policy = PlaybackConvergencePolicy(minimumRepairIntervalNs = 0)
@@ -205,5 +205,4 @@ class PlaybackConvergencePolicyTest {
 
         assertEquals(PlaybackConvergencePolicy.Action.None, action)
     }
-
 }

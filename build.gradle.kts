@@ -44,6 +44,7 @@ tasks.register("resolveVerificationDependencies") {
     // them is ambiguous because no artifact type is requested. These real tasks resolve every
     // classpath through AGP and make --write-verification-metadata record the resulting artifacts.
     dependsOn(
+        "spotlessCheck",
         ":app:assembleDebug",
         ":app:assembleRelease",
         ":app:testDebugUnitTest",

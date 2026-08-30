@@ -64,7 +64,6 @@ class PlayerEventInterpreterTest {
         assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 1))
     }
 
-
     @Test
     fun stateEndedThenExplicitBoundaryForSameCycleEmitsOnce() {
         val interpreter = PlayerEventInterpreter()
@@ -132,7 +131,8 @@ class PlayerEventInterpreterTest {
             )
 
         assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, false, 0))
-        // Promotion to coordinator later must not replay a boundary already observed as participant.
+        // Promotion to coordinator later must not replay a boundary already observed as
+        // participant.
         assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 1))
     }
 }

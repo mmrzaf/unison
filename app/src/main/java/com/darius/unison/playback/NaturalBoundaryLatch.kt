@@ -3,12 +3,12 @@ package com.darius.unison.playback
 import com.darius.unison.model.QueueItemId
 
 /**
- * Makes a physical Media3 end-of-item signal idempotent until playback genuinely leaves or
- * restarts the ended item. Reconciliation attempts near the old end must never manufacture a new
- * canonical boundary.
+ * Makes a physical Media3 end-of-item signal idempotent until playback genuinely leaves or restarts
+ * the ended item. Reconciliation attempts near the old end must never manufacture a new canonical
+ * boundary.
  */
 internal class NaturalBoundaryLatch(
-    private val replayRearmMarginMs: Long = DEFAULT_REPLAY_REARM_MARGIN_MS,
+    private val replayRearmMarginMs: Long = DEFAULT_REPLAY_REARM_MARGIN_MS
 ) {
     private var latchedQueueItemId: QueueItemId? = null
 

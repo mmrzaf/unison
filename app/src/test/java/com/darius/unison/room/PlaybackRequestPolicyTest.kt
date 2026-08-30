@@ -31,7 +31,9 @@ class PlaybackRequestPolicyTest {
     @Test
     fun preparedCurrentTrackCanPlay() {
         val snapshot = snapshot(item, wait = true)
-        assertFalse(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot, setOf(item.queueItemId)))
+        assertFalse(
+            PlaybackRequestPolicy.requiresPreparationForPlay(snapshot, setOf(item.queueItemId))
+        )
     }
 
     @Test

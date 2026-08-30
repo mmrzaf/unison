@@ -41,9 +41,7 @@ def main() -> int:
     version = version_name()
     body = changelog_section(version)
     prefix = ""
-    if "-alpha." in version:
-        prefix = "**Public alpha:** early prerelease for focused compatibility testing before beta.\n\n"
-    elif "-beta." in version:
+    if "-beta." in version:
         prefix = "**Public beta:** production-style prerelease for real-world testing before stable 1.2.0.\n\n"
     elif "-rc." in version:
         prefix = "**Release candidate:** intended to become stable unless a release blocker is found.\n\n"

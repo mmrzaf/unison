@@ -12,9 +12,9 @@ import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
+import com.darius.unison.model.TransferPriority
 import com.darius.unison.model.TransportAction
 import com.darius.unison.model.TransportCommandPhase
-import com.darius.unison.model.TransferPriority
 import com.darius.unison.model.UserCommand
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

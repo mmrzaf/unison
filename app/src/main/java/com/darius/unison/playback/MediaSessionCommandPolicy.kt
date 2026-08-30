@@ -29,5 +29,4 @@ internal object MediaSessionCommandPolicy {
             Player.COMMAND_SEEK_BACK,
             Player.COMMAND_SEEK_FORWARD,
         )
-
 }

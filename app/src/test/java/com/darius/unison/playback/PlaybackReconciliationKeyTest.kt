@@ -38,7 +38,9 @@ class PlaybackReconciliationKeyTest {
     fun legacyBoundaryOptionDoesNotChangeTimelineKey() {
         val base = snapshot()
         val legacyChanged =
-            base.copy(options = base.options.copy(waitAtTrackBoundary = !base.options.waitAtTrackBoundary))
+            base.copy(
+                options = base.options.copy(waitAtTrackBoundary = !base.options.waitAtTrackBoundary)
+            )
 
         assertEquals(
             PlaybackReconciliationKey.from(base, emptySet()),
@@ -52,7 +54,10 @@ class PlaybackReconciliationKeyTest {
         val item = base.queue.first().queueItemId
         assertNotEquals(
             PlaybackReconciliationKey.from(base, emptySet()),
-            PlaybackReconciliationKey.from(base.copy(queueRevision = base.queueRevision + 1), emptySet()),
+            PlaybackReconciliationKey.from(
+                base.copy(queueRevision = base.queueRevision + 1),
+                emptySet(),
+            ),
         )
         assertNotEquals(
             PlaybackReconciliationKey.from(base, emptySet()),
@@ -61,7 +66,9 @@ class PlaybackReconciliationKeyTest {
         assertNotEquals(
             PlaybackReconciliationKey.from(base, emptySet()),
             PlaybackReconciliationKey.from(
-                base.copy(options = base.options.copy(preloadCount = base.options.preloadCount + 1)),
+                base.copy(
+                    options = base.options.copy(preloadCount = base.options.preloadCount + 1)
+                ),
                 emptySet(),
             ),
         )

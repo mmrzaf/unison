@@ -187,9 +187,9 @@ def main() -> int:
         versions = text("gradle/libs.versions.toml")
         version_name = version_value(versions, "appVersionName")
         version_code = version_value(versions, "appVersionCode")
-        require(re.fullmatch(r"1\.2\.0(?:-(?:alpha|beta|rc)\.[1-9][0-9]*)?", version_name) is not None,
+        require(re.fullmatch(r"1\.2\.0(?:-(?:beta|rc)\.[1-9][0-9]*)?", version_name) is not None,
                 f"Unexpected 1.2 release-line version: {version_name}")
-        require(version_code.isdigit() and int(version_code) >= 4, "1.2 alpha/beta/stable versionCode must be >= 4")
+        require(version_code.isdigit() and int(version_code) >= 5, "1.2 beta/stable versionCode must be >= 5")
 
         readme = text("README.md")
         changelog = text("CHANGELOG.md")

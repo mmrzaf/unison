@@ -7,8 +7,8 @@ import com.darius.unison.model.LocalPlaybackParticipation
  *
  * Audio-focus loss and "becoming noisy" are local output conditions, not room commands. Periodic
  * state sync must not unexpectedly restart sound on that phone. Conversely, when a locally
- * inhibited user presses Play while the canonical room is already advancing, that means "rejoin
- * the live room"; issuing a second canonical Play would unnecessarily reschedule every peer.
+ * inhibited user presses Play while the canonical room is already advancing, that means "rejoin the
+ * live room"; issuing a second canonical Play would unnecessarily reschedule every peer.
  */
 object PlaybackIntentReconciliationPolicy {
     enum class Action {
@@ -38,10 +38,7 @@ object PlaybackIntentReconciliationPolicy {
         canonicalPlaying: Boolean,
         participation: LocalPlaybackParticipation,
     ): PlayRequestAction =
-        if (
-            canonicalPlaying &&
-                participation == LocalPlaybackParticipation.OUTPUT_INHIBITED
-        ) {
+        if (canonicalPlaying && participation == LocalPlaybackParticipation.OUTPUT_INHIBITED) {
             PlayRequestAction.REJOIN_LIVE_ROOM
         } else {
             PlayRequestAction.MUTATE_CANONICAL_ROOM

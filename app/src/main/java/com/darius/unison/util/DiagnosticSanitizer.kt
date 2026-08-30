@@ -6,7 +6,9 @@ internal object DiagnosticSanitizer {
     private const val MAX_ATTRIBUTE_CHARS = 768
 
     private val secretAssignment =
-        Regex("(?i)(secret|token|passphrase|pin|password|credential|authorization)(\\s*[:=]\\s*)([^\\s,;]+)")
+        Regex(
+            "(?i)(secret|token|passphrase|pin|password|credential|authorization)(\\s*[:=]\\s*)([^\\s,;]+)"
+        )
     private val bearerCredential = Regex("(?i)(bearer)(\\s+)([^\\s,;]+)")
     private val contentUri = Regex("content://[^\\s,;]+")
     private val privatePath = Regex("/(?:data|storage|sdcard)/[^\\s,;]+")

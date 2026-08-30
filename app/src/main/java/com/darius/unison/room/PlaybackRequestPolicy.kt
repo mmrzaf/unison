@@ -12,7 +12,8 @@ object PlaybackRequestPolicy {
             snapshot.queue.firstOrNull { it.queueItemId == id }
         } ?: snapshot.queue.firstOrNull()
 
-    fun requiresPreparationForPlay(snapshot: RoomSnapshot): Boolean = requiresPreparationForPlay(snapshot, emptySet())
+    fun requiresPreparationForPlay(snapshot: RoomSnapshot): Boolean =
+        requiresPreparationForPlay(snapshot, emptySet())
 
     fun requiresPreparationForPlay(
         snapshot: RoomSnapshot,

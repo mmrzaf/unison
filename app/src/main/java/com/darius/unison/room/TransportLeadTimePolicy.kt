@@ -25,9 +25,7 @@ object TransportLeadTimePolicy {
         val representativeRtt =
             upperQuartile(peerRoundTripsNs.map { it.coerceIn(0L, MAX_MEASURED_RTT_NS) })
         val representativeUncertainty =
-            upperQuartile(
-                peerUncertaintiesNs.map { it.coerceIn(0L, MAX_MEASURED_UNCERTAINTY_NS) }
-            )
+            upperQuartile(peerUncertaintiesNs.map { it.coerceIn(0L, MAX_MEASURED_UNCERTAINTY_NS) })
         val measuredNetworkAllowance =
             safeAdd(representativeRtt, safeMultiply(representativeUncertainty, 2L))
         val topologyFloor = remoteReadyPeers.toLong() * PER_REMOTE_PEER_FLOOR_NS
