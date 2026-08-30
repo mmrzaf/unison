@@ -22,6 +22,8 @@ data class RoomStructureState(
     val hotspot: HotspotInfo? = null,
     val memberRuntime: Map<PeerId, MemberRuntimeState> = emptyMap(),
     val mediaReadiness: Map<QueueItemId, RoomMediaReadiness> = emptyMap(),
+    /** Device-local presentation state for a successor that will start once media is ready. */
+    val pendingSuccessorQueueItemId: QueueItemId? = null,
 ) {
     val operationActive: Boolean
         get() = lifecycle != RoomLifecycleState.IDLE && lifecycle != RoomLifecycleState.FAILED
@@ -74,6 +76,7 @@ fun RoomUiState.toStructureState(): RoomStructureState =
         hotspot = hotspot,
         memberRuntime = memberRuntime,
         mediaReadiness = mediaReadiness,
+        pendingSuccessorQueueItemId = pendingSuccessorQueueItemId,
     )
 
 fun RoomUiState.toPlaybackTelemetry(): RoomPlaybackTelemetry =
@@ -119,5 +122,6 @@ fun RoomStructureState.toUiState(
         hotspot = hotspot,
         memberRuntime = memberRuntime,
         mediaReadiness = mediaReadiness,
+        pendingSuccessorQueueItemId = pendingSuccessorQueueItemId,
     )
 }

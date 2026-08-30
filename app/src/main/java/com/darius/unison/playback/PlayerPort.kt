@@ -75,6 +75,8 @@ data class PlayerState(
     /** Local participation in room playback. Inhibited devices never influence room timing. */
     val participation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
     val inhibitionReason: LocalPlaybackInhibitionReason? = null,
+    /** True while Android/Media3 still reports a system suppression that makes resume unsafe. */
+    val outputResumeBlocked: Boolean = false,
     val playbackSpeed: Float = 1f,
     val prepared: Boolean = false,
     val buffering: Boolean = false,
@@ -87,7 +89,7 @@ data class PlayerState(
     val itemTransitionRevision: Long = 0,
     /** Preserves Media3's transition origin for diagnostics only. */
     val itemTransitionReason: PlayerItemTransitionReason? = null,
-    /** Increments only when Media3 reaches a natural item boundary (AUTO or REPEAT). */
+    /** Increments once for each physical natural item boundary, including END_OF_MEDIA_ITEM. */
     val itemBoundaryRevision: Long = 0,
     /** Item that actually ended at [itemBoundaryRevision], independent of the newly selected item. */
     val boundaryEndedQueueItemId: QueueItemId? = null,

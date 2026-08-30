@@ -100,6 +100,19 @@ internal class PeerPlaybackHealthRegistry(
         return entry.synchronized && leaseFresh
     }
 
+    /**
+     * True when a peer has a fresh room clock and is actively participating in playback. Content
+     * runway is deliberately irrelevant here: a listener can be audibly synchronized with the
+     * current song while the next song is still catching up.
+     */
+    fun isSynchronizationParticipant(peerId: PeerId, nowNs: Long): Boolean =
+        when (health(peerId, nowNs).state) {
+            PeerPlaybackHealthState.READY,
+            PeerPlaybackHealthState.CATCHING_UP -> true
+            PeerPlaybackHealthState.WARMING_UP,
+            PeerPlaybackHealthState.DEGRADED -> false
+        }
+
     fun health(peerId: PeerId, nowNs: Long): PeerClockHealth {
         val entry = entries[peerId]
             ?: return PeerClockHealth(PeerPlaybackHealthState.WARMING_UP)
@@ -139,6 +152,29 @@ internal class PeerPlaybackHealthRegistry(
             connectedPeers.asSequence()
                 .filter { it != localCoordinatorPeerId }
                 .filter { health(it, nowNs).state == PeerPlaybackHealthState.READY }
+                .forEach { add(it) }
+        }
+
+    /**
+     * Peers whose verified media is relevant to room readiness. Unlike [readyPeers], this projection
+     * intentionally ignores temporary audible-output inhibition. A phone call must not erase
+     * knowledge that a device still owns a verified copy of the track.
+     *
+     * Newly joining/catching-up peers remain non-blocking until clock + current runway are ready.
+     */
+    fun contentReadinessPeers(
+        connectedPeers: Set<PeerId>,
+        localCoordinatorPeerId: PeerId,
+        nowNs: Long,
+    ): Set<PeerId> =
+        buildSet {
+            if (localCoordinatorPeerId in connectedPeers) add(localCoordinatorPeerId)
+            connectedPeers.asSequence()
+                .filter { it != localCoordinatorPeerId }
+                .filter { peerId ->
+                    val entry = entries[peerId] ?: return@filter false
+                    entry.contentReady && isClockReady(peerId, nowNs)
+                }
                 .forEach { add(it) }
         }
 

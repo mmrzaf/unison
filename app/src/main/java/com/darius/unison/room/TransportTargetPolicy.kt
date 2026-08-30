@@ -7,14 +7,16 @@ import com.darius.unison.model.UserCommand
 /**
  * Resolves relative transport intent to a stable absolute queue target before canonical mutation.
  *
- * Playback intent never doubles as preparation intent: an unavailable target is rejected and must
- * be explicitly prepared first. Relative navigation is resolved from the current canonical item,
- * so no deferred/pending navigation state exists outside canonical history.
+ * Arbitrary item selection remains explicit: unavailable items must be prepared first. Next is
+ * stronger sequential intent, so an unavailable immediate successor is returned as a preparation
+ * target without skipping ahead. RoomRuntime owns the single pending-successor lifecycle.
  */
 object TransportTargetPolicy {
     data class Resolution(
         val command: UserCommand? = null,
         val alreadyAligned: Boolean = false,
+        val waitForPreparationQueueItemId: QueueItemId? = null,
+        val resumeWhenReady: Boolean = false,
         val rejection: String? = null,
     )
 
@@ -33,6 +35,7 @@ object TransportTargetPolicy {
                     baseId = snapshot.playback.queueItemId,
                     emptyOrBoundaryMessage = "Already at the end of the queue",
                     preparedQueueItemIds = preparedQueueItemIds,
+                    waitForPreparation = true,
                 )
 
             is UserCommand.SkipPrevious -> {
@@ -103,6 +106,7 @@ object TransportTargetPolicy {
         baseId: QueueItemId?,
         emptyOrBoundaryMessage: String,
         preparedQueueItemIds: Set<QueueItemId>,
+        waitForPreparation: Boolean = false,
     ): Resolution {
         if (snapshot.queue.isEmpty()) return Resolution(rejection = "The queue is empty")
         val baseIndex = snapshot.queue.indexOfFirst { it.queueItemId == baseId }
@@ -110,7 +114,9 @@ object TransportTargetPolicy {
         val target =
             snapshot.queue.getOrNull(targetIndex)
                 ?: return Resolution(rejection = emptyOrBoundaryMessage)
-        return targetResolution(command, snapshot, target.queueItemId, preparedQueueItemIds)
+        return targetResolution(
+            command, snapshot, target.queueItemId, preparedQueueItemIds, waitForPreparation
+        )
     }
 
     private fun targetResolution(
@@ -118,9 +124,17 @@ object TransportTargetPolicy {
         snapshot: RoomSnapshot,
         queueItemId: QueueItemId,
         preparedQueueItemIds: Set<QueueItemId>,
+        waitForPreparation: Boolean = false,
     ): Resolution =
         if (snapshot.requiresPreparation(queueItemId, preparedQueueItemIds)) {
-            Resolution(rejection = "Prepare this song before playing it")
+            if (waitForPreparation) {
+                Resolution(
+                    waitForPreparationQueueItemId = queueItemId,
+                    resumeWhenReady = snapshot.playback.isPlaying,
+                )
+            } else {
+                Resolution(rejection = "Prepare this song before playing it")
+            }
         } else {
             Resolution(
                 command =

@@ -128,6 +128,32 @@ class PlaybackQueuePolicyTest {
     }
 
     @Test
+    fun immediateNextTracksCurrentQueueOrderAfterReorder() {
+        val reordered =
+            snapshot().copy(
+                queue = listOf(first, third, second),
+                playback = CanonicalPlaybackState(first.queueItemId, 0, 1, true),
+            )
+        assertEquals(
+            third.queueItemId,
+            PlaybackQueuePolicy.immediateNextQueueItemId(reordered, first.queueItemId),
+        )
+    }
+
+    @Test
+    fun naturalSuccessorHonorsRepeatAllWrap() {
+        val room =
+            snapshot().copy(
+                playback = CanonicalPlaybackState(third.queueItemId, 0, 1, true),
+                repeatMode = RepeatMode.ALL,
+            )
+        assertEquals(
+            first.queueItemId,
+            PlaybackQueuePolicy.naturalSuccessorQueueItemId(room, third.queueItemId),
+        )
+    }
+
+    @Test
     fun playerWindowKeepsSmallHistoryAndUpcomingRange() {
         val queue =
             (0 until 30).map { index ->

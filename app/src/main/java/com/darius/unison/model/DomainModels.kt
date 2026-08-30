@@ -84,7 +84,7 @@ enum class LocalPlaybackInhibitionReason {
     AUDIO_FOCUS,
     BECOMING_NOISY,
     UNSUITABLE_OUTPUT,
-    /** Vendor/OS playback policy changed local intent without a Unison-owned mutation. */
+    /** Protocol-2 compatibility only. Phase 2 no longer infers inhibition from unexplained callbacks. */
     SYSTEM_POLICY,
 }
 
@@ -144,6 +144,8 @@ enum class RepeatMode {
 
 @Serializable
 data class RoomOptions(
+    // Protocol 2 compatibility only. Sequential playback always preserves queue order and waits
+    // for the canonical successor when preparation is required. This is no longer user-facing.
     val waitAtTrackBoundary: Boolean = true,
     val preloadCount: Int = 3,
 )
@@ -327,6 +329,8 @@ data class RoomUiState(
     val hotspot: HotspotInfo? = null,
     val memberRuntime: Map<PeerId, MemberRuntimeState> = emptyMap(),
     val mediaReadiness: Map<QueueItemId, RoomMediaReadiness> = emptyMap(),
+    /** Ephemeral UI projection of the exact successor currently waiting for preparation. */
+    val pendingSuccessorQueueItemId: QueueItemId? = null,
 ) {
     /** Any finite room operation that needs the service to remain alive. */
     val operationActive: Boolean

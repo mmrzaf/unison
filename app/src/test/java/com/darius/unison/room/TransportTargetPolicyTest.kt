@@ -32,7 +32,7 @@ class TransportTargetPolicyTest {
         }
 
     @Test
-    fun nextToUnreadyTrackIsRejectedWithoutChangingCurrentItem() {
+    fun nextToUnreadyTrackWaitsForThatExactSuccessor() {
         val snapshot = snapshot(prepared = setOf(items[0].queueItemId))
         val result =
             resolve(
@@ -41,8 +41,10 @@ class TransportTargetPolicyTest {
                 coordinatorNowNs = 0,
             )
 
-        assertEquals("Prepare this song before playing it", result.rejection)
+        assertNull(result.rejection)
         assertNull(result.command)
+        assertEquals(items[1].queueItemId, result.waitForPreparationQueueItemId)
+        assertTrue(result.resumeWhenReady)
         assertEquals(items[0].queueItemId, snapshot.playback.queueItemId)
     }
 
@@ -56,12 +58,13 @@ class TransportTargetPolicyTest {
                 coordinatorNowNs = 0,
             )
 
-        assertEquals("Prepare this song before playing it", result.rejection)
+        assertNull(result.rejection)
         assertNull(result.command)
+        assertEquals(items[1].queueItemId, result.waitForPreparationQueueItemId)
     }
 
     @Test
-    fun pausedNextStillRequiresPreparation() {
+    fun pausedNextWaitsWithoutInventingResumeIntent() {
         val snapshot =
             snapshot(
                 prepared = setOf(items[0].queueItemId),
@@ -74,8 +77,10 @@ class TransportTargetPolicyTest {
                 coordinatorNowNs = 0,
             )
 
-        assertEquals("Prepare this song before playing it", result.rejection)
+        assertNull(result.rejection)
         assertNull(result.command)
+        assertEquals(items[1].queueItemId, result.waitForPreparationQueueItemId)
+        assertEquals(false, result.resumeWhenReady)
     }
 
     @Test

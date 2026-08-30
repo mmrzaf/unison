@@ -17,11 +17,13 @@ object PlayerStateEventPolicy {
             playWhenReady = state.playWhenReady,
             participation = state.participation,
             inhibitionReason = state.inhibitionReason,
+            outputResumeBlocked = state.outputResumeBlocked,
             ended = state.ended,
             error = state.error,
             seekRevision = state.seekRevision,
             itemTransitionRevision = state.itemTransitionRevision,
             itemTransitionReason = state.itemTransitionReason,
+            itemBoundaryRevision = state.itemBoundaryRevision,
         )
 
     data class Key(
@@ -29,10 +31,12 @@ object PlayerStateEventPolicy {
         val playWhenReady: Boolean,
         val participation: LocalPlaybackParticipation,
         val inhibitionReason: LocalPlaybackInhibitionReason?,
+        val outputResumeBlocked: Boolean,
         val ended: Boolean,
         val error: String?,
         val seekRevision: Long,
         val itemTransitionRevision: Long,
         val itemTransitionReason: PlayerItemTransitionReason?,
+        val itemBoundaryRevision: Long,
     )
 }
