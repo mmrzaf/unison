@@ -29,6 +29,7 @@ class ControlAdmissionControllerTest {
     private val roomId = "room-1234"
     private val pin = "1234"
     private val secret = ByteArray(32) { it.toByte() }
+    private var sessionGeneration = 7L
     private val snapshot =
         RoomSnapshot(
             roomId = roomId,
@@ -40,6 +41,7 @@ class ControlAdmissionControllerTest {
 
     @Before
     fun setUp() {
+        sessionGeneration = 7L
         log = DiagnosticLog(temporaryFolder.newFile("diagnostics.log"))
     }
 
@@ -55,6 +57,7 @@ class ControlAdmissionControllerTest {
             localIdentity = { local },
             roomPin = { pin },
             roomSecret = { secret },
+            sessionGeneration = { sessionGeneration },
             log = log,
             onEnvelope = { _, _ -> },
             onClosed = { _, _ -> },
@@ -91,6 +94,8 @@ class ControlAdmissionControllerTest {
             challengeAdmission.complete(HandshakeMessage.PinResponse(answer.proofBase64))
                 as PeerServer.ControlAdmission.Accepted
         assertEquals(guest, result.endpoint.peerId)
+        assertEquals(roomId, result.roomId)
+        assertEquals(7L, result.sessionGeneration)
         assertTrue(!result.serverWriteKey.contentEquals(result.serverReadKey))
         assertTrue(
             PinPake.verifyServerProof(
@@ -230,4 +235,43 @@ class ControlAdmissionControllerTest {
             result.code,
         )
     }
+    @Test
+    fun acceptedAdmissionCapturesGenerationAtFinalAcceptance() = runBlocking {
+        val nonce = Crypto.randomBase64(18)
+        val clientSession = PinPake.ClientSession.start(roomId, guest.value, nonce, pin)
+        val hello =
+            HandshakeMessage.PinClientHello(
+                peerId = guest,
+                displayName = "Guest",
+                appVersion = "1.0.0",
+                protocolVersion = PROTOCOL_VERSION,
+                listeningPort = 4321,
+                roomId = roomId,
+                clientNonce = nonce,
+                pinPublicValueBase64 = clientSession.publicValueBase64,
+            )
+        val challengeAdmission =
+            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.PinChallenge
+        val challenge = challengeAdmission.response
+        val answer =
+            clientSession.answer(
+                PinPake.Challenge(
+                    challenge.saltBase64,
+                    challenge.serverPublicValueBase64,
+                    challenge.serverNonce,
+                )
+            )
+
+        sessionGeneration = 8L
+        val accepted =
+            challengeAdmission.complete(HandshakeMessage.PinResponse(answer.proofBase64))
+                as PeerServer.ControlAdmission.Accepted
+
+        assertEquals(roomId, accepted.roomId)
+        assertEquals(8L, accepted.sessionGeneration)
+        answer.sessionKey.fill(0)
+        accepted.serverWriteKey.fill(0)
+        accepted.serverReadKey.fill(0)
+    }
+
 }

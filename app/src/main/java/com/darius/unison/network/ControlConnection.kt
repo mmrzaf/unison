@@ -29,9 +29,13 @@ class ControlConnection(
     private val codec: FrameCodec,
     parentScope: CoroutineScope,
     private val log: DiagnosticLog,
-    private val onEnvelope: suspend (PeerId, Envelope) -> Unit,
+    private val onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
     private val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
 ) {
+    /** Remote host observed on the authenticated control socket; never participant-announced. */
+    val authenticatedRemoteHostAddress: String =
+        requireNotNull(socket.inetAddress?.hostAddress) { "Control socket is not connected" }
+
     private val callbackScope = parentScope
     private val supervisorJob = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + supervisorJob)
@@ -78,7 +82,7 @@ class ControlConnection(
         scope.launch(Dispatchers.IO) {
             try {
                 while (isActive && !socket.isClosed) onEnvelope(
-                    peerId,
+                    this@ControlConnection,
                     codec.read(socket.getInputStream()),
                 )
             } catch (cancelled: CancellationException) {
@@ -149,6 +153,9 @@ class ControlConnection(
      * Drain ready high-priority queues before suspending. Canonical ordering is preserved because
      * every ordered envelope uses the same single-consumer [guaranteed] channel.
      */
+    /** Test seam for exercising queue arbitration without starting socket reader/writer jobs. */
+    internal suspend fun nextOutgoingForTest(): Envelope? = nextOutgoing()
+
     private suspend fun nextOutgoing(): Envelope? {
         guaranteed.tryReceive().getOrNull()?.let {
             return it

@@ -238,8 +238,12 @@ class TransferManager(
                             Base64.getUrlEncoder().withoutPadding().encodeToString(baseNonce),
                         ),
                     )
-                    val file = trackRepository.requireReadableFile(request.trackId)
-                    if (file == null) {
+                    val leasedFile =
+                        trackRepository.requireReadableFileWithLease(
+                            request.trackId,
+                            ManagedFileLeaseReason.TRANSFER_UPLOAD,
+                        )
+                    if (leasedFile == null) {
                         FileWireCodec.writeEncryptedHeader(
                             socket.getOutputStream(),
                             FileResponseHeader(
@@ -256,47 +260,43 @@ class TransferManager(
                         )
                         return@tryWithPermit
                     }
-                    if (request.offset !in 0..file.length()) {
-                        FileWireCodec.writeEncryptedHeader(
-                            socket.getOutputStream(),
-                            FileResponseHeader(
-                                requestId = request.requestId,
-                                status = FileResponseStatus.INVALID_OFFSET,
-                                trackId = request.trackId,
-                                totalSize = file.length(),
-                                acceptedOffset = 0L,
-                                message = "Resume offset rejected",
-                            ),
-                            sessionKey,
-                            baseNonce,
-                            associatedData,
-                        )
-                        return@tryWithPermit
-                    }
-                    if (!authorizations.consume(request.authorizationId, authorization)) {
-                        FileWireCodec.writeEncryptedHeader(
-                            socket.getOutputStream(),
-                            FileResponseHeader(
-                                requestId = request.requestId,
-                                status = FileResponseStatus.UNAUTHORIZED,
-                                trackId = request.trackId,
-                                totalSize = file.length(),
-                                acceptedOffset = request.offset,
-                                message = "Transfer authorization already used",
-                            ),
-                            sessionKey,
-                            baseNonce,
-                            associatedData,
-                        )
-                        return@tryWithPermit
-                    }
-
-                    val uploadLease =
-                        fileStore.acquireLease(
-                            request.trackId,
-                            ManagedFileLeaseReason.TRANSFER_UPLOAD,
-                        )
+                    val file = leasedFile.file
                     try {
+                        if (request.offset !in 0..file.length()) {
+                            FileWireCodec.writeEncryptedHeader(
+                                socket.getOutputStream(),
+                                FileResponseHeader(
+                                    requestId = request.requestId,
+                                    status = FileResponseStatus.INVALID_OFFSET,
+                                    trackId = request.trackId,
+                                    totalSize = file.length(),
+                                    acceptedOffset = 0L,
+                                    message = "Resume offset rejected",
+                                ),
+                                sessionKey,
+                                baseNonce,
+                                associatedData,
+                            )
+                            return@tryWithPermit
+                        }
+                        if (!authorizations.consume(request.authorizationId, authorization)) {
+                            FileWireCodec.writeEncryptedHeader(
+                                socket.getOutputStream(),
+                                FileResponseHeader(
+                                    requestId = request.requestId,
+                                    status = FileResponseStatus.UNAUTHORIZED,
+                                    trackId = request.trackId,
+                                    totalSize = file.length(),
+                                    acceptedOffset = request.offset,
+                                    message = "Transfer authorization already used",
+                                ),
+                                sessionKey,
+                                baseNonce,
+                                associatedData,
+                            )
+                            return@tryWithPermit
+                        }
+
                         FileWireCodec.writeEncryptedHeader(
                             socket.getOutputStream(),
                             FileResponseHeader(
@@ -366,7 +366,7 @@ class TransferManager(
                             ),
                         )
                     } finally {
-                        uploadLease.close()
+                        leasedFile.lease.close()
                     }
                 } finally {
                     sessionKey.fill(0)

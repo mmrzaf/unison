@@ -22,6 +22,9 @@ class CacheCleanupWorker(
         try {
             if (roomActive()) return Result.success()
             val now = System.currentTimeMillis()
+            val managedReferences =
+                database.trackSourceDao().managedTrackIds().mapTo(hashSetOf(), ::TrackId)
+            store.cleanupPendingDeletes(MAX_PENDING_DELETES_PER_RUN, managedReferences)
             store.cleanupAbandonedFiles(now - STALE_PARTIAL_AGE_MS, MAX_TEMPORARY_FILES_PER_RUN)
 
             // Cleanup validates metadata only. Cryptographic verification happens at import,
@@ -63,7 +66,6 @@ class CacheCleanupWorker(
                 candidate ->
                 if (roomActive()) return Result.success()
                 val trackId = TrackId(candidate.trackId)
-                if (store.isLeased(trackId)) return@forEach
                 var deleteManagedBytes = false
                 database.withTransaction {
                     val current =
@@ -77,7 +79,7 @@ class CacheCleanupWorker(
                         current.managedRelativePath != null && remainingManagedSources == 0
                     if (remainingSources == 0) database.trackDao().delete(current.trackId)
                 }
-                if (deleteManagedBytes) store.delete(trackId)
+                if (deleteManagedBytes) store.requestDelete(trackId)
             }
             Result.success()
         } catch (cancelled: CancellationException) {
@@ -104,5 +106,6 @@ class CacheCleanupWorker(
         const val MAX_DATABASE_ROWS_PER_RUN = 250
         const val MAX_ORPHAN_FILES_PER_RUN = 100
         const val MAX_TEMPORARY_FILES_PER_RUN = 250
+        const val MAX_PENDING_DELETES_PER_RUN = 250
     }
 }

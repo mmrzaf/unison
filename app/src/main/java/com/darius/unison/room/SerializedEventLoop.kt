@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -17,6 +18,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * [onDropped] is invoked for accepted events that cannot finish because the loop or its owning
  * scope is cancelled. Completion-bearing events must use it so shutdown never strands callers.
+ * A [CancellationException] thrown by one handler while this loop's owner is still active is
+ * reported through [onFailure] like any other event failure; only cancellation of the owner job
+ * itself is allowed to terminate the persistent consumer.
  */
 class SerializedEventLoop<E>(
     scope: CoroutineScope,
@@ -44,8 +48,11 @@ class SerializedEventLoop<E>(
                 try {
                     handler(event)
                 } catch (cancelled: CancellationException) {
-                    runCatching { onDropped(event, cancelled) }
-                    throw cancelled
+                    if (!currentCoroutineContext().isActive) {
+                        runCatching { onDropped(event, cancelled) }
+                        throw cancelled
+                    }
+                    onFailure(event, cancelled)
                 } catch (error: Throwable) {
                     onFailure(event, error)
                 } finally {

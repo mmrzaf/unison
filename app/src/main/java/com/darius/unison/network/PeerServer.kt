@@ -35,7 +35,11 @@ class PeerServer(
             remoteAddress: String,
         ): ControlAdmission
 
-        suspend fun onControlConnected(connection: ControlConnection)
+        suspend fun onControlConnected(
+            connection: ControlConnection,
+            admittedRoomId: String,
+            admittedSessionGeneration: Long,
+        )
 
         suspend fun onFileConnection(socket: Socket, hello: HandshakeMessage.FileClientHello)
     }
@@ -47,7 +51,8 @@ class PeerServer(
             val serverReadKey: ByteArray,
             val endpoint: PeerEndpoint,
             val roomId: String,
-            val onEnvelope: suspend (com.darius.unison.model.PeerId, Envelope) -> Unit,
+            val sessionGeneration: Long,
+            val onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
             val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
         ) : ControlAdmission
 
@@ -229,7 +234,11 @@ class PeerServer(
                             throw error
                         }
                     try {
-                        handler.onControlConnected(connection)
+                        handler.onControlConnected(
+                            connection = connection,
+                            admittedRoomId = admission.roomId,
+                            admittedSessionGeneration = admission.sessionGeneration,
+                        )
                         connection.start()
                     } catch (error: Exception) {
                         connection.closeSilently()
