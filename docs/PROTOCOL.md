@@ -1,10 +1,10 @@
 # Protocol 2
 
-Protocol 2 is Unison 1.2.0's only wire contract. There is no negotiation or fallback to protocol 1,
+Protocol 2 is the Unison 1.2 release line's only wire contract. There is no negotiation or fallback to protocol 1,
 no compatibility decoder, and no alternate message shape. Unknown fields, missing required fields,
 invalid enum values, and a protocol value other than `2` are rejected.
 
-Protocol 3 was deliberately **not** introduced for 1.2.0: the readiness, transfer-orchestration,
+Protocol 3 was deliberately **not** introduced for the 1.2 release line: the readiness, transfer-orchestration,
 lifecycle, and diagnostics changes fit Protocol 2 without weakening its semantics. Persistent peer
 data sessions remain a future experiment and are not part of this contract.
 

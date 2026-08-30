@@ -33,6 +33,7 @@ android {
         versionCode = libs.versions.appVersionCode.get().toInt()
         versionName = libs.versions.appVersionName.get()
         vectorDrawables.useSupportLibrary = true
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -94,7 +95,7 @@ android {
         // Dependency and toolchain upgrades are explicit release work, not lint findings. Keep all
         // source, API-use, accessibility, lifecycle, and correctness checks enabled.
         disable += setOf("AndroidGradlePluginVersion", "GradleDependency")
-        // Direct-release 1.0 is qualified on Android 11, 13, and 16 with targetSdk 33 intentionally pinned.
+        // The 1.2 release line is qualified on Android 11, 13, and 16 with targetSdk 33 intentionally pinned.
         disable += "OldTargetApi"
     }
 }
@@ -126,6 +127,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     androidTestImplementation(composeBom)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
 
     implementation(libs.androidx.datastore)
     implementation(libs.androidx.documentfile)

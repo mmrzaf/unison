@@ -210,7 +210,7 @@ reconnect ends the session. `ENDED` is terminal.
 Unexpected participant loss gets a short reconnect grace. If it does not return, canonical membership
 and associated transfer/preparation state are removed. No ghost listener remains indefinitely.
 
-Unison 1.2.0 deliberately does **not** elect a replacement coordinator. Surviving coordinator death
+The Unison 1.2 release line deliberately does **not** elect a replacement coordinator. Surviving coordinator death
 would require a different availability contract and substantially more distributed-state machinery.
 
 ## Control and network boundary
