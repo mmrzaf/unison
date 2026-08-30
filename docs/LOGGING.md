@@ -40,7 +40,12 @@ Event names describe what happened, for example:
 - `transfer.track.failed`;
 - `transfer.assignment.created`;
 - `room.media.prepare_requested`;
-- `room.session.ended`.
+- `room.session.ended`;
+- `room.event.stale_session`;
+- `room.event.unexpected_handler_cancellation`;
+- `network.control.stale_admission`;
+- `network.envelope.stale_connection`;
+- `network.endpoint.host_mismatch`.
 
 Important values such as command ID, queue item ID, phase, latency, drift, peer ID, retry number, and
 duration are attributes. Transfer attempts also carry `transfer.operation_id`; coordinator assignments
@@ -125,7 +130,9 @@ unexplained callback became `SYSTEM_POLICY`, or cleared transient focus never co
 participation.
 
 The stability analyzer independently rejects unavailable-media command rejection, duplicate transfer
-assignment, handshake timeout, reconnect/retry churn, malformed records, and unclean room teardown.
+assignment, handshake timeout, reconnect/retry churn, malformed records, unclean room teardown, and any
+`room.event.unexpected_handler_cancellation`. Stale/provenance rejection events are retained as bounded
+forensic evidence but are not themselves failures: their presence means the fence rejected obsolete work.
 Scheduled playback now records `playback.arrival_late_ms` and `playback.executor_late_ms` separately:
 a command that reaches the scheduler after its target time is a delivery/actor problem, while extra
 lateness accumulated after scheduling is a PlayerExecutor problem. Both are release failures when

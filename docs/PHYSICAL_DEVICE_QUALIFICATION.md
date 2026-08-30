@@ -44,6 +44,29 @@ without leaving and rejoining the room.
     successor must become the one pending successor, be prepared urgently, keep canonical time parked
     at the real boundary, and start automatically from position 0 once READY. Reorder or remove that
     successor while waiting and verify stale pending intent cannot later play the wrong song.
+17. Let the final queue item complete naturally, verify the room parks paused at the terminal boundary,
+    then press Play once. Every listener must receive one canonical replay from position 0. Manually seek
+    the same item to its duration and press Play separately; that must not be reinterpreted as the natural
+    terminal replay case.
+18. On API 30/32, connect Bluetooth and USB/wired outputs without selecting them for media and verify
+    Unison reports route `UNKNOWN` rather than generating a confident route transition. On API 33/36,
+    change the actual selected media route and verify the routed-device classification and convergence
+    reset/reacquisition occur exactly once.
+19. Start an inbound authenticated connection to room A, immediately leave/end A and create room B,
+    then allow the delayed A connection to finish. Verify B never gains a ghost member, loses/replaces a
+    valid B connection, refreshes stale liveness, or advances canonical state from the A socket.
+20. Reconnect the same peer while messages are in flight so socket B replaces socket A. Deliver a command
+    already decoded by A and then A's delayed close. Verify neither affects B and only B refreshes liveness.
+21. Change the source or destination room while a transfer is completing/failing and while progress is
+    updating. Verify the old generation cannot publish READY/failure/progress into the new room. Repeat
+    with a temporary-track delete racing upload startup; if upload wins its final leased file must remain
+    present until streaming finishes.
+22. In a controlled development build, have an authenticated peer connected from host X announce a
+    different permitted private host Y and request a transfer. Verify the canonical endpoint remains X,
+    the port may update, a host-mismatch diagnostic is recorded, and Y receives no TCP connection.
+23. During a large transfer, keep lower-priority transfer/telemetry/playback-reference traffic active and
+    repeatedly issue room commands while clock sync is active. Verify room commands remain responsive,
+    clock traffic continues, and diagnostics show no starvation/reconnect storm.
 
 ## Evidence to retain
 

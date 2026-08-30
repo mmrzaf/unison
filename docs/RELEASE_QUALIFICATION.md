@@ -15,6 +15,9 @@ gates all pass against the exact APK checksum.
 
 The generated Room schema must still contain exactly schema `1.json` and the four production tables.
 Protocol constants, NSD advertisement, handshakes, frames, envelopes, and documentation must all use strict Protocol 2.
+`check-release-quality.sh` must execute the focused Milestone-5 hardening suite: RFC SRP arithmetic
+conformance plus production PIN-handshake tests, lifecycle seam regressions, session-generation fences,
+endpoint authority checks, and the sustained control-priority/no-starvation stress check.
 
 ## Playback-log gate
 
@@ -47,12 +50,16 @@ Android's active network, `NETWORK_BOUND` for a non-default owning `Network`, an
 - uninterrupted natural song boundaries under active playback with both READY and unavailable
   successors; verify exactly one physical boundary handoff, no repair/restart of the finished item,
   and automatic continuation from position 0 after an unavailable successor becomes READY;
+- natural completion of the final queue item followed by Play; verify the canonical replay starts the same
+  item once from position 0 on every listener, while a manual seek to duration does not acquire terminal
+  replay semantics;
 - song change while another listener downloads or reconnects;
 - queue reorder and clear during import/preparation;
 - coordinator loss: bounded reconnection to the existing coordinator, followed by a clean room end
   if recovery fails; no replacement coordinator is elected;
 - Wi-Fi interruption and complete reconnect reconciliation;
-- Bluetooth route changes;
+- Bluetooth route changes; on API 30/32, a merely connected but unselected Bluetooth/USB/wired output
+  must leave Unison route state `UNKNOWN`; on API 33/36, actual selected-route changes must be detected;
 - phone-call/audio-focus interruption on one listener while the room advances across at least two
   songs; after focus/suppression clears, issue no user playback command and verify the listener
   automatically rejoins the current canonical song/position once its clock and media prerequisites
@@ -66,6 +73,18 @@ Android's active network, `NETWORK_BOUND` for a non-default owning `Network`, an
   remains `NETWORK_BOUND` rather than leaking onto the cellular default route;
 - transfer interruption/resume, insufficient storage, corruption, and source loss;
 - repeated create/join/leave cycles followed by idle resource inspection;
+- room-A admission in flight while A is left and room B is created immediately; delayed A admission
+  must be rejected before membership, connection, directory, liveness, or canonical mutation;
+- rapid same-peer control-socket replacement while commands are already decoded/queued; the old socket
+  message and delayed close must not affect the replacement connection or refresh liveness;
+- source/destination room changes while transfer completion/failure/progress callbacks are in flight;
+  callbacks from the old generation must not repopulate progress, READY, or failure state;
+- authenticated endpoint-host spoof attempt: a peer connected from host X may change its transfer port
+  but must not cause another phone to open a transfer connection to announced private host Y;
+- concurrent temporary deletion and upload resolution, including corrupt-file repair: repair must remain
+  legal before the final upload lease, and a leased upload file must not disappear mid-stream;
+- sustained transfer/telemetry/playback-reference control traffic with repeated guaranteed and clock
+  messages; no control or clock starvation is permitted;
 - process recreation while connected.
 
 ## Acceptance
@@ -75,8 +94,10 @@ Android's active network, `NETWORK_BOUND` for a non-default owning `Network`, an
 - no stale scheduled command reaches Media3;
 - no queue/current-item oscillation or transition storm occurs;
 - every observed `END_OF_MEDIA_ITEM` is paired with one physical boundary handoff (or an explicitly
-  ignored duplicate), and no `WRONG_PLAY_STATE` repair resurrects an item before canonical boundary
-  ownership decides the successor;
+  ignored duplicate), the boundary identifies the item that actually ended, and no `WRONG_PLAY_STATE`
+  repair resurrects an item before canonical boundary ownership decides the successor;
+- the final-item terminal replay and actual-Media3 boundary instrumentation are green on the required
+  API/device matrix;
 - unavailable content leaves current canonical playback intact, exposes Prepare/Preparing truthfully, and never produces an unavailable-media command/mutation storm;
 - a connected room never loses its content-readiness cohort merely because audible participation is
   temporarily inhibited;
@@ -87,4 +108,12 @@ Android's active network, `NETWORK_BOUND` for a non-default owning `Network`, an
 - memory, log volume, CPU, storage, and network activity remain bounded;
 - app-owned Logcat records are valid structured JSON and the room log viewer remains responsive
   while DEBUG diagnostics are enabled;
-- strict playback and stability-log analysis pass for every retained candidate trace.
+- strict playback and stability-log analysis pass for every retained candidate trace;
+- no `room.event.unexpected_handler_cancellation` appears in a candidate trace;
+- stale admission/envelope/transfer/session diagnostics may appear only as rejected-work evidence and
+  never correspond to a current-session mutation;
+- no spoofed endpoint host receives an outbound transfer connection;
+- the RFC SRP conformance vector, production PIN handshake tests, admission throttling tests, and
+  documented 1.2 SRP security review are green;
+- guaranteed room commands and clock traffic remain bounded/no-starvation under sustained lower-priority
+  control load.

@@ -22,7 +22,8 @@ With the repository-pinned Gradle/Kotlin dependency cache available:
 ```
 
 The release-quality gate includes focused Kotlin compilation, reducer/protocol/transfer/playback tests,
-diagnostics checks, and the 100,000-track library benchmark.
+the Milestone-5 hardening suite (`check-hardening-kotlin.sh`), diagnostics checks, and the 100,000-track
+library benchmark.
 
 ## High-value stress coverage
 
@@ -34,11 +35,25 @@ simulation framework:
 - readiness/convergence stress: 10,000 repeated Prepare/unavailable-media reconciliation cycles with
   zero futile playback repair until READY;
 - `ManagedFileStoreTest`: repeated interrupted writes with monotonic partial offsets, resume, final
-  SHA-256 commit, and byte equality;
+  SHA-256 commit, byte equality, atomic readable-file lease acquisition, corruption repair under
+  publication protection, durable pending deletion, multi-lease release, and restart cleanup;
 - focused tests for duplicate assignments, cancellation ordering, retry/backoff, same-pair admission,
-  room reconnect grace, and long scheduled-command clock remapping.
+  room reconnect grace, session-tagged transfer terminal events, stale direct-mutation fencing, terminal
+  natural-pause replay semantics, pre-33 route-query conservatism, MediaSession command capabilities,
+  and long scheduled-command clock remapping;
+- `RoomLifecycleSeamRegressionTest`: deterministic consume-time checks for obsolete admission, superseded
+  connection identity, old-session progress/heartbeat consequences, and terminal replay revision fencing;
+- `ControlConnectionPriorityTest`: exact ready-queue priority plus 2,000 sustained all-lanes-ready cycles
+  proving guaranteed/clock traffic is not starved by playback-reference/transfer/telemetry work;
+- `Srp6aCoreRfc5054Test` plus `PinPakeTest`: published SRP-6a arithmetic-vector conformance followed by
+  production matching-code, wrong-code, proof/session single-use, and public-value checks.
 
-A small Android instrumentation test repeats interrupted/resume/verified-commit behavior on the real
+`Media3NaturalBoundaryIntegrationTest` drives short local PCM media through the actual pinned Media3
+player and covers two-item continuation, final-item completion, repeat-one, explicit replay re-arming, and
+playlist mutation near a boundary. It is the regression boundary for callback-order/misattribution risk;
+production listener logic must not be changed merely from a speculative callback order.
+
+A small Android instrumentation test also repeats interrupted/resume/verified-commit behavior on the real
 Android filesystem. Contributors do not need a multi-device lab to run ordinary tests.
 
 ## Stability invariants
@@ -49,9 +64,22 @@ Keep [INVARIANTS.md](INVARIANTS.md) green. In particular:
 - repeated Prepare/demand is idempotent;
 - same source→destination transfer capacity cannot be exceeded;
 - intentional cancellation is not network failure;
+- transfer progress/completion/failure from an old generation cannot affect the current room;
 - completed media is hash-verified;
+- a resolved upload file is leased atomically before it can be deleted;
+- logical deletion while leased becomes a durable cleanup obligation rather than silent retained bytes;
+- final natural completion followed by Play becomes canonical replay from position 0, while manual
+  seek-to-end retains ordinary Play semantics;
+- one physical Media3 natural boundary names the item that ended and is counted once;
+- API 30-32 route state remains UNKNOWN rather than being inferred from connected-device inventory;
+- MediaSession exposes only commands backed by canonical room behavior;
 - a healthy steady room causes no player/transfer repair storm;
-- exhausted room recovery ends rather than leaving stale synchronized state.
+- exhausted room recovery ends rather than leaving stale synchronized state;
+- an unexpected handler `CancellationException` while the persistent actor owner is still active is a
+  release failure and must appear as `room.event.unexpected_handler_cancellation`;
+- rejected stale admission/envelope/transfer/session work may be diagnosed, but cannot mutate current
+  canonical state;
+- sustained lower-priority control traffic cannot starve guaranteed room commands or clock traffic.
 
 ## Diagnostic trace analysis
 
