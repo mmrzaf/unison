@@ -118,8 +118,7 @@ class TransportIntentCoordinator(
 
     private suspend fun handleMessage(message: Message, pending: MutableMap<Lane, Pending>) {
         when (message) {
-            is Message.Invalidate ->
-                supersedeMatching(pending) { it.intent.epoch < message.epoch }
+            is Message.Invalidate -> supersedeMatching(pending) { it.intent.epoch < message.epoch }
 
             is Message.Submit -> {
                 val intent = message.intent

@@ -255,7 +255,9 @@ class ManagedFileStoreTest {
                     expectedSize = bytes.size.toLong(),
                     input = ByteArrayInputStream(bytes, offset, bytes.size - offset),
                 )
-            assertTrue(store.commitPartialWithDigest(expected, bytes.size.toLong(), result.sha256Hex))
+            assertTrue(
+                store.commitPartialWithDigest(expected, bytes.size.toLong(), result.sha256Hex)
+            )
             assertTrue(store.finalFile(expected).readBytes().contentEquals(bytes))
         } finally {
             root.deleteRecursively()
@@ -346,6 +348,7 @@ class ManagedFileStoreTest {
             root.deleteRecursively()
         }
     }
+
     @Test
     fun pendingDeleteCompletesWhenFinalLeaseCloses() = runBlocking {
         val root = createTempDirectory("unison-store-").toFile()
@@ -385,7 +388,8 @@ class ManagedFileStoreTest {
             val lease = firstStore.acquireLease(result.trackId, ManagedFileLeaseReason.PLAYBACK)
             assertEquals(ManagedFileDeleteResult.DEFERRED, firstStore.requestDelete(result.trackId))
 
-            // Simulate process death: the in-memory lease disappears, while the durable marker remains.
+            // Simulate process death: the in-memory lease disappears, while the durable marker
+            // remains.
             val restartedStore = ManagedFileStore(root)
             assertTrue(restartedStore.isDeletePending(result.trackId))
             assertEquals(1, restartedStore.cleanupPendingDeletes(maxFiles = 10))
@@ -517,5 +521,4 @@ class ManagedFileStoreTest {
             root.deleteRecursively()
         }
     }
-
 }

@@ -8,10 +8,10 @@ import com.darius.unison.model.TrackId
 /**
  * Derives the small user-facing media state from runtime facts without polluting canonical history.
  *
- * [roomReadyQueueItemIds] is the coordinator's ephemeral projection for the active listening cohort.
- * A phone still requires its own verified local copy before it may present READY or execute Media3
- * work. [explicitPreparationQueueItemIds] represents deliberate Prepare intent; background prefetch
- * may still make an item become READY without ever exposing PREPARING.
+ * [roomReadyQueueItemIds] is the coordinator's ephemeral projection for the active listening
+ * cohort. A phone still requires its own verified local copy before it may present READY or execute
+ * Media3 work. [explicitPreparationQueueItemIds] represents deliberate Prepare intent; background
+ * prefetch may still make an item become READY without ever exposing PREPARING.
  */
 object RoomMediaReadinessPolicy {
     fun derive(

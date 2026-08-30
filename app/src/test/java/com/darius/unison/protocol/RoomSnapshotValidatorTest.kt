@@ -20,7 +20,6 @@ class RoomSnapshotValidatorTest {
     private val itemId = QueueItemId("33333333-3333-3333-3333-333333333333")
     private val trackId = TrackId("a".repeat(64))
 
-
     private fun validSnapshot(): RoomSnapshot {
         val item =
             QueueItem(
@@ -80,9 +79,7 @@ class RoomSnapshotValidatorTest {
     @Test
     fun rejectsPlaybackReferenceOutsideQueue() {
         val missing = QueueItemId("44444444-4444-4444-4444-444444444444")
-        val invalid =
-            validSnapshot()
-                .copy(playback = CanonicalPlaybackState(queueItemId = missing))
+        val invalid = validSnapshot().copy(playback = CanonicalPlaybackState(queueItemId = missing))
         val result = validator.validate(invalid) as SnapshotValidationResult.Invalid
         assertTrue(result.issues.any { it.code == "playback_item" })
     }

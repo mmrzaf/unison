@@ -7,24 +7,17 @@ import android.os.Build
 object PermissionController {
 
     // Manifest.permission.NEARBY_WIFI_DEVICES (API 33+ runtime gate)
-    private const val NEARBY_WIFI_DEVICES =
-        "android.permission.NEARBY_WIFI_DEVICES"
+    private const val NEARBY_WIFI_DEVICES = "android.permission.NEARBY_WIFI_DEVICES"
 
-    /**
-     * Android 13+ exposes nearby Wi-Fi as a runtime permission.
-     */
-    fun localNetworkPermissions(
-        apiLevel: Int = Build.VERSION.SDK_INT,
-    ): Array<String> =
+    /** Android 13+ exposes nearby Wi-Fi as a runtime permission. */
+    fun localNetworkPermissions(apiLevel: Int = Build.VERSION.SDK_INT): Array<String> =
         if (apiLevel >= 33) {
             arrayOf(NEARBY_WIFI_DEVICES)
         } else {
             emptyArray()
         }
 
-    fun offlineNetworkPermissions(
-        apiLevel: Int = Build.VERSION.SDK_INT,
-    ): Array<String> =
+    fun offlineNetworkPermissions(apiLevel: Int = Build.VERSION.SDK_INT): Array<String> =
         if (apiLevel >= 33) {
             localNetworkPermissions(apiLevel)
         } else {

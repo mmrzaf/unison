@@ -64,7 +64,10 @@ internal class RoomSessionActions(
             log.debug("app.command.enqueued", attributes = commandAttributes)
             feedback?.let { message.value = it }
         } else {
-            log.warn("app.command.rejected", attributes = commandAttributes + ("reason" to "mailbox_full"))
+            log.warn(
+                "app.command.rejected",
+                attributes = commandAttributes + ("reason" to "mailbox_full"),
+            )
             if (command is AppCommand.Transport) {
                 container.roomStore.updateStructure { state ->
                     val status = state.transportStatus

@@ -310,18 +310,15 @@ internal class LibraryImportCoordinator(
                             playlistFailures += 1
                         }
                     }
-                    destination.newPlaylistName
-                        ?.trim()
-                        ?.takeIf(String::isNotEmpty)
-                        ?.let { name ->
-                            try {
-                                container.playlistRepository.create(name, trackIds)
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                                playlistFailures += 1
-                            }
+                    destination.newPlaylistName?.trim()?.takeIf(String::isNotEmpty)?.let { name ->
+                        try {
+                            container.playlistRepository.create(name, trackIds)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            playlistFailures += 1
                         }
+                    }
                 }
 
                 message.value =
@@ -353,7 +350,8 @@ internal class LibraryImportCoordinator(
     ): String {
         if (importedCount == 0) return firstImportError ?: "Unison could not add this music"
         if (playlistFailures > 0) return "Added $importedCount; some playlists could not be updated"
-        if (importErrorCount > 0) return "Added $importedCount; $importErrorCount could not be opened"
+        if (importErrorCount > 0)
+            return "Added $importedCount; $importErrorCount could not be opened"
 
         val places = buildList {
             if (destination.keepsInLibrary) add("your library")
@@ -438,18 +436,20 @@ internal class LibraryImportCoordinator(
                     // Some senders incorrectly label a single Uri as ACTION_SEND_MULTIPLE.
                     // Use type-safe compatibility accessors for both valid representations.
                     listOfNotNull(
-                        IntentCompat.getParcelableExtra(
-                            this,
-                            Intent.EXTRA_STREAM,
-                            Uri::class.java,
+                            IntentCompat.getParcelableExtra(
+                                this,
+                                Intent.EXTRA_STREAM,
+                                Uri::class.java,
+                            )
                         )
-                    ).ifEmpty {
-                        IntentCompat.getParcelableArrayListExtra(
-                            this,
-                            Intent.EXTRA_STREAM,
-                            Uri::class.java,
-                        ).orEmpty()
-                    }
+                        .ifEmpty {
+                            IntentCompat.getParcelableArrayListExtra(
+                                    this,
+                                    Intent.EXTRA_STREAM,
+                                    Uri::class.java,
+                                )
+                                .orEmpty()
+                        }
 
                 else -> emptyList()
             }

@@ -40,8 +40,7 @@ object TransportTargetPolicy {
 
             is UserCommand.SkipPrevious -> {
                 if (
-                    snapshot.playback.projectedPositionMs(coordinatorNowNs) >
-                        RESTART_THRESHOLD_MS
+                    snapshot.playback.projectedPositionMs(coordinatorNowNs) > RESTART_THRESHOLD_MS
                 ) {
                     Resolution(
                         command = UserCommand.Seek(command.commandId, command.requestedBy, 0L)
@@ -88,7 +87,8 @@ object TransportTargetPolicy {
     ): Resolution {
         if (snapshot.queue.isEmpty()) return Resolution(rejection = "The queue is empty")
         val baseIndex =
-            snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId }
+            snapshot.queue
+                .indexOfFirst { it.queueItemId == snapshot.playback.queueItemId }
                 .let { if (it < 0) 0 else it }
         val target = snapshot.queue[(baseIndex - 1).coerceAtLeast(0)]
         if (target.queueItemId == snapshot.playback.queueItemId) {
@@ -115,7 +115,11 @@ object TransportTargetPolicy {
             snapshot.queue.getOrNull(targetIndex)
                 ?: return Resolution(rejection = emptyOrBoundaryMessage)
         return targetResolution(
-            command, snapshot, target.queueItemId, preparedQueueItemIds, waitForPreparation
+            command,
+            snapshot,
+            target.queueItemId,
+            preparedQueueItemIds,
+            waitForPreparation,
         )
     }
 

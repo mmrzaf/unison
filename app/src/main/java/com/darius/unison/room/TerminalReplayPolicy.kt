@@ -37,7 +37,9 @@ object TerminalReplayPolicy {
         if (snapshot.playback.queueItemId != terminal.queueItemId) return null
         if (snapshot.queueRevision != terminal.queueRevision) return null
         if (snapshot.playback.revision != terminal.playbackRevision) return null
-        if (PlaybackQueuePolicy.naturalSuccessorQueueItemId(snapshot, terminal.queueItemId) != null) {
+        if (
+            PlaybackQueuePolicy.naturalSuccessorQueueItemId(snapshot, terminal.queueItemId) != null
+        ) {
             return null
         }
         return 0L

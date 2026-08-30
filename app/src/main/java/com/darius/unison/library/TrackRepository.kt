@@ -186,7 +186,10 @@ class TrackRepository(
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     val result = fileStore.copyAndHash(input, MAX_TRACK_BYTES)
                     if (result.trackId != trackId) {
-                        if (database.trackSourceDao().managedCountForTrack(result.trackId.value) == 0) {
+                        if (
+                            database.trackSourceDao().managedCountForTrack(result.trackId.value) ==
+                                0
+                        ) {
                             fileStore.requestDelete(result.trackId)
                         }
                         return@withContext null
@@ -333,14 +336,15 @@ class TrackRepository(
                 TAG,
                 DiagnosticCategory.STORAGE,
                 "storage.track.mime_resolved",
-                attributes = mapOf(
-                    "track.mime_provider" to providerMime,
-                    "track.mime_metadata" to metadata.mimeType,
-                    "track.mime_resolved" to mimeResolution.mimeType,
-                    "track.mime_source" to mimeResolution.source.name,
-                    "track.file_extension" to
-                        name?.substringAfterLast('.', "")?.lowercase(Locale.ROOT)?.take(12),
-                ),
+                attributes =
+                    mapOf(
+                        "track.mime_provider" to providerMime,
+                        "track.mime_metadata" to metadata.mimeType,
+                        "track.mime_resolved" to mimeResolution.mimeType,
+                        "track.mime_source" to mimeResolution.source.name,
+                        "track.file_extension" to
+                            name?.substringAfterLast('.', "")?.lowercase(Locale.ROOT)?.take(12),
+                    ),
             )
 
             val result =
@@ -560,10 +564,11 @@ class TrackRepository(
         require(descriptor.sizeBytes in 1..MAX_TRACK_BYTES) { "Invalid audio size" }
         val normalizedMime =
             AudioMimePolicy.resolve(
-                providerMimeType = descriptor.mimeType,
-                metadataMimeType = null,
-                fileName = descriptor.originalFileName,
-            ).mimeType
+                    providerMimeType = descriptor.mimeType,
+                    metadataMimeType = null,
+                    fileName = descriptor.originalFileName,
+                )
+                .mimeType
         return descriptor.copy(
             mimeType = normalizedMime.cleanText(MAX_MIME_LENGTH),
             durationMs = descriptor.durationMs.coerceIn(0, MAX_TRACK_DURATION_MS),
@@ -667,10 +672,11 @@ internal fun TrackEntity.toDescriptor() =
         sizeBytes = sizeBytes,
         mimeType =
             AudioMimePolicy.resolve(
-                providerMimeType = mimeType,
-                metadataMimeType = null,
-                fileName = originalFileName,
-            ).mimeType,
+                    providerMimeType = mimeType,
+                    metadataMimeType = null,
+                    fileName = originalFileName,
+                )
+                .mimeType,
         durationMs = durationMs,
         title = title,
         artist = artist,

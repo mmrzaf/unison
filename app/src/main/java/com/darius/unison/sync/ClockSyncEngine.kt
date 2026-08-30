@@ -199,8 +199,7 @@ class ClockSyncEngine(
         return anchorLocalNs + (delta.toDouble() / fittedRate).toLong()
     }
 
-    @Synchronized
-    fun coordinatorNowNs(): Long = toCoordinatorTime(clock.nowNs())
+    @Synchronized fun coordinatorNowNs(): Long = toCoordinatorTime(clock.nowNs())
 
     @Synchronized
     fun toCoordinatorTimeWithUncertainty(localTimeNs: Long): ClockConversion {

@@ -44,7 +44,8 @@ class RoomMediaSessionPlayer(
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         dispatch(
-            SystemMediaCommandPolicy.playWhenReady(playWhenReady), "set_play_when_ready",
+            SystemMediaCommandPolicy.playWhenReady(playWhenReady),
+            "set_play_when_ready",
             mapOf("playback.play_when_ready" to playWhenReady),
         )
     }
@@ -53,7 +54,8 @@ class RoomMediaSessionPlayer(
 
     override fun seekTo(positionMs: Long) {
         dispatch(
-            SystemMediaCommandPolicy.seek(normalizePosition(positionMs)), "seek",
+            SystemMediaCommandPolicy.seek(normalizePosition(positionMs)),
+            "seek",
             mapOf("playback.position_ms" to normalizePosition(positionMs)),
         )
     }
@@ -63,10 +65,13 @@ class RoomMediaSessionPlayer(
             mediaItemIndex == currentMediaItemIndex -> seekTo(positionMs)
             mediaItemIndex == nextMediaItemIndex -> seekToNextMediaItem()
             mediaItemIndex == previousMediaItemIndex -> seekToPreviousMediaItem()
-            else -> log.info(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.media_session.seek_ignored",
-                attributes = mapOf("queue.index" to mediaItemIndex),
-            )
+            else ->
+                log.info(
+                    TAG,
+                    DiagnosticCategory.PLAYBACK,
+                    "playback.media_session.seek_ignored",
+                    attributes = mapOf("queue.index" to mediaItemIndex),
+                )
         }
     }
 
@@ -111,15 +116,27 @@ class RoomMediaSessionPlayer(
         val result = commandBus.trySend(command)
         if (result.isSuccess) {
             log.info(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.media_session.command_received",
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.media_session.command_received",
                 attributes =
-                    attributes + mapOf("command.source" to source, "command.type" to command::class.simpleName),
+                    attributes +
+                        mapOf(
+                            "command.source" to source,
+                            "command.type" to command::class.simpleName,
+                        ),
             )
         } else {
             log.error(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.media_session.command_rejected",
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.media_session.command_rejected",
                 attributes =
-                    attributes + mapOf("command.source" to source, "command.type" to command::class.simpleName),
+                    attributes +
+                        mapOf(
+                            "command.source" to source,
+                            "command.type" to command::class.simpleName,
+                        ),
                 throwable = result.exceptionOrNull(),
             )
         }

@@ -8,8 +8,8 @@ import java.net.Socket
  *
  * The protocol only carries numeric LAN endpoints. Android-specific Network objects stay process
  * local and are never serialized. A provider may bind a socket to a concrete network or use a
- * validated endpoint fallback when Android exposes no Network (for example some hotspot
- * downstream interfaces).
+ * validated endpoint fallback when Android exposes no Network (for example some hotspot downstream
+ * interfaces).
  */
 interface LocalNetworkSocketProvider {
     fun createSocket(remoteAddress: InetAddress, purpose: String): RoutedSocket

@@ -38,15 +38,15 @@ internal object RoomQueueUiPolicy {
         ) {
             val detail =
                 when (transfer.state) {
-                    MemberTrackState.RECEIVING -> "Preparing · ${(transfer.fraction * 100).toInt()}%"
+                    MemberTrackState.RECEIVING ->
+                        "Preparing · ${(transfer.fraction * 100).toInt()}%"
                     MemberTrackState.VERIFYING -> "Verifying…"
                     MemberTrackState.PREPARING_PLAYER -> "Finishing preparation…"
                 }
             return MediaPresentation(detail, TapAction.NONE)
         }
         return when (readiness) {
-            RoomMediaReadiness.READY ->
-                MediaPresentation("Ready", TapAction.PLAY)
+            RoomMediaReadiness.READY -> MediaPresentation("Ready", TapAction.PLAY)
 
             RoomMediaReadiness.PREPARING -> {
                 val detail =
@@ -72,7 +72,8 @@ internal object RoomQueueUiPolicy {
         if (queueSize <= 0) return "0 songs"
         val ready = readiness.count { it == RoomMediaReadiness.READY }.coerceAtMost(queueSize)
         val preparing =
-            readiness.count { it == RoomMediaReadiness.PREPARING }
+            readiness
+                .count { it == RoomMediaReadiness.PREPARING }
                 .coerceAtMost((queueSize - ready).coerceAtLeast(0))
         val songCount = "$queueSize ${if (queueSize == 1) "song" else "songs"}"
         return buildList {

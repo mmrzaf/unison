@@ -20,12 +20,11 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -49,8 +48,6 @@ import com.darius.unison.model.LocalPlaybackInhibitionReason
 import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.QueueItemId
-import com.darius.unison.model.RepeatMode
-import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.RoomMediaReadiness
 import com.darius.unison.model.RoomUiState
 import com.darius.unison.model.TrackDescriptor
@@ -391,7 +388,8 @@ internal fun SharedRoomScreen(
 
             item(key = "room-player") {
                 Column(
-                    Modifier.fillMaxWidth().padding(start = 6.dp, top = 24.dp, end = 6.dp, bottom = 28.dp),
+                    Modifier.fillMaxWidth()
+                        .padding(start = 6.dp, top = 24.dp, end = 6.dp, bottom = 28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
@@ -495,7 +493,8 @@ internal fun SharedRoomScreen(
                             room.mediaReadiness[firstItem.queueItemId]
                                 ?: RoomMediaReadiness.NEEDS_PREPARATION
                         val firstPreparationFailed =
-                            room.transfers[firstItem.track.trackId]?.state == MemberTrackState.FAILED
+                            room.transfers[firstItem.track.trackId]?.state ==
+                                MemberTrackState.FAILED
                         FilledTonalButton(
                             onClick = { requestQueueItem(firstItem.queueItemId) },
                             enabled =
@@ -568,7 +567,9 @@ internal fun SharedRoomScreen(
                         QueueShufflePolicy.canShuffle(snapshot.queue, displayedQueueItemId),
                     canSaveQueue = snapshot.queue.isNotEmpty(),
                     canClearPlayed =
-                        snapshot.queue.indexOfFirst { it.queueItemId == snapshot.playback.queueItemId } > 0,
+                        snapshot.queue.indexOfFirst {
+                            it.queueItemId == snapshot.playback.queueItemId
+                        } > 0,
                     reorderMode = reorderMode,
                     onQueryChange = { queueQuery = it },
                     onToggleReorder = {
@@ -618,8 +619,9 @@ internal fun SharedRoomScreen(
                             temporary = item.track.trackId in temporaryTrackIds,
                             pending = item.queueItemId == feedbackQueueItemId,
                             transfer = room.transfers[item.track.trackId],
-                            readiness = room.mediaReadiness[item.queueItemId]
-                                ?: RoomMediaReadiness.NEEDS_PREPARATION,
+                            readiness =
+                                room.mediaReadiness[item.queueItemId]
+                                    ?: RoomMediaReadiness.NEEDS_PREPARATION,
                             canReorder = reorderMode,
                             draggedIndex = draggedQueueIndex,
                             dragTargetIndex = dragTargetIndex,
@@ -630,15 +632,16 @@ internal fun SharedRoomScreen(
                             onDragEnd = {
                                 val target = dragTargetIndex ?: index
                                 resetQueueDrag()
-                                if (target != index) actions.queue.moveQueueItem(item.queueItemId, target)
+                                if (target != index)
+                                    actions.queue.moveQueueItem(item.queueItemId, target)
                             },
                             onMove = { actions.queue.moveQueueItem(item.queueItemId, it) },
                             playEnabled =
                                 transportControls.canSelectItem &&
-                                    (
-                                        room.mediaReadiness[item.queueItemId] != RoomMediaReadiness.PREPARING ||
-                                            room.transfers[item.track.trackId]?.state == MemberTrackState.FAILED
-                                    ),
+                                    (room.mediaReadiness[item.queueItemId] !=
+                                        RoomMediaReadiness.PREPARING ||
+                                        room.transfers[item.track.trackId]?.state ==
+                                            MemberTrackState.FAILED),
                             onPlay = { requestQueueItem(item.queueItemId) },
                             onMoveNext = { actions.queue.moveQueueItemNext(item.queueItemId) },
                             onRemove = { actions.queue.removeQueueItem(item.queueItemId) },
@@ -661,8 +664,9 @@ internal fun SharedRoomScreen(
                             temporary = item.track.trackId in temporaryTrackIds,
                             pending = item.queueItemId == feedbackQueueItemId,
                             transfer = room.transfers[item.track.trackId],
-                            readiness = room.mediaReadiness[item.queueItemId]
-                                ?: RoomMediaReadiness.NEEDS_PREPARATION,
+                            readiness =
+                                room.mediaReadiness[item.queueItemId]
+                                    ?: RoomMediaReadiness.NEEDS_PREPARATION,
                             canReorder = false,
                             draggedIndex = null,
                             dragTargetIndex = null,
@@ -674,10 +678,10 @@ internal fun SharedRoomScreen(
                             onMove = { actions.queue.moveQueueItem(item.queueItemId, it) },
                             playEnabled =
                                 transportControls.canSelectItem &&
-                                    (
-                                        room.mediaReadiness[item.queueItemId] != RoomMediaReadiness.PREPARING ||
-                                            room.transfers[item.track.trackId]?.state == MemberTrackState.FAILED
-                                    ),
+                                    (room.mediaReadiness[item.queueItemId] !=
+                                        RoomMediaReadiness.PREPARING ||
+                                        room.transfers[item.track.trackId]?.state ==
+                                            MemberTrackState.FAILED),
                             onPlay = { requestQueueItem(item.queueItemId) },
                             onMoveNext = { actions.queue.moveQueueItemNext(item.queueItemId) },
                             onRemove = { actions.queue.removeQueueItem(item.queueItemId) },
@@ -693,11 +697,12 @@ internal fun SharedRoomScreen(
                 isPlaying = displayedPlaying,
                 primaryControl = transportControls.primaryControl,
                 pendingAction = feedbackAction,
-                statusText = transitionPresentation?.let { transition ->
-                    transition.progressFraction?.let {
-                        "${transition.message} · ${(it * 100).toInt()}%"
-                    } ?: transition.message
-                },
+                statusText =
+                    transitionPresentation?.let { transition ->
+                        transition.progressFraction?.let {
+                            "${transition.message} · ${(it * 100).toInt()}%"
+                        } ?: transition.message
+                    },
                 onPrevious = requestPrevious,
                 onPrimary = requestPrimaryControl,
                 onNext = requestNext,
@@ -771,7 +776,6 @@ internal fun SharedRoomScreen(
             onDismiss = { saveQueueOpen = false },
         )
     }
-
 
     if (confirmClearQueue) {
         RoomConfirmationDialog(

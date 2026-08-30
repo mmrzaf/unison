@@ -72,12 +72,13 @@ class PlayerExecutor(
         return ImmediateExecution(executeTransport(ticket, action), superseded)
     }
 
-    suspend fun maintenance(action: suspend PlayerPort.() -> Unit) =
-        mutationMutex.withLock { player.action() }
+    suspend fun maintenance(action: suspend PlayerPort.() -> Unit) = mutationMutex.withLock {
+        player.action()
+    }
 
     /**
-     * Runs replaceable/non-urgent player maintenance only if no exact transport owns the player.
-     * A transport registered while older maintenance is already executing waits for that mutation;
+     * Runs replaceable/non-urgent player maintenance only if no exact transport owns the player. A
+     * transport registered while older maintenance is already executing waits for that mutation;
      * maintenance submitted after registration observes the ticket and yields instead.
      */
     suspend fun maintenanceIfTransportIdle(action: suspend PlayerPort.() -> Unit): Boolean =
@@ -309,34 +310,32 @@ class PlayerExecutor(
     private suspend fun beginScheduledTransport(
         scheduleGeneration: Long,
         commandId: String?,
-    ): Pair<Ticket, String?>? =
-        mutationMutex.withLock {
-            synchronized(stateLock) {
-                // A schedule can wait behind a player mutation. If a newer schedule or immediate
-                // transport arrived while it waited, the stale caller must never install a ticket
-                // after the newer command.
-                if (scheduledGeneration != scheduleGeneration) return@withLock null
-                val superseded = pendingTicket?.commandId
-                val ticket = Ticket(++transportGeneration, commandId)
-                pendingTicket = ticket
-                ticket to superseded
-            }
+    ): Pair<Ticket, String?>? = mutationMutex.withLock {
+        synchronized(stateLock) {
+            // A schedule can wait behind a player mutation. If a newer schedule or immediate
+            // transport arrived while it waited, the stale caller must never install a ticket
+            // after the newer command.
+            if (scheduledGeneration != scheduleGeneration) return@withLock null
+            val superseded = pendingTicket?.commandId
+            val ticket = Ticket(++transportGeneration, commandId)
+            pendingTicket = ticket
+            ticket to superseded
         }
+    }
 
     private suspend fun executeTransport(
         ticket: Ticket,
         action: suspend PlayerPort.() -> Boolean,
-    ): ExecutionResult =
-        mutationMutex.withLock {
-            if (!isCurrent(ticket)) return@withLock ExecutionResult.STALE
-            try {
-                if (player.action()) ExecutionResult.SUCCESS else ExecutionResult.FAILED
-            } finally {
-                synchronized(stateLock) {
-                    if (pendingTicket == ticket) pendingTicket = null
-                }
+    ): ExecutionResult = mutationMutex.withLock {
+        if (!isCurrent(ticket)) return@withLock ExecutionResult.STALE
+        try {
+            if (player.action()) ExecutionResult.SUCCESS else ExecutionResult.FAILED
+        } finally {
+            synchronized(stateLock) {
+                if (pendingTicket == ticket) pendingTicket = null
             }
         }
+    }
 
     private fun invalidateTransportLocked(): String? {
         transportGeneration++
@@ -428,7 +427,8 @@ class PlayerExecutor(
                             // Coordinator→local mapping is an estimate that can move while the
                             // command waits (STALE → ACQUIRING → LOCKED, route changes, new RTT
                             // samples). Never sleep almost the whole remaining interval using one
-                            // mapping; periodically recompute exactly like RoomRuntime's queue timer.
+                            // mapping; periodically recompute exactly like RoomRuntime's queue
+                            // timer.
                             delay(
                                 minOf(
                                     CLOCK_RECHECK_INTERVAL_MS,
@@ -442,10 +442,9 @@ class PlayerExecutor(
                     val executingAtNs = clock.nowNs()
                     val totalLateMs =
                         ((executingAtNs - latestLocalTarget).coerceAtLeast(0) / 1_000_000L)
-                    val executorLateMs =
-                        arrivalLateAtScheduleMs?.let { arrival ->
-                            (totalLateMs - arrival).coerceAtLeast(0L)
-                        }
+                    val executorLateMs = arrivalLateAtScheduleMs?.let { arrival ->
+                        (totalLateMs - arrival).coerceAtLeast(0L)
+                    }
                     log.info(
                         TAG,
                         DiagnosticCategory.PLAYBACK,
@@ -459,14 +458,15 @@ class PlayerExecutor(
                                 "playback.arrival_late_ms" to arrivalLateAtScheduleMs,
                                 "playback.executor_late_ms" to executorLateMs,
                                 "playback.schedule_wait_ms" to
-                                    ((executingAtNs - scheduledAtNs).coerceAtLeast(0) /
-                                        1_000_000L),
+                                    ((executingAtNs - scheduledAtNs).coerceAtLeast(0) / 1_000_000L),
                             ),
                     )
                     commandId?.let { onCommandPhase(it, TransportCommandPhase.EXECUTING, null) }
                     when (executeTransport(ticket, action)) {
                         ExecutionResult.SUCCESS ->
-                            commandId?.let { onCommandPhase(it, TransportCommandPhase.SETTLED, null) }
+                            commandId?.let {
+                                onCommandPhase(it, TransportCommandPhase.SETTLED, null)
+                            }
 
                         ExecutionResult.FAILED ->
                             fail(

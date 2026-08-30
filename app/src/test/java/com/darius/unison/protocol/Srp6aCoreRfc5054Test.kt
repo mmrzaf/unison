@@ -8,32 +8,32 @@ import org.junit.Test
 class Srp6aCoreRfc5054Test {
     @Test
     fun appendixBVerifierPublicValuesScramblingAndPremasterSecretMatch() {
-        val modulus = hex(
-            "EEAF0AB9ADB38DD69C33F80AFA8FC5E86072618775FF3C0B9EA2314C" +
-                "9C256576D674DF7496EA81D3383B4813D692C6E0E0D5D8E250B98BE4" +
-                "8E495C1D6089DAD15DC7D7B46154D6B6CE8EF4AD69B15D4982559B29" +
-                "7BCF1885C529F566660E57EC68EDBC3C05726CC02FD4CBF4976EAA9A" +
-                "FD5138FE8376435B9FC61D2FC0EB06E3"
-        )
+        val modulus =
+            hex(
+                "EEAF0AB9ADB38DD69C33F80AFA8FC5E86072618775FF3C0B9EA2314C" +
+                    "9C256576D674DF7496EA81D3383B4813D692C6E0E0D5D8E250B98BE4" +
+                    "8E495C1D6089DAD15DC7D7B46154D6B6CE8EF4AD69B15D4982559B29" +
+                    "7BCF1885C529F566660E57EC68EDBC3C05726CC02FD4CBF4976EAA9A" +
+                    "FD5138FE8376435B9FC61D2FC0EB06E3"
+            )
         val generator = BigInteger.valueOf(2L)
         val salt = bytes("BEB25379D1A8581EB5A727673A2441EE")
-        val clientPrivate =
-            hex("60975527035CF2AD1989806F0407210BC81EDC04E2762A56AFD529DDDA2D4393")
-        val serverPrivate =
-            hex("E487CB59D31AC550471E81F00F6928E01DDA08E974A004F49E61F5D105284D20")
+        val clientPrivate = hex("60975527035CF2AD1989806F0407210BC81EDC04E2762A56AFD529DDDA2D4393")
+        val serverPrivate = hex("E487CB59D31AC550471E81F00F6928E01DDA08E974A004F49E61F5D105284D20")
 
         val multiplier = Srp6aCore.multiplier(modulus, generator, "SHA-1")
-        val privateKey =
-            Srp6aCore.privateKey("alice", "password123", salt.copyOf(), "SHA-1")
+        val privateKey = Srp6aCore.privateKey("alice", "password123", salt.copyOf(), "SHA-1")
         val verifier = Srp6aCore.verifier(modulus, generator, privateKey)
-        val clientPublic =
-            Srp6aCore.clientPublicValue(modulus, generator, clientPrivate)
+        val clientPublic = Srp6aCore.clientPublicValue(modulus, generator, clientPrivate)
         val serverPublic =
             Srp6aCore.serverPublicValue(
-                modulus, generator, multiplier, verifier, serverPrivate
+                modulus,
+                generator,
+                multiplier,
+                verifier,
+                serverPrivate,
             )
-        val scrambling =
-            Srp6aCore.scramblingParameter(modulus, clientPublic, serverPublic, "SHA-1")
+        val scrambling = Srp6aCore.scramblingParameter(modulus, clientPublic, serverPublic, "SHA-1")
         val clientSecret =
             Srp6aCore.clientSharedSecret(
                 modulus = modulus,

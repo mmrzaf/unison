@@ -79,7 +79,6 @@ class LocalPlaybackSyncControllerTest {
         }
     }
 
-
     @Test
     fun soloCoordinatorModeNormalizesSpeedOnceAndReacquiresWhenListenerReturns() = runBlocking {
         val clock = MutableClock(5_000_000_000L)
@@ -163,6 +162,7 @@ class LocalPlaybackSyncControllerTest {
     ) : PlayerPort {
         var speedMutationCount: Int = 0
             private set
+
         private val mutableState =
             MutableStateFlow(
                 PlayerState(
@@ -192,14 +192,29 @@ class LocalPlaybackSyncControllerTest {
                 seekRevision = 0L,
             )
 
-        override suspend fun setQueue(items: List<LocalPlayableItem>, currentQueueItemId: QueueItemId?, positionMs: Long) = Unit
+        override suspend fun setQueue(
+            items: List<LocalPlayableItem>,
+            currentQueueItemId: QueueItemId?,
+            positionMs: Long,
+        ) = Unit
+
         override suspend fun play(): Boolean = true
-        override suspend fun rejoinLivePlayback(queueItemId: QueueItemId, positionMs: Long): Boolean = false
+
+        override suspend fun rejoinLivePlayback(
+            queueItemId: QueueItemId,
+            positionMs: Long,
+        ): Boolean = false
+
         override suspend fun resetLocalPlaybackParticipation() = Unit
+
         override suspend fun pause(cause: PlaybackPauseCause) = Unit
+
         override suspend fun seekTo(positionMs: Long) = Unit
+
         override suspend fun seekToItem(queueItemId: QueueItemId, positionMs: Long): Boolean = true
+
         override suspend fun setRepeatCurrentItem(enabled: Boolean) = Unit
+
         override suspend fun setPlaybackSpeed(speed: Float) {
             speedMutationCount++
             mutableState.value = mutableState.value.copy(playbackSpeed = speed)

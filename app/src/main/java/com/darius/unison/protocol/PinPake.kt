@@ -53,7 +53,10 @@ object PinPake {
                 require(serverPublic.mod(MODULUS) != ZERO) { "Invalid PIN challenge" }
                 val scrambling =
                     Srp6aCore.scramblingParameter(
-                        MODULUS, publicValue, serverPublic, DIGEST_ALGORITHM
+                        MODULUS,
+                        publicValue,
+                        serverPublic,
+                        DIGEST_ALGORITHM,
                     )
                 require(scrambling != ZERO) { "Invalid PIN challenge" }
                 val x = privateKey(roomId, pin, salt)
@@ -125,7 +128,10 @@ object PinPake {
             try {
                 val scrambling =
                     Srp6aCore.scramblingParameter(
-                        MODULUS, clientPublic, serverPublic, DIGEST_ALGORITHM
+                        MODULUS,
+                        clientPublic,
+                        serverPublic,
+                        DIGEST_ALGORITHM,
                     )
                 if (scrambling == ZERO) return null
                 val sharedSecret =
@@ -175,7 +181,11 @@ object PinPake {
                 val privateValue = randomExponent()
                 val serverPublic =
                     Srp6aCore.serverPublicValue(
-                        MODULUS, GENERATOR, MULTIPLIER, verifier, privateValue
+                        MODULUS,
+                        GENERATOR,
+                        MULTIPLIER,
+                        verifier,
+                        privateValue,
                     )
                 require(serverPublic != ZERO) { "Invalid PIN challenge" }
                 val serverNonce = Crypto.randomBase64(18)

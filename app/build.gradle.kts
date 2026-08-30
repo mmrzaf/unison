@@ -95,7 +95,8 @@ android {
         // Dependency and toolchain upgrades are explicit release work, not lint findings. Keep all
         // source, API-use, accessibility, lifecycle, and correctness checks enabled.
         disable += setOf("AndroidGradlePluginVersion", "GradleDependency")
-        // The 1.2 release line is qualified on Android 11, 13, and 16 with targetSdk 33 intentionally pinned.
+        // The 1.2 release line is qualified on Android 11, 13, and 16 with targetSdk 33
+        // intentionally pinned.
         disable += "OldTargetApi"
     }
 }

@@ -235,6 +235,7 @@ class ControlAdmissionControllerTest {
             result.code,
         )
     }
+
     @Test
     fun acceptedAdmissionCapturesGenerationAtFinalAcceptance() = runBlocking {
         val nonce = Crypto.randomBase64(18)
@@ -273,5 +274,4 @@ class ControlAdmissionControllerTest {
         accepted.serverWriteKey.fill(0)
         accepted.serverReadKey.fill(0)
     }
-
 }

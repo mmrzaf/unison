@@ -71,11 +71,8 @@ import com.darius.unison.model.TransportCommandStatus
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 
-
 @Composable
-internal fun PlaybackTransitionStatus(
-    transition: RoomPlaybackUiPolicy.TransitionPresentation,
-) {
+internal fun PlaybackTransitionStatus(transition: RoomPlaybackUiPolicy.TransitionPresentation) {
     val progress = transition.progressFraction
     val failed = transition.kind == RoomPlaybackUiPolicy.TransitionKind.FAILED
     Surface(
@@ -390,17 +387,10 @@ private fun PendingActionIndicator(
 ) {
     val primary = MaterialTheme.colorScheme.primary
     Box(
-        modifier =
-            modifier
-                .size(size)
-                .background(primary.copy(alpha = 0.18f), CircleShape),
+        modifier = modifier.size(size).background(primary.copy(alpha = 0.18f), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Box(
-            Modifier
-                .size((size.value * 0.42f).dp)
-                .background(primary, CircleShape)
-        )
+        Box(Modifier.size((size.value * 0.42f).dp).background(primary, CircleShape))
     }
 }
 

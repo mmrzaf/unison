@@ -46,10 +46,34 @@ class PeerPlaybackHealthRegistryTest {
         registry.updateContentReady(guest, true, 100L)
         val connected = setOf(coordinator, guest)
 
-        assertTrue(guest in registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.ACTIVE, nowNs = 1_000L))
+        assertTrue(
+            guest in
+                registry.readyPeers(
+                    connected,
+                    coordinator,
+                    LocalPlaybackParticipation.ACTIVE,
+                    nowNs = 1_000L,
+                )
+        )
         assertTrue(registry.expireReadyLeases(nowNs = 1_101L))
-        assertFalse(guest in registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.ACTIVE, nowNs = 1_101L))
-        assertTrue(coordinator in registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.ACTIVE, nowNs = 1_101L))
+        assertFalse(
+            guest in
+                registry.readyPeers(
+                    connected,
+                    coordinator,
+                    LocalPlaybackParticipation.ACTIVE,
+                    nowNs = 1_101L,
+                )
+        )
+        assertTrue(
+            coordinator in
+                registry.readyPeers(
+                    connected,
+                    coordinator,
+                    LocalPlaybackParticipation.ACTIVE,
+                    nowNs = 1_101L,
+                )
+        )
     }
 
     @Test
@@ -59,9 +83,15 @@ class PeerPlaybackHealthRegistryTest {
 
         assertEquals(
             setOf(coordinator),
-            registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.ACTIVE, nowNs = 0L),
+            registry.readyPeers(
+                connected,
+                coordinator,
+                LocalPlaybackParticipation.ACTIVE,
+                nowNs = 0L,
+            ),
         )
     }
+
     @Test
     fun inhibitedPeerLeavesReadyCohortWithoutLosingClockLease() {
         val registry = PeerPlaybackHealthRegistry(readyLeaseNs = 10_000L)
@@ -72,7 +102,11 @@ class PeerPlaybackHealthRegistryTest {
 
         assertTrue(
             registry.updateParticipation(
-                guest, LocalPlaybackParticipation.OUTPUT_INHIBITED, nowNs = 250L))
+                guest,
+                LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                nowNs = 250L,
+            )
+        )
         assertEquals(PeerPlaybackHealthState.DEGRADED, registry.health(guest, 250L).state)
 
         assertTrue(registry.updateParticipation(guest, LocalPlaybackParticipation.ACTIVE, 300L))
@@ -98,7 +132,6 @@ class PeerPlaybackHealthRegistryTest {
             registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.ACTIVE, 250L),
         )
     }
-
 
     @Test
     fun catchingUpPeerStillCountsAsActiveSynchronizationParticipant() {
@@ -137,7 +170,12 @@ class PeerPlaybackHealthRegistryTest {
 
         assertEquals(
             emptySet<PeerId>(),
-            registry.readyPeers(connected, coordinator, LocalPlaybackParticipation.OUTPUT_INHIBITED, 200L),
+            registry.readyPeers(
+                connected,
+                coordinator,
+                LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                200L,
+            ),
         )
         assertEquals(
             setOf(coordinator, guest),
@@ -164,5 +202,4 @@ class PeerPlaybackHealthRegistryTest {
             ),
         )
     }
-
 }

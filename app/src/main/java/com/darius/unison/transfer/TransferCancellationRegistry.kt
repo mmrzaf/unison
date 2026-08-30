@@ -23,11 +23,15 @@ class TransferCancellationRegistry {
     val activeResourceCount: Int
         get() = sockets.size
 
-    /** Serializes complete download lifecycles for the same track as a defensive file-store guard. */
+    /**
+     * Serializes complete download lifecycles for the same track as a defensive file-store guard.
+     */
     suspend fun <T> withTrackOperation(trackId: TrackId, block: suspend () -> T): T =
         operationLocks[operationIndex(trackId)].withLock { block() }
 
-    /** Registers one logical download per track. Duplicate assignments never replace healthy work. */
+    /**
+     * Registers one logical download per track. Duplicate assignments never replace healthy work.
+     */
     fun tryRegisterJob(trackId: TrackId, job: Job): Boolean {
         while (true) {
             val existing = jobs[trackId]

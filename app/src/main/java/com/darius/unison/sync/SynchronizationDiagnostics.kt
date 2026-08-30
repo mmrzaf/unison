@@ -67,10 +67,8 @@ class SynchronizationDiagnostics(
             for (event in channel) {
                 val attributes = event.toDiagnosticAttributes()
                 when {
-                    event.action == "SEEK" ->
-                        logger.warn("sync.hard_seek", attributes = attributes)
-                    event.buffering ->
-                        logger.debug("sync.buffering", attributes = attributes)
+                    event.action == "SEEK" -> logger.warn("sync.hard_seek", attributes = attributes)
+                    event.buffering -> logger.debug("sync.buffering", attributes = attributes)
                     event.action == "SET_SPEED" ->
                         logger.debug("sync.speed_adjustment", attributes = attributes)
                     else -> logger.debug("sync.sample", attributes = attributes)

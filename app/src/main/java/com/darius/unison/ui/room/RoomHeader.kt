@@ -114,7 +114,9 @@ internal fun RoomHeader(
             }
         }
         Box {
-            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Room actions") }
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Default.MoreVert, "Room actions")
+            }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                 DropdownMenuItem(
                     text = { Text("Diagnostics") },

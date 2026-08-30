@@ -45,6 +45,7 @@ class NetworkAddressPolicyTest {
         assertNull(NetworkAddressPolicy.parseAllowedAddress("example.com"))
         assertNull(NetworkAddressPolicy.parseAllowedAddress("not-an-address"))
     }
+
     @Test
     fun remoteSelectionPrefersPrivateIpv4OverLinkLocalAndIpv6() {
         val selected =
@@ -69,5 +70,4 @@ class NetworkAddressPolicyTest {
             )
         assertNull(selected)
     }
-
 }

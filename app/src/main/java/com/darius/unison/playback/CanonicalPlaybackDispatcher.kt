@@ -22,7 +22,9 @@ class CanonicalPlaybackDispatcher(
     private val applyExact: suspend (ProtocolBody, RoomSnapshot) -> Unit,
     private val reconcileLatest: suspend (PlaybackReconciliation) -> Unit,
     private val onFailure: (ProtocolBody?, Throwable) -> Unit,
-    private val preparedQueueItemIds: () -> Set<com.darius.unison.model.QueueItemId> = { emptySet() },
+    private val preparedQueueItemIds: () -> Set<com.darius.unison.model.QueueItemId> = {
+        emptySet()
+    },
     capacity: Int = DEFAULT_CAPACITY,
 ) : AutoCloseable {
 
@@ -94,27 +96,27 @@ class CanonicalPlaybackDispatcher(
         }
     }
 
-    suspend fun submit(body: ProtocolBody, snapshot: RoomSnapshot) =
-        submissionMutex.withLock {
-            when (val classification = classify(body)) {
-                Classification.Ignore -> Unit
-                Classification.Exact -> {
-                    synchronized(stateLock) {
-                        exactSubmitted++
-                        // An exact transport command is an ordering barrier. Reconciliation work
-                        // submitted after this point must use a new batch and may not collapse into
-                        // a token already queued ahead of the exact command.
-                        openReconciliationBatchId = null
-                    }
-                    work.send(Work.Exact(body, snapshot))
+    suspend fun submit(body: ProtocolBody, snapshot: RoomSnapshot) = submissionMutex.withLock {
+        when (val classification = classify(body)) {
+            Classification.Ignore -> Unit
+            Classification.Exact -> {
+                synchronized(stateLock) {
+                    exactSubmitted++
+                    // An exact transport command is an ordering barrier. Reconciliation work
+                    // submitted after this point must use a new batch and may not collapse into
+                    // a token already queued ahead of the exact command.
+                    openReconciliationBatchId = null
                 }
-                is Classification.Reconcile ->
-                    requestReconciliationLocked(snapshot, classification.trigger)
+                work.send(Work.Exact(body, snapshot))
             }
+            is Classification.Reconcile ->
+                requestReconciliationLocked(snapshot, classification.trigger)
         }
+    }
 
-    suspend fun reconcile(snapshot: RoomSnapshot, trigger: Trigger) =
-        submissionMutex.withLock { requestReconciliationLocked(snapshot, trigger) }
+    suspend fun reconcile(snapshot: RoomSnapshot, trigger: Trigger) = submissionMutex.withLock {
+        requestReconciliationLocked(snapshot, trigger)
+    }
 
     private suspend fun requestReconciliationLocked(snapshot: RoomSnapshot, trigger: Trigger) {
         var batchId = 0L
@@ -218,7 +220,8 @@ class CanonicalPlaybackDispatcher(
 
             is ProtocolBody.RoomOptionsChanged -> Classification.Reconcile(Trigger.OPTIONS_CHANGED)
             is ProtocolBody.QueueShuffled -> Classification.Reconcile(Trigger.QUEUE_CHANGED)
-            is ProtocolBody.RepeatModeChanged -> Classification.Reconcile(Trigger.PLAYBACK_MODE_CHANGED)
+            is ProtocolBody.RepeatModeChanged ->
+                Classification.Reconcile(Trigger.PLAYBACK_MODE_CHANGED)
 
             is ProtocolBody.QueueItemsRemoved,
             ProtocolBody.QueueCleared,

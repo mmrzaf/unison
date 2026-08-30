@@ -51,11 +51,13 @@ class UnisonSettings(private val context: Context) {
     val onboardingComplete: Flow<Boolean> = data.map { it[Keys.onboardingComplete] ?: false }
     val retentionPolicy: Flow<RetentionPolicy> = data.map { prefs ->
         runCatching {
-            RetentionPolicy.valueOf(
-                prefs[Keys.retention] ?: RetentionPolicy.TEMPORARY_24_HOURS.name
-            )
-        }.getOrDefault(RetentionPolicy.TEMPORARY_24_HOURS)
+                RetentionPolicy.valueOf(
+                    prefs[Keys.retention] ?: RetentionPolicy.TEMPORARY_24_HOURS.name
+                )
+            }
+            .getOrDefault(RetentionPolicy.TEMPORARY_24_HOURS)
     }
+
     suspend fun ensureIdentity(): LocalIdentity = identityMutex.withLock {
         val prefs = data.first()
         val existing = prefs[Keys.peerId]?.takeIf(::isValidPeerId)
@@ -99,6 +101,4 @@ class UnisonSettings(private val context: Context) {
     suspend fun setRetentionPolicy(policy: RetentionPolicy) {
         context.dataStore.edit { it[Keys.retention] = policy.name }
     }
-
-
 }

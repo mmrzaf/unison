@@ -67,7 +67,9 @@ class Media3PlayerAdapter(
     private var itemTransitionReason: PlayerItemTransitionReason? = null
     private var itemBoundaryRevision = 0L
     private val naturalBoundaryLatch = NaturalBoundaryLatch()
-    /** Last item selected by Media3, maintained from transition callbacks for boundary ownership. */
+    /**
+     * Last item selected by Media3, maintained from transition callbacks for boundary ownership.
+     */
     private var observedQueueItemId: QueueItemId? = null
     private var boundaryEndedQueueItemId: QueueItemId? = null
     private var boundaryEndedPositionMs = 0L
@@ -75,7 +77,10 @@ class Media3PlayerAdapter(
     private var playableItemsById: Map<String, LocalPlayableItem> = emptyMap()
     private var participation = LocalPlaybackParticipation.ACTIVE
     private var inhibitionReason: LocalPlaybackInhibitionReason? = null
-    /** Latched until Media3 explicitly reports suppression NONE; never inferred from callback text/reason gaps. */
+    /**
+     * Latched until Media3 explicitly reports suppression NONE; never inferred from callback
+     * text/reason gaps.
+     */
     private var outputResumeBlocked = false
     private var lastPlaybackSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE
     private var lastNaturalTransitionNs = Long.MIN_VALUE
@@ -109,14 +114,15 @@ class Media3PlayerAdapter(
                     TAG,
                     DiagnosticCategory.PLAYBACK,
                     "playback.media3.play_when_ready.changed",
-                    attributes = mapOf(
-                        "playback.play_when_ready" to playWhenReady,
-                        "media3.play_when_ready_reason" to reason,
-                        "media3.play_when_ready_reason_name" to reasonName,
-                        "playback.expected_mutation_source" to expectedSource,
-                        "playback.participation" to participation.name,
-                        "media3.playback_suppression_reason" to lastPlaybackSuppressionReason,
-                    ),
+                    attributes =
+                        mapOf(
+                            "playback.play_when_ready" to playWhenReady,
+                            "media3.play_when_ready_reason" to reason,
+                            "media3.play_when_ready_reason_name" to reasonName,
+                            "playback.expected_mutation_source" to expectedSource,
+                            "playback.participation" to participation.name,
+                            "media3.playback_suppression_reason" to lastPlaybackSuppressionReason,
+                        ),
                 )
 
                 if (
@@ -128,8 +134,7 @@ class Media3PlayerAdapter(
                             exoPlayer.currentMediaItem
                                 ?.mediaId
                                 ?.takeIf(String::isNotBlank)
-                                ?.let(::QueueItemId)
-                                ?: observedQueueItemId,
+                                ?.let(::QueueItemId) ?: observedQueueItemId,
                         observedAtNs = nowNs,
                     )
                 }
@@ -154,18 +159,20 @@ class Media3PlayerAdapter(
                         expectedSource == null &&
                         reason != Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM -> {
                         // Correlation failure is diagnostic only. An unexplained Media3 callback is
-                        // not evidence that Android made output unsafe. Canonical reconciliation may
+                        // not evidence that Android made output unsafe. Canonical reconciliation
+                        // may
                         // restore room intent, but local participation remains unchanged.
                         log.warn(
                             TAG,
                             DiagnosticCategory.PLAYBACK,
                             "playback.media3.unowned_play_intent",
-                            attributes = mapOf(
-                                "playback.play_when_ready" to playWhenReady,
-                                "media3.play_when_ready_reason" to reason,
-                                "media3.play_when_ready_reason_name" to reasonName,
-                                "playback.participation" to participation.name,
-                            ),
+                            attributes =
+                                mapOf(
+                                    "playback.play_when_ready" to playWhenReady,
+                                    "media3.play_when_ready_reason" to reason,
+                                    "media3.play_when_ready_reason_name" to reasonName,
+                                    "playback.participation" to participation.name,
+                                ),
                         )
                     }
 
@@ -175,11 +182,12 @@ class Media3PlayerAdapter(
                             TAG,
                             DiagnosticCategory.PLAYBACK,
                             "playback.output.autoresume_blocked",
-                            attributes = mapOf(
-                                "playback.inhibition_reason" to inhibitionReason?.name,
-                                "media3.play_when_ready_reason" to reason,
-                                "media3.play_when_ready_reason_name" to reasonName,
-                            ),
+                            attributes =
+                                mapOf(
+                                    "playback.inhibition_reason" to inhibitionReason?.name,
+                                    "media3.play_when_ready_reason" to reason,
+                                    "media3.play_when_ready_reason_name" to reasonName,
+                                ),
                         )
                         setPlayWhenReadyInternal(false, "output_inhibition")
                     }
@@ -194,14 +202,15 @@ class Media3PlayerAdapter(
                     TAG,
                     DiagnosticCategory.PLAYBACK,
                     "playback.media3.suppression.changed",
-                    attributes = mapOf(
-                        "media3.playback_suppression_from" to previous,
-                        "media3.playback_suppression_to" to playbackSuppressionReason,
-                        "media3.playback_suppression_name" to
-                            playbackSuppressionReasonName(playbackSuppressionReason),
-                        "playback.play_when_ready" to exoPlayer.playWhenReady,
-                        "playback.participation" to participation.name,
-                    ),
+                    attributes =
+                        mapOf(
+                            "media3.playback_suppression_from" to previous,
+                            "media3.playback_suppression_to" to playbackSuppressionReason,
+                            "media3.playback_suppression_name" to
+                                playbackSuppressionReasonName(playbackSuppressionReason),
+                            "playback.play_when_ready" to exoPlayer.playWhenReady,
+                            "playback.participation" to participation.name,
+                        ),
                 )
                 val localReason = playbackSuppressionReason.toLocalSuppressionReason()
                 if (localReason != null) {
@@ -220,17 +229,21 @@ class Media3PlayerAdapter(
                 } else if (playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
                     val wasBlocked = outputResumeBlocked
                     outputResumeBlocked = false
-                    if (wasBlocked || participation == LocalPlaybackParticipation.OUTPUT_INHIBITED) {
+                    if (
+                        wasBlocked || participation == LocalPlaybackParticipation.OUTPUT_INHIBITED
+                    ) {
                         log.debug(
                             TAG,
                             DiagnosticCategory.PLAYBACK,
                             "playback.output.suppression_cleared",
-                            attributes = mapOf(
-                                "playback.inhibition_reason" to inhibitionReason?.name,
-                                "playback.resume_blocked" to outputResumeBlocked,
-                            ),
+                            attributes =
+                                mapOf(
+                                    "playback.inhibition_reason" to inhibitionReason?.name,
+                                    "playback.resume_blocked" to outputResumeBlocked,
+                                ),
                         )
-                        // outputResumeBlocked is actor-significant state. Publishing here guarantees
+                        // outputResumeBlocked is actor-significant state. Publishing here
+                        // guarantees
                         // the pending-rejoin state machine observes the explicit platform clear.
                         publish()
                     }
@@ -239,16 +252,14 @@ class Media3PlayerAdapter(
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val previousState = _state.value
-                val selectedId =
-                    mediaItem?.mediaId?.takeIf(String::isNotBlank)?.let(::QueueItemId)
+                val selectedId = mediaItem?.mediaId?.takeIf(String::isNotBlank)?.let(::QueueItemId)
                 val endedId = observedQueueItemId
                 itemTransitionRevision++
                 val transitionReason = reason.toPlayerItemTransitionReason()
                 itemTransitionReason = transitionReason
                 if (
                     (transitionReason == PlayerItemTransitionReason.AUTO ||
-                        transitionReason == PlayerItemTransitionReason.REPEAT) &&
-                        endedId != null
+                        transitionReason == PlayerItemTransitionReason.REPEAT) && endedId != null
                 ) {
                     recordNaturalBoundary(
                         endedQueueItemId = endedId,
@@ -261,12 +272,15 @@ class Media3PlayerAdapter(
                 observedQueueItemId = selectedId
                 naturalBoundaryLatch.onSelectedItemChanged(selectedId)
                 log.info(
-                    TAG, DiagnosticCategory.PLAYBACK, "playback.item.transitioned",
-                    attributes = mapOf(
-                        "queue.item_id" to mediaItem?.mediaId?.take(12),
-                        "playback.transition_reason" to transitionReason.name,
-                        "playback.transition_revision" to itemTransitionRevision,
-                    ),
+                    TAG,
+                    DiagnosticCategory.PLAYBACK,
+                    "playback.item.transitioned",
+                    attributes =
+                        mapOf(
+                            "queue.item_id" to mediaItem?.mediaId?.take(12),
+                            "playback.transition_reason" to transitionReason.name,
+                            "playback.transition_revision" to itemTransitionRevision,
+                        ),
                 )
                 publish()
             }
@@ -277,37 +291,44 @@ class Media3PlayerAdapter(
                 val resolvedMime =
                     localItem?.track?.let { track ->
                         AudioMimePolicy.resolve(
-                            providerMimeType = track.mimeType,
-                            metadataMimeType = null,
-                            fileName = track.originalFileName,
-                        ).mimeType
+                                providerMimeType = track.mimeType,
+                                metadataMimeType = null,
+                                fileName = track.originalFileName,
+                            )
+                            .mimeType
                     }
                 val message = buildString {
                     append("Playback failed: ").append(error.errorCodeName)
                     error.message?.takeIf(String::isNotBlank)?.let { append(" — ").append(it) }
                 }
                 log.error(
-                    TAG, DiagnosticCategory.PLAYBACK, "playback.player.failed", message,
-                    attributes = mapOf(
-                        "media3.error_code" to error.errorCode,
-                        "media3.error_code_name" to error.errorCodeName,
-                        "queue.item_id" to currentId?.take(12),
-                        "track.id" to localItem?.track?.trackId?.value?.take(12),
-                        "track.mime" to resolvedMime,
-                        "track.size_bytes" to localItem?.track?.sizeBytes,
-                        "track.file_extension" to
-                            localItem?.track?.originalFileName
-                                ?.substringAfterLast('.', "")
-                                ?.lowercase()
-                                ?.take(12),
-                        "playback.state" to stateName(exoPlayer.playbackState),
-                        "playback.play_when_ready" to exoPlayer.playWhenReady,
-                        "playback.participation" to participation.name,
-                        "audio.output_route" to outputRoute.name,
-                        "android.api_level" to Build.VERSION.SDK_INT,
-                        "device.manufacturer" to Build.MANUFACTURER.take(40),
-                        "device.model" to Build.MODEL.take(60),
-                    ),
+                    TAG,
+                    DiagnosticCategory.PLAYBACK,
+                    "playback.player.failed",
+                    message,
+                    attributes =
+                        mapOf(
+                            "media3.error_code" to error.errorCode,
+                            "media3.error_code_name" to error.errorCodeName,
+                            "queue.item_id" to currentId?.take(12),
+                            "track.id" to localItem?.track?.trackId?.value?.take(12),
+                            "track.mime" to resolvedMime,
+                            "track.size_bytes" to localItem?.track?.sizeBytes,
+                            "track.file_extension" to
+                                localItem
+                                    ?.track
+                                    ?.originalFileName
+                                    ?.substringAfterLast('.', "")
+                                    ?.lowercase()
+                                    ?.take(12),
+                            "playback.state" to stateName(exoPlayer.playbackState),
+                            "playback.play_when_ready" to exoPlayer.playWhenReady,
+                            "playback.participation" to participation.name,
+                            "audio.output_route" to outputRoute.name,
+                            "android.api_level" to Build.VERSION.SDK_INT,
+                            "device.manufacturer" to Build.MANUFACTURER.take(40),
+                            "device.model" to Build.MODEL.take(60),
+                        ),
                     throwable = error,
                 )
                 publish("This song could not be played")
@@ -374,7 +395,9 @@ class Media3PlayerAdapter(
                     )
                 if (action == PlaybackTimelinePlan.Action.NO_OP) return@onMain
                 log.info(
-                    TAG, DiagnosticCategory.PLAYBACK, "playback.queue.cleared",
+                    TAG,
+                    DiagnosticCategory.PLAYBACK,
+                    "playback.queue.cleared",
                     attributes = mapOf("queue.previous_size" to currentIds.size),
                 )
                 setPlayWhenReadyInternal(false, "queue_clear")
@@ -412,16 +435,17 @@ class Media3PlayerAdapter(
                 TAG,
                 DiagnosticCategory.PLAYBACK,
                 "playback.timeline.plan",
-                attributes = mapOf(
-                    "playback.timeline_action" to timelineAction.name,
-                    "queue.previous_size" to currentIds.size,
-                    "queue.size" to desired.size,
-                    "queue.item_id" to targetId.take(12),
-                    "playback.current_item_id" to originalCurrentId?.take(12),
-                    "playback.position_ms" to originalPosition,
-                    "playback.target_position_ms" to targetPosition,
-                    "playback.play_when_ready" to wasPlaying,
-                ),
+                attributes =
+                    mapOf(
+                        "playback.timeline_action" to timelineAction.name,
+                        "queue.previous_size" to currentIds.size,
+                        "queue.size" to desired.size,
+                        "queue.item_id" to targetId.take(12),
+                        "playback.current_item_id" to originalCurrentId?.take(12),
+                        "playback.position_ms" to originalPosition,
+                        "playback.target_position_ms" to targetPosition,
+                        "playback.play_when_ready" to wasPlaying,
+                    ),
             )
             if (timelineAction == PlaybackTimelinePlan.Action.NO_OP) return@onMain
 
@@ -440,11 +464,16 @@ class Media3PlayerAdapter(
                 if (!needsSeek && !needsPrepare) return@onMain
 
                 log.debug(
-                    TAG, DiagnosticCategory.PLAYBACK, "playback.queue.reconciled",
-                    attributes = mapOf(
-                        "queue.size" to desired.size, "queue.item_id" to targetId.take(12),
-                        "playback.seek_required" to needsSeek, "playback.prepare_required" to needsPrepare,
-                    ),
+                    TAG,
+                    DiagnosticCategory.PLAYBACK,
+                    "playback.queue.reconciled",
+                    attributes =
+                        mapOf(
+                            "queue.size" to desired.size,
+                            "queue.item_id" to targetId.take(12),
+                            "playback.seek_required" to needsSeek,
+                            "playback.prepare_required" to needsPrepare,
+                        ),
                 )
                 if (needsSeek) exoPlayer.seekTo(targetIndex, targetPosition)
                 if (needsPrepare) exoPlayer.prepare()
@@ -457,11 +486,15 @@ class Media3PlayerAdapter(
             // main-thread moves. Small edits stay incremental to preserve uninterrupted playback.
             if (timelineAction == PlaybackTimelinePlan.Action.REBUILD) {
                 log.debug(
-                    TAG, DiagnosticCategory.PLAYBACK, "playback.queue.rebuilt",
-                    attributes = mapOf(
-                        "queue.previous_size" to currentIds.size, "queue.size" to desired.size,
-                        "queue.item_id" to targetId.take(12),
-                    ),
+                    TAG,
+                    DiagnosticCategory.PLAYBACK,
+                    "playback.queue.rebuilt",
+                    attributes =
+                        mapOf(
+                            "queue.previous_size" to currentIds.size,
+                            "queue.size" to desired.size,
+                            "queue.item_id" to targetId.take(12),
+                        ),
                 )
                 exoPlayer.setMediaItems(desired, desiredIdList.indexOf(targetId), targetPosition)
                 if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
@@ -474,11 +507,15 @@ class Media3PlayerAdapter(
             // linear
             // search, so cost is O(n * changedItems) rather than O(n²) for every refresh.
             log.debug(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.queue.patched",
-                attributes = mapOf(
-                    "queue.previous_size" to currentIds.size, "queue.size" to desired.size,
-                    "queue.item_id" to targetId.take(12),
-                ),
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.queue.patched",
+                attributes =
+                    mapOf(
+                        "queue.previous_size" to currentIds.size,
+                        "queue.size" to desired.size,
+                        "queue.item_id" to targetId.take(12),
+                    ),
             )
             val workingIds = currentIds.toMutableList()
             for (index in workingIds.lastIndex downTo 0) {
@@ -553,11 +590,14 @@ class Media3PlayerAdapter(
     override suspend fun play(): Boolean = onMain {
         if (participation == LocalPlaybackParticipation.OUTPUT_INHIBITED) {
             log.info(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.command.output_deferred",
-                attributes = mapOf(
-                    "playback.inhibition_reason" to inhibitionReason?.name,
-                    "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
-                ),
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.command.output_deferred",
+                attributes =
+                    mapOf(
+                        "playback.inhibition_reason" to inhibitionReason?.name,
+                        "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
+                    ),
             )
             if (exoPlayer.playWhenReady) setPlayWhenReadyInternal(false, "output_inhibition")
             publish()
@@ -573,12 +613,15 @@ class Media3PlayerAdapter(
         }
         if (exoPlayer.playbackState == Player.STATE_IDLE) exoPlayer.prepare()
         log.debug(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.play.requested",
-            attributes = mapOf(
-                "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
-                "playback.position_ms" to exoPlayer.currentPosition.coerceAtLeast(0),
-                "playback.state" to stateName(exoPlayer.playbackState),
-            ),
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.play.requested",
+            attributes =
+                mapOf(
+                    "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
+                    "playback.position_ms" to exoPlayer.currentPosition.coerceAtLeast(0),
+                    "playback.state" to stateName(exoPlayer.playbackState),
+                ),
         )
         requestPlayInternal("canonical_play")
         publish()
@@ -593,12 +636,15 @@ class Media3PlayerAdapter(
 
         if (outputResumeBlocked) {
             log.info(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.rejoin.blocked",
-                attributes = mapOf(
-                    "playback.inhibition_reason" to inhibitionReason?.name,
-                    "media3.playback_suppression_reason" to lastPlaybackSuppressionReason,
-                    "queue.item_id" to queueItemId.value.take(12),
-                ),
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.rejoin.blocked",
+                attributes =
+                    mapOf(
+                        "playback.inhibition_reason" to inhibitionReason?.name,
+                        "media3.playback_suppression_reason" to lastPlaybackSuppressionReason,
+                        "queue.item_id" to queueItemId.value.take(12),
+                    ),
             )
             publish()
             return@onMain false
@@ -616,12 +662,15 @@ class Media3PlayerAdapter(
         val targetPositionMs = positionMs.coerceAtLeast(0)
         val previousReason = inhibitionReason
         log.info(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.rejoin.started",
-            attributes = mapOf(
-                "playback.inhibition_reason" to previousReason?.name,
-                "queue.item_id" to queueItemId.value.take(12),
-                "playback.position_ms" to targetPositionMs,
-            ),
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.rejoin.started",
+            attributes =
+                mapOf(
+                    "playback.inhibition_reason" to previousReason?.name,
+                    "queue.item_id" to queueItemId.value.take(12),
+                    "playback.position_ms" to targetPositionMs,
+                ),
         )
 
         exoPlayer.seekTo(index, targetPositionMs)
@@ -635,12 +684,15 @@ class Media3PlayerAdapter(
         inhibitionReason = null
         requestPlayInternal("local_rejoin")
         log.info(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.rejoin.completed",
-            attributes = mapOf(
-                "playback.inhibition_reason" to previousReason?.name,
-                "queue.item_id" to queueItemId.value.take(12),
-                "playback.position_ms" to targetPositionMs,
-            ),
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.rejoin.completed",
+            attributes =
+                mapOf(
+                    "playback.inhibition_reason" to previousReason?.name,
+                    "queue.item_id" to queueItemId.value.take(12),
+                    "playback.position_ms" to targetPositionMs,
+                ),
         )
         publish()
         true
@@ -658,18 +710,18 @@ class Media3PlayerAdapter(
             participation = LocalPlaybackParticipation.ACTIVE
             inhibitionReason = null
         }
-        if (
-            previousParticipation != participation ||
-                previousReason != inhibitionReason
-        ) {
+        if (previousParticipation != participation || previousReason != inhibitionReason) {
             log.debug(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.local_participation.reset",
-                attributes = mapOf(
-                    "playback.participation_from" to previousParticipation.name,
-                    "playback.participation_to" to participation.name,
-                    "playback.inhibition_reason_from" to previousReason?.name,
-                    "playback.inhibition_reason_to" to inhibitionReason?.name,
-                ),
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.local_participation.reset",
+                attributes =
+                    mapOf(
+                        "playback.participation_from" to previousParticipation.name,
+                        "playback.participation_to" to participation.name,
+                        "playback.inhibition_reason_from" to previousReason?.name,
+                        "playback.inhibition_reason_to" to inhibitionReason?.name,
+                    ),
             )
             publish()
         }
@@ -689,23 +741,27 @@ class Media3PlayerAdapter(
                 TAG,
                 DiagnosticCategory.PLAYBACK,
                 "playback.pause.reconciliation_skipped",
-                attributes = mapOf(
-                    "playback.pause_cause" to cause.name,
-                    "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
-                    "playback.ms_since_auto_transition" to
-                        ((nowNs - lastNaturalTransitionNs).coerceAtLeast(0L) / 1_000_000L),
-                ),
+                attributes =
+                    mapOf(
+                        "playback.pause_cause" to cause.name,
+                        "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
+                        "playback.ms_since_auto_transition" to
+                            ((nowNs - lastNaturalTransitionNs).coerceAtLeast(0L) / 1_000_000L),
+                    ),
             )
             publish()
             return@onMain
         }
         log.info(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.pause.applied",
-            attributes = mapOf(
-                "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
-                "playback.position_ms" to exoPlayer.currentPosition.coerceAtLeast(0),
-                "playback.pause_cause" to cause.name,
-            ),
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.pause.applied",
+            attributes =
+                mapOf(
+                    "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
+                    "playback.position_ms" to exoPlayer.currentPosition.coerceAtLeast(0),
+                    "playback.pause_cause" to cause.name,
+                ),
         )
         requestPauseInternal(cause.name.lowercase())
         publish()
@@ -717,20 +773,21 @@ class Media3PlayerAdapter(
             return@onMain
         }
         log.info(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.seek.applied",
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.seek.applied",
             attributes = mapOf("playback.position_ms" to positionMs.coerceAtLeast(0)),
         )
         val targetPositionMs = positionMs.coerceAtLeast(0)
         exoPlayer.seekTo(targetPositionMs)
-        exoPlayer.currentMediaItem
-            ?.mediaId
-            ?.takeIf(String::isNotBlank)
-            ?.let(::QueueItemId)
-            ?.let { queueItemId ->
-                naturalBoundaryLatch.onSeek(
-                    queueItemId, targetPositionMs, boundaryDurationMs(queueItemId)
-                )
-            }
+        exoPlayer.currentMediaItem?.mediaId?.takeIf(String::isNotBlank)?.let(::QueueItemId)?.let {
+            queueItemId ->
+            naturalBoundaryLatch.onSeek(
+                queueItemId,
+                targetPositionMs,
+                boundaryDurationMs(queueItemId),
+            )
+        }
         seekRevision++
         publish()
     }
@@ -745,11 +802,15 @@ class Media3PlayerAdapter(
             return@onMain false
         }
         log.info(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.seek.applied",
-            attributes = mapOf(
-                "queue.item_id" to queueItemId.value.take(12), "queue.index" to index,
-                "playback.position_ms" to positionMs.coerceAtLeast(0),
-            ),
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.seek.applied",
+            attributes =
+                mapOf(
+                    "queue.item_id" to queueItemId.value.take(12),
+                    "queue.index" to index,
+                    "playback.position_ms" to positionMs.coerceAtLeast(0),
+                ),
         )
         val targetPositionMs = positionMs.coerceAtLeast(0)
         exoPlayer.seekTo(index, targetPositionMs)
@@ -796,21 +857,25 @@ class Media3PlayerAdapter(
                 inhibitionReason != reason
         participation = LocalPlaybackParticipation.OUTPUT_INHIBITED
         inhibitionReason = reason
-        if (reason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ||
-            reason == LocalPlaybackInhibitionReason.UNSUITABLE_OUTPUT
+        if (
+            reason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ||
+                reason == LocalPlaybackInhibitionReason.UNSUITABLE_OUTPUT
         ) {
             // Require an explicit suppression-clear callback before local audio can rejoin.
             outputResumeBlocked = true
         }
         if (changed) {
             log.info(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.output.inhibited",
-                attributes = mapOf(
-                    "playback.inhibition_reason" to reason.name,
-                    "media3.reason_code" to media3Reason,
-                    "media3.reason_name" to media3ReasonName,
-                    "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
-                ),
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.output.inhibited",
+                attributes =
+                    mapOf(
+                        "playback.inhibition_reason" to reason.name,
+                        "media3.reason_code" to media3Reason,
+                        "media3.reason_name" to media3ReasonName,
+                        "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
+                    ),
             )
         }
     }
@@ -875,10 +940,9 @@ class Media3PlayerAdapter(
     private fun boundaryDurationMs(queueItemId: QueueItemId): Long =
         maxOf(
             playableItemsById[queueItemId.value]?.track?.durationMs?.coerceAtLeast(0L) ?: 0L,
-            exoPlayer.duration
-                .takeIf {
-                    it > 0L && exoPlayer.currentMediaItem?.mediaId == queueItemId.value
-                } ?: 0L,
+            exoPlayer.duration.takeIf {
+                it > 0L && exoPlayer.currentMediaItem?.mediaId == queueItemId.value
+            } ?: 0L,
             _state.value.durationMs.takeIf { _state.value.queueItemId == queueItemId } ?: 0L,
         )
 
@@ -901,8 +965,9 @@ class Media3PlayerAdapter(
         val publishedPositionMs =
             previousState.positionMs.takeIf { previousState.queueItemId == endedId } ?: 0L
         val playerPositionMs =
-            exoPlayer.currentPosition.coerceAtLeast(0L)
-                .takeIf { exoPlayer.currentMediaItem?.mediaId == endedId.value } ?: 0L
+            exoPlayer.currentPosition.coerceAtLeast(0L).takeIf {
+                exoPlayer.currentMediaItem?.mediaId == endedId.value
+            } ?: 0L
         itemBoundaryRevision++
         boundaryEndedQueueItemId = endedId
         boundaryEndedDurationMs = endedDurationMs
@@ -913,12 +978,13 @@ class Media3PlayerAdapter(
             TAG,
             DiagnosticCategory.PLAYBACK,
             "playback.item.boundary",
-            attributes = mapOf(
-                "queue.item_id" to endedId.value.take(12),
-                "playback.boundary_revision" to itemBoundaryRevision,
-                "playback.position_ms" to boundaryEndedPositionMs,
-                "playback.duration_ms" to boundaryEndedDurationMs,
-            ),
+            attributes =
+                mapOf(
+                    "queue.item_id" to endedId.value.take(12),
+                    "playback.boundary_revision" to itemBoundaryRevision,
+                    "playback.position_ms" to boundaryEndedPositionMs,
+                    "playback.duration_ms" to boundaryEndedDurationMs,
+                ),
         )
     }
 
@@ -1048,12 +1114,16 @@ class Media3PlayerAdapter(
                 "playback.position_ms" to player.currentPosition.coerceAtLeast(0),
             )
         log.debug(
-            TAG, DiagnosticCategory.PLAYBACK, "playback.state.changed",
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.state.changed",
             attributes = attributes,
         )
         if (playing && previousPlaying != true) {
             log.info(
-                TAG, DiagnosticCategory.PLAYBACK, "playback.play.started",
+                TAG,
+                DiagnosticCategory.PLAYBACK,
+                "playback.play.started",
                 attributes = attributes,
             )
         }

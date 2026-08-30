@@ -209,14 +209,20 @@ class ControlConnection(
             null,
             is CancellationException ->
                 log.info(
-                    TAG, DiagnosticCategory.NETWORK, "network.control_connection.closed",
+                    TAG,
+                    DiagnosticCategory.NETWORK,
+                    "network.control_connection.closed",
                     attributes = mapOf("peer.id" to peerId.value.take(12)),
                 )
 
-            else -> log.error(
-                TAG, DiagnosticCategory.NETWORK, "network.control_connection.failed",
-                attributes = mapOf("peer.id" to peerId.value.take(12)), throwable = cause,
-            )
+            else ->
+                log.error(
+                    TAG,
+                    DiagnosticCategory.NETWORK,
+                    "network.control_connection.failed",
+                    attributes = mapOf("peer.id" to peerId.value.take(12)),
+                    throwable = cause,
+                )
         }
         if (notifyClosed) {
             callbackScope.launch(Dispatchers.Default) { onClosed(this@ControlConnection, cause) }

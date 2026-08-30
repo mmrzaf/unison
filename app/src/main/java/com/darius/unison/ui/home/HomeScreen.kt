@@ -17,10 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Groups
@@ -38,15 +36,16 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,9 +62,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.darius.unison.model.DiscoveredRoom
+import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.TrackId
-import com.darius.unison.model.RetentionPolicy
 
 /** Out-of-room surface: rooms first, then a playlist-only music shelf. */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -261,7 +260,8 @@ internal fun HomeScreen(
         item(key = "music-divider") {
             SectionHeader(
                 title = "Your music",
-                subtitle = "${state.libraryTotalCount} ${if (state.libraryTotalCount == 1) "song" else "songs"}",
+                subtitle =
+                    "${state.libraryTotalCount} ${if (state.libraryTotalCount == 1) "song" else "songs"}",
                 modifier = Modifier.padding(top = 22.dp),
                 action = {
                     TextButton(onClick = onChooseFiles) {
@@ -359,35 +359,39 @@ internal fun HomeScreen(
                 headlineContent = { Text("Your name") },
                 supportingContent = { Text(state.room.localIdentity?.displayName ?: "Friend") },
                 leadingContent = { Icon(Icons.Default.Person, null) },
-                modifier = Modifier.clickable {
-                    settingsOpen = false
-                    onEditName()
-                },
+                modifier =
+                    Modifier.clickable {
+                        settingsOpen = false
+                        onEditName()
+                    },
             )
             ListItem(
                 headlineContent = { Text("Storage") },
                 supportingContent = { Text(formatBytes(state.storageSummary.totalBytes)) },
                 leadingContent = { Icon(Icons.Default.Storage, null) },
-                modifier = Modifier.clickable {
-                    settingsOpen = false
-                    storageOpen = true
-                },
+                modifier =
+                    Modifier.clickable {
+                        settingsOpen = false
+                        storageOpen = true
+                    },
             )
             ListItem(
                 headlineContent = { Text("Connection help") },
                 leadingContent = { Icon(Icons.Default.WifiTethering, null) },
-                modifier = Modifier.clickable {
-                    settingsOpen = false
-                    connectionHelpOpen = true
-                },
+                modifier =
+                    Modifier.clickable {
+                        settingsOpen = false
+                        connectionHelpOpen = true
+                    },
             )
             ListItem(
                 headlineContent = { Text("About Unison") },
                 leadingContent = { Icon(Icons.Default.Code, null) },
-                modifier = Modifier.clickable {
-                    settingsOpen = false
-                    onShowAbout()
-                },
+                modifier =
+                    Modifier.clickable {
+                        settingsOpen = false
+                        onShowAbout()
+                    },
             )
             Spacer(Modifier.size(24.dp))
         }

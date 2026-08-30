@@ -1,10 +1,10 @@
 package com.darius.unison.network
 
-import androidx.annotation.RequiresApi
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
+import androidx.annotation.RequiresApi
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.util.DiagnosticCategory
@@ -79,7 +79,9 @@ class NsdRoomDiscovery(
                 override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                     if (registrationListener.get() !== this) return
                     log.warn(
-                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.registration_failed",
+                        TAG,
+                        DiagnosticCategory.DISCOVERY,
+                        "discovery.nsd.registration_failed",
                         attributes = mapOf("nsd.error_code" to errorCode),
                     )
                     if (!registrationListener.compareAndSet(this, null)) return
@@ -92,7 +94,9 @@ class NsdRoomDiscovery(
                 override fun onUnregistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                     if (registrationListener.get() === this) {
                         log.warn(
-                            TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.unregistration_failed",
+                            TAG,
+                            DiagnosticCategory.DISCOVERY,
+                            "discovery.nsd.unregistration_failed",
                             attributes = mapOf("nsd.error_code" to errorCode),
                         )
                     }
@@ -104,7 +108,9 @@ class NsdRoomDiscovery(
                 if (registrationListener.compareAndSet(listener, null)) {
                     if (discoveryListener.get() == null) locks.releaseMulticast()
                     log.warn(
-                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.registration_start_failed",
+                        TAG,
+                        DiagnosticCategory.DISCOVERY,
+                        "discovery.nsd.registration_start_failed",
                         throwable = error,
                     )
                     onError("Could not make this room visible")
@@ -116,9 +122,10 @@ class NsdRoomDiscovery(
      * Runs one bounded NSD browse session.
      *
      * Android 11–13 use serialized one-shot resolution because several vendor builds reject
-     * concurrent resolveService calls. Android 14+ uses ServiceInfoCallback, which is the platform's
-     * non-stale service-resolution API and delivers all host addresses plus the owning Network.
-     * Both paths feed the same process-local network router; protocol/domain models remain unchanged.
+     * concurrent resolveService calls. Android 14+ uses ServiceInfoCallback, which is the
+     * platform's non-stale service-resolution API and delivers all host addresses plus the owning
+     * Network. Both paths feed the same process-local network router; protocol/domain models remain
+     * unchanged.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun discover(): Flow<NsdDiscoveryEvent> = callbackFlow {
@@ -140,7 +147,8 @@ class NsdRoomDiscovery(
                         !active.get() ||
                             discoveryListener.get() !== this ||
                             serviceInfo.serviceType != SERVICE_TYPE
-                    ) return
+                    )
+                        return
                     if (Build.VERSION.SDK_INT >= 34) {
                         registerModernService(serviceInfo, active, this@callbackFlow)
                     } else {
@@ -159,7 +167,11 @@ class NsdRoomDiscovery(
 
                 override fun onDiscoveryStopped(serviceType: String) {
                     if (!active.get() || discoveryListener.get() !== this) return
-                    log.warn(TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.stopped_unexpectedly")
+                    log.warn(
+                        TAG,
+                        DiagnosticCategory.DISCOVERY,
+                        "discovery.nsd.stopped_unexpectedly",
+                    )
                     if (!discoveryListener.compareAndSet(this, null)) return
                     unregisterAllModernServices()
                     if (registrationListener.get() == null) locks.releaseMulticast()
@@ -174,7 +186,9 @@ class NsdRoomDiscovery(
                 override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                     if (!active.get() || discoveryListener.get() !== this) return
                     log.warn(
-                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.start_failed",
+                        TAG,
+                        DiagnosticCategory.DISCOVERY,
+                        "discovery.nsd.start_failed",
                         attributes = mapOf("nsd.error_code" to errorCode),
                     )
                     if (!discoveryListener.compareAndSet(this, null)) return
@@ -191,7 +205,9 @@ class NsdRoomDiscovery(
                 override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
                     if (discoveryListener.get() === this) {
                         log.warn(
-                            TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.stop_failed",
+                            TAG,
+                            DiagnosticCategory.DISCOVERY,
+                            "discovery.nsd.stop_failed",
                             attributes = mapOf("nsd.error_code" to errorCode),
                         )
                     }
@@ -233,7 +249,10 @@ class NsdRoomDiscovery(
         runCatching { nsd.stopServiceDiscovery(listener) }
             .onFailure { error ->
                 log.warn(
-                    TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.stop_start_failed", throwable = error,
+                    TAG,
+                    DiagnosticCategory.DISCOVERY,
+                    "discovery.nsd.stop_start_failed",
+                    throwable = error,
                 )
             }
     }
@@ -243,7 +262,10 @@ class NsdRoomDiscovery(
         runCatching { nsd.unregisterService(listener) }
             .onFailure { error ->
                 log.warn(
-                    TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.unregister_start_failed", throwable = error,
+                    TAG,
+                    DiagnosticCategory.DISCOVERY,
+                    "discovery.nsd.unregister_start_failed",
+                    throwable = error,
                 )
             }
         if (discoveryListener.get() == null) locks.releaseMulticast()
@@ -263,14 +285,18 @@ class NsdRoomDiscovery(
                 override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
                     modernServiceCallbacks.remove(callbackKey, this)
                     log.warn(
-                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.service_info_failed",
+                        TAG,
+                        DiagnosticCategory.DISCOVERY,
+                        "discovery.nsd.service_info_failed",
                         attributes = mapOf("nsd.error_code" to errorCode),
                     )
                 }
 
                 override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
                     if (!active.get()) return
-                    serviceInfo.toDiscoveredRoom()?.let { producer.trySend(NsdDiscoveryEvent.Found(it)) }
+                    serviceInfo.toDiscoveredRoom()?.let {
+                        producer.trySend(NsdDiscoveryEvent.Found(it))
+                    }
                 }
 
                 override fun onServiceLost() {
@@ -282,14 +308,17 @@ class NsdRoomDiscovery(
             }
         if (modernServiceCallbacks.putIfAbsent(callbackKey, callback) != null) return
         runCatching {
-            nsd.registerServiceInfoCallback(serviceInfo, appContext.mainExecutor, callback)
-        }.onFailure { error ->
-            modernServiceCallbacks.remove(callbackKey, callback)
-            log.warn(
-                TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.service_info_start_failed",
-                throwable = error,
-            )
-        }
+                nsd.registerServiceInfoCallback(serviceInfo, appContext.mainExecutor, callback)
+            }
+            .onFailure { error ->
+                modernServiceCallbacks.remove(callbackKey, callback)
+                log.warn(
+                    TAG,
+                    DiagnosticCategory.DISCOVERY,
+                    "discovery.nsd.service_info_start_failed",
+                    throwable = error,
+                )
+            }
     }
 
     @RequiresApi(34)
@@ -298,7 +327,9 @@ class NsdRoomDiscovery(
         runCatching { nsd.unregisterServiceInfoCallback(callback) }
             .onFailure { error ->
                 log.debug(
-                    TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.service_info_stop_failed",
+                    TAG,
+                    DiagnosticCategory.DISCOVERY,
+                    "discovery.nsd.service_info_stop_failed",
                     throwable = error,
                 )
             }
@@ -311,7 +342,9 @@ class NsdRoomDiscovery(
             runCatching { nsd.unregisterServiceInfoCallback(callback) }
                 .onFailure { error ->
                     log.debug(
-                        TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.service_info_stop_failed",
+                        TAG,
+                        DiagnosticCategory.DISCOVERY,
+                        "discovery.nsd.service_info_stop_failed",
                         throwable = error,
                     )
                 }
@@ -325,7 +358,8 @@ class NsdRoomDiscovery(
     private fun NsdServiceInfo.toDiscoveredRoom(): DiscoveredRoom? {
         val addresses = resolvedAddresses()
         val resolvedNetwork = if (Build.VERSION.SDK_INT >= 33) network else null
-        val address = networkRouter.rememberResolvedService(addresses, resolvedNetwork) ?: return null
+        val address =
+            networkRouter.rememberResolvedService(addresses, resolvedNetwork) ?: return null
 
         val resolvedRoomId =
             (attribute("rid") ?: serviceName.substringAfter("Unison-", "")).takeIf {
@@ -347,11 +381,12 @@ class NsdRoomDiscovery(
             TAG,
             DiagnosticCategory.DISCOVERY,
             "discovery.nsd.service_resolved",
-            attributes = mapOf(
-                "nsd.address_count" to addresses.size,
-                "network.address_family" to if (address.address.size == 4) "IPV4" else "IPV6",
-                "network.bound_available" to (resolvedNetwork != null),
-            ),
+            attributes =
+                mapOf(
+                    "nsd.address_count" to addresses.size,
+                    "network.address_family" to if (address.address.size == 4) "IPV4" else "IPV6",
+                    "network.bound_available" to (resolvedNetwork != null),
+                ),
         )
         return DiscoveredRoom(
             serviceName = serviceName,
@@ -368,8 +403,7 @@ class NsdRoomDiscovery(
         if (Build.VERSION.SDK_INT >= 34) {
             hostAddresses.filter(NetworkAddressPolicy::isAllowed)
         } else {
-            @Suppress("DEPRECATION")
-            listOfNotNull(host?.takeIf(NetworkAddressPolicy::isAllowed))
+            @Suppress("DEPRECATION") listOfNotNull(host?.takeIf(NetworkAddressPolicy::isAllowed))
         }
 
     private fun NsdServiceInfo.attribute(key: String): String? =
@@ -448,7 +482,9 @@ class NsdRoomDiscovery(
                 object : NsdManager.ResolveListener {
                     override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                         log.warn(
-                            TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_failed",
+                            TAG,
+                            DiagnosticCategory.DISCOVERY,
+                            "discovery.nsd.resolve_failed",
                             attributes = mapOf("nsd.error_code" to errorCode),
                         )
                         finish()
@@ -459,15 +495,17 @@ class NsdRoomDiscovery(
                     }
                 }
             runCatching {
-                @Suppress("DEPRECATION")
-                nsd.resolveService(next, resolver)
-            }.onFailure { error ->
-                log.warn(
-                    TAG, DiagnosticCategory.DISCOVERY, "discovery.nsd.resolve_start_failed",
-                    throwable = error,
-                )
-                finish()
-            }
+                    @Suppress("DEPRECATION") nsd.resolveService(next, resolver)
+                }
+                .onFailure { error ->
+                    log.warn(
+                        TAG,
+                        DiagnosticCategory.DISCOVERY,
+                        "discovery.nsd.resolve_start_failed",
+                        throwable = error,
+                    )
+                    finish()
+                }
         }
     }
 

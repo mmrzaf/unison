@@ -117,7 +117,8 @@ internal class PlaylistActions(
                 message.value =
                     when {
                         succeeded == 0 -> "Could not update playlists"
-                        failed > 0 -> "Added songs; $failed playlist${if (failed == 1) "" else "s"} could not be updated"
+                        failed > 0 ->
+                            "Added songs; $failed playlist${if (failed == 1) "" else "s"} could not be updated"
                         succeeded == 1 -> "Songs added to playlist"
                         else -> "Songs added to $succeeded playlists"
                     }

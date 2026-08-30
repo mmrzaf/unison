@@ -8,10 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -26,7 +24,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -63,7 +60,8 @@ private sealed interface PendingNetworkPermissionAction {
         override val deniedMessage = "Nearby Wi-Fi access is needed to create a room"
     }
 
-    data class JoinRoom(val room: DiscoveredRoom, val pin: String) : PendingNetworkPermissionAction {
+    data class JoinRoom(val room: DiscoveredRoom, val pin: String) :
+        PendingNetworkPermissionAction {
         override val scope = "join_room"
         override val deniedMessage = "Nearby Wi-Fi access is needed to join a room"
     }
@@ -111,8 +109,9 @@ fun UnisonApp(viewModel: MainViewModel) {
         exportLauncher.launch("${name.safeFileName()}.m3u8")
     }
 
-    var pendingNetworkPermissionAction by
-        remember { mutableStateOf<PendingNetworkPermissionAction?>(null) }
+    var pendingNetworkPermissionAction by remember {
+        mutableStateOf<PendingNetworkPermissionAction?>(null)
+    }
 
     fun executeNetworkAction(action: PendingNetworkPermissionAction) {
         when (action) {
@@ -131,7 +130,8 @@ fun UnisonApp(viewModel: MainViewModel) {
     fun requiredPermissions(action: PendingNetworkPermissionAction): Array<String> =
         when (action) {
             is PendingNetworkPermissionAction.CreateRoom,
-            is PendingNetworkPermissionAction.JoinRoom -> PermissionController.localNetworkPermissions()
+            is PendingNetworkPermissionAction.JoinRoom ->
+                PermissionController.localNetworkPermissions()
             PendingNetworkPermissionAction.CreateOfflineNetwork ->
                 PermissionController.offlineNetworkPermissions()
         }
@@ -159,10 +159,9 @@ fun UnisonApp(viewModel: MainViewModel) {
         action: PendingNetworkPermissionAction,
         requiredPermissions: Array<String>,
     ) {
-        val missing =
-            requiredPermissions.filter {
-                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-            }
+        val missing = requiredPermissions.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
         if (missing.isEmpty()) {
             executeNetworkAction(action)
             return
@@ -345,7 +344,9 @@ fun UnisonApp(viewModel: MainViewModel) {
                                     pickerTracks = pickerTracks,
                                     pickerQuery = pickerQuery,
                                     onPickerQueryChange = viewModel::setPickerQuery,
-                                    onRename = { viewModel.renamePlaylist(playlist.playlistId, it) },
+                                    onRename = {
+                                        viewModel.renamePlaylist(playlist.playlistId, it)
+                                    },
                                     onMoveTrack = { from, to ->
                                         viewModel.movePlaylistTrack(playlist.playlistId, from, to)
                                     },
@@ -420,7 +421,9 @@ fun UnisonApp(viewModel: MainViewModel) {
                             onShowAbout = { showAbout = true },
                             onSetRetentionPolicy = viewModel::setRetentionPolicy,
                             onCreateOfflineNetwork = createOfflineNetwork,
-                            onStopOfflineNetwork = { viewModel.command(AppCommand.StopOfflineNetwork) },
+                            onStopOfflineNetwork = {
+                                viewModel.command(AppCommand.StopOfflineNetwork)
+                            },
                             onOpenAllMusic = { allMusicOpen = true },
                             onOpenPlaylist = { playlistId ->
                                 allMusicOpen = false
@@ -450,8 +453,12 @@ fun UnisonApp(viewModel: MainViewModel) {
                                         seek = { viewModel.command(AppCommand.Seek(it)) },
                                         next = { viewModel.command(AppCommand.SkipNext()) },
                                         previous = { viewModel.command(AppCommand.SkipPrevious()) },
-                                        playQueueItem = { viewModel.command(AppCommand.PlayQueueItem(it)) },
-                                        prepareQueueItem = { viewModel.command(AppCommand.PrepareQueueItem(it)) },
+                                        playQueueItem = {
+                                            viewModel.command(AppCommand.PlayQueueItem(it))
+                                        },
+                                        prepareQueueItem = {
+                                            viewModel.command(AppCommand.PrepareQueueItem(it))
+                                        },
                                     ),
                                 queue =
                                     RoomQueueActions(
@@ -467,8 +474,11 @@ fun UnisonApp(viewModel: MainViewModel) {
                                         },
                                         pickerQueryChange = viewModel::setPickerQuery,
                                         selectAllTracks = viewModel::loadRoomTrackIds,
-                                        addLibrarySelectionToRoom = viewModel::addLibrarySelectionToRoom,
-                                        removeQueueItem = { viewModel.command(AppCommand.RemoveQueueItem(it)) },
+                                        addLibrarySelectionToRoom =
+                                            viewModel::addLibrarySelectionToRoom,
+                                        removeQueueItem = {
+                                            viewModel.command(AppCommand.RemoveQueueItem(it))
+                                        },
                                         moveQueueItem = { item, index ->
                                             viewModel.command(AppCommand.MoveQueueItem(item, index))
                                         },
@@ -477,14 +487,17 @@ fun UnisonApp(viewModel: MainViewModel) {
                                         },
                                         keepTrack = viewModel::keepTrack,
                                         saveQueue = { name, ids ->
-                                            if (ids.isNotEmpty()) viewModel.createPlaylist(name, ids)
+                                            if (ids.isNotEmpty())
+                                                viewModel.createPlaylist(name, ids)
                                         },
                                         clearPlayed = { viewModel.command(AppCommand.ClearPlayed) },
                                         clearQueue = { viewModel.command(AppCommand.ClearQueue) },
                                     ),
                                 session =
                                     RoomSessionUiActions(
-                                        updateOptions = { viewModel.command(AppCommand.UpdateRoomOptions(it)) },
+                                        updateOptions = {
+                                            viewModel.command(AppCommand.UpdateRoomOptions(it))
+                                        },
                                         showAbout = { showAbout = true },
                                         leave = { viewModel.command(AppCommand.LeaveRoom) },
                                         retryIssue = viewModel::retryRoomIssue,
@@ -513,5 +526,4 @@ fun UnisonApp(viewModel: MainViewModel) {
     if (showAbout) {
         AboutUnisonDialog(onDismiss = { showAbout = false })
     }
-
 }

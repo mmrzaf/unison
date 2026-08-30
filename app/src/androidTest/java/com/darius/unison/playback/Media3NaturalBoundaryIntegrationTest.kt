@@ -54,9 +54,13 @@ class Media3NaturalBoundaryIntegrationTest {
             assertEquals(second.queueItemId, transitioned.queueItemId)
 
             // The resume transition may report AUTO for the item that already ended, but must not
-            // manufacture a second boundary or misattribute that boundary to the newly selected item.
+            // manufacture a second boundary or misattribute that boundary to the newly selected
+            // item.
             delay(NO_DUPLICATE_SETTLE_MS)
-            assertEquals(boundary.itemBoundaryRevision, fixture.adapter.state.value.itemBoundaryRevision)
+            assertEquals(
+                boundary.itemBoundaryRevision,
+                fixture.adapter.state.value.itemBoundaryRevision,
+            )
             assertEquals(first.queueItemId, fixture.adapter.state.value.boundaryEndedQueueItemId)
         }
     }
@@ -73,7 +77,10 @@ class Media3NaturalBoundaryIntegrationTest {
             assertEquals(only.queueItemId, boundary.boundaryEndedQueueItemId)
 
             delay(NO_DUPLICATE_SETTLE_MS)
-            assertEquals(boundary.itemBoundaryRevision, fixture.adapter.state.value.itemBoundaryRevision)
+            assertEquals(
+                boundary.itemBoundaryRevision,
+                fixture.adapter.state.value.itemBoundaryRevision,
+            )
             assertEquals(only.queueItemId, fixture.adapter.state.value.boundaryEndedQueueItemId)
         }
     }
@@ -95,7 +102,10 @@ class Media3NaturalBoundaryIntegrationTest {
             assertTrue(fixture.adapter.play())
             val secondBoundary = fixture.awaitBoundaryAfter(firstBoundary.itemBoundaryRevision)
             assertEquals(repeated.queueItemId, secondBoundary.boundaryEndedQueueItemId)
-            assertEquals(firstBoundary.itemBoundaryRevision + 1, secondBoundary.itemBoundaryRevision)
+            assertEquals(
+                firstBoundary.itemBoundaryRevision + 1,
+                secondBoundary.itemBoundaryRevision,
+            )
         }
     }
 
@@ -113,7 +123,10 @@ class Media3NaturalBoundaryIntegrationTest {
             assertTrue(fixture.adapter.play())
             val secondBoundary = fixture.awaitBoundaryAfter(firstBoundary.itemBoundaryRevision)
             assertEquals(only.queueItemId, secondBoundary.boundaryEndedQueueItemId)
-            assertEquals(firstBoundary.itemBoundaryRevision + 1, secondBoundary.itemBoundaryRevision)
+            assertEquals(
+                firstBoundary.itemBoundaryRevision + 1,
+                secondBoundary.itemBoundaryRevision,
+            )
         }
     }
 

@@ -21,9 +21,7 @@ internal data class PeerClockHealth(
  * Coordinator-owned playback-health/admission leases. Clock health alone is not enough to join the
  * blocking playback cohort: a peer must also have the current playback runway locally available.
  */
-internal class PeerPlaybackHealthRegistry(
-    private val readyLeaseNs: Long,
-) {
+internal class PeerPlaybackHealthRegistry(private val readyLeaseNs: Long) {
     init {
         require(readyLeaseNs > 0L)
     }
@@ -114,8 +112,7 @@ internal class PeerPlaybackHealthRegistry(
         }
 
     fun health(peerId: PeerId, nowNs: Long): PeerClockHealth {
-        val entry = entries[peerId]
-            ?: return PeerClockHealth(PeerPlaybackHealthState.WARMING_UP)
+        val entry = entries[peerId] ?: return PeerClockHealth(PeerPlaybackHealthState.WARMING_UP)
         val leaseFresh = nowNs >= entry.updatedAtNs && nowNs - entry.updatedAtNs <= readyLeaseNs
         val transportReady =
             entry.synchronized &&
@@ -141,24 +138,24 @@ internal class PeerPlaybackHealthRegistry(
         localCoordinatorPeerId: PeerId,
         localParticipation: LocalPlaybackParticipation,
         nowNs: Long,
-    ): Set<PeerId> =
-        buildSet {
-            if (
-                localCoordinatorPeerId in connectedPeers &&
-                    localParticipation == LocalPlaybackParticipation.ACTIVE
-            ) {
-                add(localCoordinatorPeerId)
-            }
-            connectedPeers.asSequence()
-                .filter { it != localCoordinatorPeerId }
-                .filter { health(it, nowNs).state == PeerPlaybackHealthState.READY }
-                .forEach { add(it) }
+    ): Set<PeerId> = buildSet {
+        if (
+            localCoordinatorPeerId in connectedPeers &&
+                localParticipation == LocalPlaybackParticipation.ACTIVE
+        ) {
+            add(localCoordinatorPeerId)
         }
+        connectedPeers
+            .asSequence()
+            .filter { it != localCoordinatorPeerId }
+            .filter { health(it, nowNs).state == PeerPlaybackHealthState.READY }
+            .forEach { add(it) }
+    }
 
     /**
-     * Peers whose verified media is relevant to room readiness. Unlike [readyPeers], this projection
-     * intentionally ignores temporary audible-output inhibition. A phone call must not erase
-     * knowledge that a device still owns a verified copy of the track.
+     * Peers whose verified media is relevant to room readiness. Unlike [readyPeers], this
+     * projection intentionally ignores temporary audible-output inhibition. A phone call must not
+     * erase knowledge that a device still owns a verified copy of the track.
      *
      * Newly joining/catching-up peers remain non-blocking until clock + current runway are ready.
      */
@@ -166,24 +163,25 @@ internal class PeerPlaybackHealthRegistry(
         connectedPeers: Set<PeerId>,
         localCoordinatorPeerId: PeerId,
         nowNs: Long,
-    ): Set<PeerId> =
-        buildSet {
-            if (localCoordinatorPeerId in connectedPeers) add(localCoordinatorPeerId)
-            connectedPeers.asSequence()
-                .filter { it != localCoordinatorPeerId }
-                .filter { peerId ->
-                    val entry = entries[peerId] ?: return@filter false
-                    entry.contentReady && isClockReady(peerId, nowNs)
-                }
-                .forEach { add(it) }
-        }
+    ): Set<PeerId> = buildSet {
+        if (localCoordinatorPeerId in connectedPeers) add(localCoordinatorPeerId)
+        connectedPeers
+            .asSequence()
+            .filter { it != localCoordinatorPeerId }
+            .filter { peerId ->
+                val entry = entries[peerId] ?: return@filter false
+                entry.contentReady && isClockReady(peerId, nowNs)
+            }
+            .forEach { add(it) }
+    }
 
     fun readyClockQualities(
         connectedPeers: Set<PeerId>,
         localCoordinatorPeerId: PeerId,
         nowNs: Long,
     ): List<PeerClockHealth> =
-        connectedPeers.asSequence()
+        connectedPeers
+            .asSequence()
             .filter { it != localCoordinatorPeerId }
             .map { health(it, nowNs) }
             .filter { it.state == PeerPlaybackHealthState.READY }

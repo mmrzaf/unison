@@ -41,12 +41,14 @@ class ReliabilityStressTest {
             val track = track(nextInt(48))
             val key = track to destination
             when (nextInt(5)) {
-                0, 1 -> {
+                0,
+                1 -> {
                     coordinator.upsert(
                         TransferDemand(
                             trackId = track,
                             destinationPeerId = destination,
-                            priority = TransferPriority.entries[nextInt(TransferPriority.entries.size)],
+                            priority =
+                                TransferPriority.entries[nextInt(TransferPriority.entries.size)],
                             neededByCoordinatorNs = null,
                             requestedAtCoordinatorNs = step.toLong(),
                         )

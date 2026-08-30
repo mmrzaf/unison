@@ -21,7 +21,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -200,7 +199,9 @@ internal fun PlaylistPickerSheet(
                 modifier = Modifier.weight(1f),
             )
             Button(
-                onClick = { onConfirm(selected, newPlaylistName.trim().takeIf(String::isNotEmpty)) },
+                onClick = {
+                    onConfirm(selected, newPlaylistName.trim().takeIf(String::isNotEmpty))
+                },
                 enabled = hasTarget,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
             ) {
@@ -355,7 +356,9 @@ internal fun TrackPickerSheet(
                 TextButton(
                     onClick = {
                         onSelectAll(query) { all ->
-                            selected = if (selected.size == all.size && all.isNotEmpty()) emptySet() else all
+                            selected =
+                                if (selected.size == all.size && all.isNotEmpty()) emptySet()
+                                else all
                         }
                     }
                 ) {
@@ -369,7 +372,10 @@ internal fun TrackPickerSheet(
                 when {
                     refreshState is LoadState.Loading && stableTracks.isEmpty() ->
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Loading music…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "Loading music…",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     refreshState is LoadState.Error && stableTracks.isEmpty() ->
                         Column(
@@ -388,7 +394,8 @@ internal fun TrackPickerSheet(
                         ) {
                             Icon(Icons.Default.LibraryMusic, null)
                             Text(
-                                if (query.isBlank()) "No music in your library" else "No songs match this search",
+                                if (query.isBlank()) "No music in your library"
+                                else "No songs match this search",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -398,7 +405,11 @@ internal fun TrackPickerSheet(
                                 val checked = track.trackId in selected
                                 ListItem(
                                     headlineContent = {
-                                        Text(track.displayTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(
+                                            track.displayTitle,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     },
                                     supportingContent = {
                                         track.artist?.takeIf(String::isNotBlank)?.let {
@@ -420,14 +431,19 @@ internal fun TrackPickerSheet(
                                 )
                             }
                             when (tracks.loadState.append) {
-                                is LoadState.Loading -> item("append-loading") {
-                                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                                }
-                                is LoadState.Error -> item("append-error") {
-                                    TextButton(onClick = tracks::retry, modifier = Modifier.fillMaxWidth()) {
-                                        Text("Try loading more")
+                                is LoadState.Loading ->
+                                    item("append-loading") {
+                                        LinearProgressIndicator(Modifier.fillMaxWidth())
                                     }
-                                }
+                                is LoadState.Error ->
+                                    item("append-error") {
+                                        TextButton(
+                                            onClick = tracks::retry,
+                                            modifier = Modifier.fillMaxWidth(),
+                                        ) {
+                                            Text("Try loading more")
+                                        }
+                                    }
                                 else -> Unit
                             }
                         }

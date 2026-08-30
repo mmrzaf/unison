@@ -21,15 +21,26 @@ object AudioMimePolicy {
         metadataMimeType: String?,
         fileName: String?,
     ): Resolution {
-        trustedAudioMime(providerMimeType)?.let { return Resolution(it, Source.PROVIDER) }
-        trustedAudioMime(metadataMimeType)?.let { return Resolution(it, Source.METADATA) }
-        extensionMime(fileName)?.let { return Resolution(it, Source.EXTENSION) }
+        trustedAudioMime(providerMimeType)?.let {
+            return Resolution(it, Source.PROVIDER)
+        }
+        trustedAudioMime(metadataMimeType)?.let {
+            return Resolution(it, Source.METADATA)
+        }
+        extensionMime(fileName)?.let {
+            return Resolution(it, Source.EXTENSION)
+        }
         return Resolution(null, Source.UNKNOWN)
     }
 
     fun trustedAudioMime(value: String?): String? {
-        val normalized = value?.trim()?.lowercase(Locale.ROOT)?.substringBefore(';')?.trim()
-            ?.takeIf(String::isNotBlank) ?: return null
+        val normalized =
+            value
+                ?.trim()
+                ?.lowercase(Locale.ROOT)
+                ?.substringBefore(';')
+                ?.trim()
+                ?.takeIf(String::isNotBlank) ?: return null
         if (normalized in GENERIC_MIME_TYPES) return null
         if (!normalized.startsWith("audio/")) return null
         return ALIASES[normalized] ?: normalized

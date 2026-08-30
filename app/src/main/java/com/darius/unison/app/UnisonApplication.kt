@@ -8,13 +8,13 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.darius.unison.storage.CacheCleanupWorker
+import com.darius.unison.util.DiagnosticCategory
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.darius.unison.util.DiagnosticCategory
 
 class UnisonApplication : Application(), Configuration.Provider {
     // Android creates the application, requests WorkManager configuration, and calls onCreate on

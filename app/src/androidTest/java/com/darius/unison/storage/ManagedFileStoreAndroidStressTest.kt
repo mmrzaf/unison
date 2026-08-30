@@ -9,13 +9,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Small real-Android filesystem abuse test; no device farm or custom network simulator required. */
+/**
+ * Small real-Android filesystem abuse test; no device farm or custom network simulator required.
+ */
 @RunWith(AndroidJUnit4::class)
 class ManagedFileStoreAndroidStressTest {
     @Test
     fun repeatedInterruptedResumeCommitsExactlyOneVerifiedFile() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val root = context.cacheDir.resolve("transfer-stress-${System.nanoTime()}").apply { mkdirs() }
+        val root =
+            context.cacheDir.resolve("transfer-stress-${System.nanoTime()}").apply { mkdirs() }
         try {
             val store = ManagedFileStore(root)
             val bytes = ByteArray(1_000_000) { ((it * 31) % 251).toByte() }
@@ -47,7 +50,9 @@ class ManagedFileStoreAndroidStressTest {
                     expectedSize = bytes.size.toLong(),
                     input = ByteArrayInputStream(bytes, offset, bytes.size - offset),
                 )
-            assertTrue(store.commitPartialWithDigest(trackId, bytes.size.toLong(), completed.sha256Hex))
+            assertTrue(
+                store.commitPartialWithDigest(trackId, bytes.size.toLong(), completed.sha256Hex)
+            )
             assertTrue(store.hasVerified(trackId, bytes.size.toLong()))
             assertTrue(store.finalFile(trackId).readBytes().contentEquals(bytes))
         } finally {

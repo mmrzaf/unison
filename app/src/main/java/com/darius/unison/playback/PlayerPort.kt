@@ -17,7 +17,6 @@ enum class PlaybackActivityState {
     FAILED,
 }
 
-
 enum class PlaybackPauseCause {
     USER_TRANSPORT,
     SCHEDULED_TRANSPORT,
@@ -91,7 +90,9 @@ data class PlayerState(
     val itemTransitionReason: PlayerItemTransitionReason? = null,
     /** Increments once for each physical natural item boundary, including END_OF_MEDIA_ITEM. */
     val itemBoundaryRevision: Long = 0,
-    /** Item that actually ended at [itemBoundaryRevision], independent of the newly selected item. */
+    /**
+     * Item that actually ended at [itemBoundaryRevision], independent of the newly selected item.
+     */
     val boundaryEndedQueueItemId: QueueItemId? = null,
     val boundaryEndedPositionMs: Long = 0,
     val boundaryEndedDurationMs: Long = 0,

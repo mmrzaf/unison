@@ -200,37 +200,43 @@ class TransportTargetPolicyTest {
         assertTrue(result.rejection == null)
     }
 
-    private val readiness = java.util.IdentityHashMap<RoomSnapshot, Set<com.darius.unison.model.QueueItemId>>()
+    private val readiness =
+        java.util.IdentityHashMap<RoomSnapshot, Set<com.darius.unison.model.QueueItemId>>()
 
     private fun resolve(
         command: UserCommand,
         snapshot: RoomSnapshot,
         coordinatorNowNs: Long,
-    ) = TransportTargetPolicy.resolve(
-        command, snapshot, coordinatorNowNs, readiness[snapshot].orEmpty()
-    )
+    ) =
+        TransportTargetPolicy.resolve(
+            command,
+            snapshot,
+            coordinatorNowNs,
+            readiness[snapshot].orEmpty(),
+        )
 
     private fun snapshot(
         prepared: Set<com.darius.unison.model.QueueItemId>,
         positionMs: Long = 0L,
         isPlaying: Boolean = true,
     ): RoomSnapshot {
-        val snapshot = RoomSnapshot(
-            roomId = "room",
-            roomName = "Room",
-            term = CoordinatorTerm(1, peer),
-            sequence = 0,
-            members = listOf(MemberSnapshot(peer, "Friend")),
-            queue = items,
-            playback =
-                CanonicalPlaybackState(
-                    queueItemId = items[0].queueItemId,
-                    positionAtTimestampMs = positionMs,
-                    coordinatorTimestampNs = 0,
-                    isPlaying = isPlaying,
-                ),
-            options = RoomOptions(waitAtTrackBoundary = true),
-        )
+        val snapshot =
+            RoomSnapshot(
+                roomId = "room",
+                roomName = "Room",
+                term = CoordinatorTerm(1, peer),
+                sequence = 0,
+                members = listOf(MemberSnapshot(peer, "Friend")),
+                queue = items,
+                playback =
+                    CanonicalPlaybackState(
+                        queueItemId = items[0].queueItemId,
+                        positionAtTimestampMs = positionMs,
+                        coordinatorTimestampNs = 0,
+                        isPlaying = isPlaying,
+                    ),
+                options = RoomOptions(waitAtTrackBoundary = true),
+            )
         readiness[snapshot] = prepared
         return snapshot
     }

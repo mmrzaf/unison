@@ -79,6 +79,7 @@ data class PlaybackSyncDecision(
 class PlaybackSyncController(tuning: PlaybackSyncTuning = PlaybackSyncProfile.BALANCED.tuning()) {
     var tuning: PlaybackSyncTuning = tuning
         private set
+
     private data class DriftPoint(val atLocalNs: Long, val driftMs: Long)
 
     private data class LearningAnchor(

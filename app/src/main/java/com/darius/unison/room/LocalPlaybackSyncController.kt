@@ -2,7 +2,6 @@ package com.darius.unison.room
 
 import com.darius.unison.model.CanonicalPlaybackState
 import com.darius.unison.model.RoomSnapshot
-import com.darius.unison.playback.PlaybackActivityState
 import com.darius.unison.playback.PlaybackSample
 import com.darius.unison.playback.PlayerExecutor
 import com.darius.unison.playback.PlayerPort
@@ -76,7 +75,8 @@ internal class LocalPlaybackSyncController(
         val canonical = playbackSession.canonicalForTick(snapshot, coordinator)
         if (playbackSession.observeOutputRoute(sample.outputRoute)) {
             // Output-route latency/decoder history changed, not the network clock. Reacquire only
-            // playback convergence; throwing away a healthy coordinator clock here creates avoidable
+            // playback convergence; throwing away a healthy coordinator clock here creates
+            // avoidable
             // transport unavailability after headphones/Bluetooth changes.
             resetPlaybackConvergence(
                 canonical = canonical.takeIf { coordinator },
@@ -110,7 +110,8 @@ internal class LocalPlaybackSyncController(
                     clockSync.toCoordinatorTimeWithUncertainty(sample.sampledAtLocalNs).timeNs
                 } else {
                     // Before lock, local and coordinator monotonic clocks are unrelated. Hold the
-                    // canonical reference timestamp rather than projecting through the wrong domain.
+                    // canonical reference timestamp rather than projecting through the wrong
+                    // domain.
                     canonical.coordinatorTimestampNs
                 }
         }
@@ -176,8 +177,9 @@ internal class LocalPlaybackSyncController(
 
     /**
      * A coordinator with no other active listener has nobody to synchronize against. Entering this
-     * mode clears feedback-loop history and normalizes the player to exactly 1x. Leaving it performs
-     * the same clean reacquisition before the next real multi-listener sample is evaluated.
+     * mode clears feedback-loop history and normalizes the player to exactly 1x. Leaving it
+     * performs the same clean reacquisition before the next real multi-listener sample is
+     * evaluated.
      *
      * Returns true only when the mode changed, allowing RoomRuntime to keep diagnostics quiet.
      */

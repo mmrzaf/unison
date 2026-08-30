@@ -15,7 +15,7 @@ import com.darius.unison.sync.tuning
  * live feedback loop in place.
  */
 internal class PlaybackSynchronizationRuntime(
-    initialProfile: PlaybackSyncProfile = PlaybackSyncProfile.BALANCED,
+    initialProfile: PlaybackSyncProfile = PlaybackSyncProfile.BALANCED
 ) {
     private val controller = PlaybackSyncController(initialProfile.tuning())
     private val speedGate = PlaybackSpeedCommandGate(initialProfile.tuning())

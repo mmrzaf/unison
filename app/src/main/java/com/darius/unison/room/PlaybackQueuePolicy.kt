@@ -93,7 +93,13 @@ object PlaybackQueuePolicy {
         leadNs: Long = RoomReducer.DEFAULT_COMMAND_LEAD_NS,
     ): NaturalEndPlan? =
         planNaturalEnd(
-            snapshot, emptySet(), endedQueueItemId, positionMs, durationMs, coordinatorNowNs, leadNs
+            snapshot,
+            emptySet(),
+            endedQueueItemId,
+            positionMs,
+            durationMs,
+            coordinatorNowNs,
+            leadNs,
         )
 
     fun planNaturalEnd(

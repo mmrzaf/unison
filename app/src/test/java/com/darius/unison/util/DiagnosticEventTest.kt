@@ -44,6 +44,7 @@ class DiagnosticEventTest {
         assertEquals(13, DiagnosticSeverity.WARN.severityNumber)
         assertEquals(17, DiagnosticSeverity.ERROR.severityNumber)
     }
+
     @Test
     fun logcatProjectionStaysBoundedAndPreservesAnalyzerCriticalAttributes() {
         val event =
@@ -116,21 +117,21 @@ class DiagnosticEventTest {
     fun `optional null fields are omitted from ndjson`() {
         val json =
             DiagnosticEvent(
-                sequence = 2,
-                timestamp = "2026-08-07T10:00:00Z",
-                observedTimestamp = "2026-08-07T10:00:00Z",
-                monotonicTimeNs = 2L,
-                severity = DiagnosticSeverity.INFO,
-                eventName = "room.idle",
-                body = null,
-                component = "RoomRuntime",
-                category = DiagnosticCategory.ROOM,
-                attributes = emptyMap(),
-                error = DiagnosticError("Example", null),
-            ).toJsonLine()
+                    sequence = 2,
+                    timestamp = "2026-08-07T10:00:00Z",
+                    observedTimestamp = "2026-08-07T10:00:00Z",
+                    monotonicTimeNs = 2L,
+                    severity = DiagnosticSeverity.INFO,
+                    eventName = "room.idle",
+                    body = null,
+                    component = "RoomRuntime",
+                    category = DiagnosticCategory.ROOM,
+                    attributes = emptyMap(),
+                    error = DiagnosticError("Example", null),
+                )
+                .toJsonLine()
 
         assertFalse(json.contains("\"body\":null"))
         assertFalse(json.contains("\"message\":null"))
     }
-
 }

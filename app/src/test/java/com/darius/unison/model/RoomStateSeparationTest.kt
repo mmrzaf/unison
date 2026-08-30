@@ -44,7 +44,6 @@ class RoomStateSeparationTest {
         assertEquals(snapshot.members, store.currentState().snapshot!!.members)
     }
 
-
     @Test
     fun pendingSuccessorRemainsStructuralPresentationState() {
         val pending = QueueItemId("pending-next")

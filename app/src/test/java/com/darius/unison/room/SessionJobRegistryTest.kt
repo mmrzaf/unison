@@ -83,30 +83,28 @@ class SessionJobRegistryTest {
         val advanceFinished = CountDownLatch(1)
         val threadFailure = AtomicReference<Throwable?>(null)
 
-        val mutationThread =
-            Thread {
-                try {
-                    assertTrue(
-                        registry.runIfCurrent(generation) {
-                            mutationEntered.countDown()
-                            assertTrue(allowMutationToFinish.await(1, TimeUnit.SECONDS))
-                            assertEquals(generation, registry.generation)
-                        }
-                    )
-                } catch (error: Throwable) {
-                    threadFailure.compareAndSet(null, error)
-                }
+        val mutationThread = Thread {
+            try {
+                assertTrue(
+                    registry.runIfCurrent(generation) {
+                        mutationEntered.countDown()
+                        assertTrue(allowMutationToFinish.await(1, TimeUnit.SECONDS))
+                        assertEquals(generation, registry.generation)
+                    }
+                )
+            } catch (error: Throwable) {
+                threadFailure.compareAndSet(null, error)
             }
-        val advanceThread =
-            Thread {
-                try {
-                    advanceStarted.countDown()
-                    registry.advanceAndCancelNow()
-                    advanceFinished.countDown()
-                } catch (error: Throwable) {
-                    threadFailure.compareAndSet(null, error)
-                }
+        }
+        val advanceThread = Thread {
+            try {
+                advanceStarted.countDown()
+                registry.advanceAndCancelNow()
+                advanceFinished.countDown()
+            } catch (error: Throwable) {
+                threadFailure.compareAndSet(null, error)
             }
+        }
 
         mutationThread.start()
         assertTrue(mutationEntered.await(1, TimeUnit.SECONDS))

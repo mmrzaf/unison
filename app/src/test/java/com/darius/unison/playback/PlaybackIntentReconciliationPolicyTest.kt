@@ -22,7 +22,10 @@ class PlaybackIntentReconciliationPolicyTest {
         assertEquals(
             PlaybackIntentReconciliationPolicy.Action.NONE,
             PlaybackIntentReconciliationPolicy.decide(
-                true, false, LocalPlaybackParticipation.OUTPUT_INHIBITED),
+                true,
+                false,
+                LocalPlaybackParticipation.OUTPUT_INHIBITED,
+            ),
         )
     }
 
@@ -43,12 +46,18 @@ class PlaybackIntentReconciliationPolicyTest {
         assertEquals(
             PlaybackIntentReconciliationPolicy.Action.NONE,
             PlaybackIntentReconciliationPolicy.decide(
-                true, true, LocalPlaybackParticipation.ACTIVE),
+                true,
+                true,
+                LocalPlaybackParticipation.ACTIVE,
+            ),
         )
         assertEquals(
             PlaybackIntentReconciliationPolicy.Action.NONE,
             PlaybackIntentReconciliationPolicy.decide(
-                false, false, LocalPlaybackParticipation.ACTIVE),
+                false,
+                false,
+                LocalPlaybackParticipation.ACTIVE,
+            ),
         )
     }
 
@@ -66,13 +75,20 @@ class PlaybackIntentReconciliationPolicyTest {
     @Test
     fun `play request mutates canonical room unless it is a live inhibited resume`() {
         listOf(
-            PlaybackIntentReconciliationPolicy.decidePlayRequest(
-                false, LocalPlaybackParticipation.OUTPUT_INHIBITED),
-            PlaybackIntentReconciliationPolicy.decidePlayRequest(
-                true, LocalPlaybackParticipation.ACTIVE),
-        ).forEach {
-            assertEquals(
-                PlaybackIntentReconciliationPolicy.PlayRequestAction.MUTATE_CANONICAL_ROOM, it)
-        }
+                PlaybackIntentReconciliationPolicy.decidePlayRequest(
+                    false,
+                    LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                ),
+                PlaybackIntentReconciliationPolicy.decidePlayRequest(
+                    true,
+                    LocalPlaybackParticipation.ACTIVE,
+                ),
+            )
+            .forEach {
+                assertEquals(
+                    PlaybackIntentReconciliationPolicy.PlayRequestAction.MUTATE_CANONICAL_ROOM,
+                    it,
+                )
+            }
     }
 }
