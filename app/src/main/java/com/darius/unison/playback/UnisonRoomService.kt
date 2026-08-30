@@ -61,7 +61,7 @@ class UnisonRoomService : MediaSessionService() {
                 if (!controller.isTrusted) return MediaSession.ConnectionResult.reject()
                 return MediaSession.ConnectionResult.accept(
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS,
-                    MediaSessionCommandPolicy.SYSTEM_COMMANDS,
+                    MediaSessionCommandPolicy.systemCommands(),
                 )
             }
         }

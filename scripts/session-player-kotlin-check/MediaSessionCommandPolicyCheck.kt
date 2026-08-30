@@ -3,7 +3,7 @@ package com.darius.unison.playback
 import androidx.media3.common.Player
 
 fun main() {
-    val commands = MediaSessionCommandPolicy.SYSTEM_COMMANDS
+    val commands = MediaSessionCommandPolicy.supportedPlayerCommands
     check(!commands.contains(Player.COMMAND_SEEK_TO_MEDIA_ITEM)) {
         "arbitrary queue-item seek must not be advertised"
     }

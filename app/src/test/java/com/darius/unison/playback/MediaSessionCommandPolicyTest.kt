@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaSessionCommandPolicyTest {
-    private val commands = MediaSessionCommandPolicy.SYSTEM_COMMANDS
+    private val commands = MediaSessionCommandPolicy.supportedPlayerCommands
 
     @Test
     fun arbitraryQueueItemSeekIsNotAdvertised() {
