@@ -37,12 +37,20 @@ spotless {
 
 tasks.register("resolveVerificationDependencies") {
     group = "verification"
-    description = "Resolves every resolvable configuration so Gradle can record dependency checksums."
+    description =
+        "Resolves project dependencies so Gradle can record checksums, using AGP for Android-test classpaths."
+
+    // Android test configurations are variant-aware AGP internals. Resolving them directly
+    // selects no artifact type and is ambiguous; AGP resolves them correctly for this task.
+    dependsOn(":app:compileDebugAndroidTestKotlin")
 
     doLast {
         allprojects.forEach { project ->
             project.configurations
                 .filter { it.isCanBeResolved }
+                .filterNot { configuration ->
+                    configuration.name.contains("AndroidTest", ignoreCase = true)
+                }
                 .forEach { configuration ->
                     configuration.resolve()
                 }
