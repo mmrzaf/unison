@@ -225,6 +225,8 @@ data class DiagnosticEvent(
                 "transfer.phase",
                 "transfer.reason",
                 "playback.late_ms",
+                "playback.arrival_late_ms",
+                "playback.executor_late_ms",
                 "playback.state",
                 "sync.filtered_drift_ms",
                 "sync.action",

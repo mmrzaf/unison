@@ -116,8 +116,20 @@ Analyze a capture:
 ./scripts/analyze-stability-log.py unison-playback.ndjson --strict
 ```
 
-The playback analyzer checks canonical/player convergence, transport/preparation completion,
-scheduled-command lateness, playback failures, structured-log validity, sync correction statistics,
-and diagnostic drops. The stability analyzer independently rejects unavailable-media mutation,
-duplicate transfer assignment, handshake timeout, reconnect/retry churn, materially late playback,
-malformed records, and unclean room teardown.
+The playback analyzer checks canonical/player convergence, physical natural-boundary handoff,
+pending-successor/readiness behavior, automatic audio-focus rejoin, safe clock-domain projection,
+transport/preparation completion, playback failures, structured-log validity, sync correction
+statistics, and diagnostic drops. It rejects the historical failure shapes where an ended item was
+repaired back into Play, connected members collapsed to an empty content-readiness cohort, an
+unexplained callback became `SYSTEM_POLICY`, or cleared transient focus never converged back to active
+participation.
+
+The stability analyzer independently rejects unavailable-media command rejection, duplicate transfer
+assignment, handshake timeout, reconnect/retry churn, malformed records, and unclean room teardown.
+Scheduled playback now records `playback.arrival_late_ms` and `playback.executor_late_ms` separately:
+a command that reaches the scheduler after its target time is a delivery/actor problem, while extra
+lateness accumulated after scheduling is a PlayerExecutor problem. Both are release failures when
+material, but they are reported independently.
+
+Sanitized real-device regression shapes live under `scripts/fixtures/diagnostics/` and are exercised
+by `scripts/check-log-analyzer-fixtures.py` as part of `check-release-quality.sh`.
