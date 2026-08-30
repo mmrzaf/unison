@@ -1,7 +1,7 @@
 # GitHub repository setup
 
 These settings cannot be enforced solely by files in the source tree. Apply them before actively
-promoting the public beta and review them whenever repository ownership changes.
+promoting public prereleases and review them whenever repository ownership changes.
 
 ## Repository metadata
 
@@ -23,7 +23,7 @@ Suggested topics:
 - `synchronization`
 
 Add a genuine social-preview image and real product screenshots/demo media before broad promotion.
-Do not use mockups that imply behavior not demonstrated by the current beta.
+Do not use mockups that imply behavior not demonstrated by the current prerelease.
 
 ## Discussions and issue flow
 
@@ -56,7 +56,7 @@ Android CI checks before merge and disable force pushes/deletion on the protecte
 A solo maintainer does not need an artificial approval requirement for their own work.
 
 Create a ruleset for release tags matching `v*` that prevents force updates and deletion. Tags identify
-immutable source/artifact releases; a broken beta gets a new tag rather than replaced assets.
+immutable source/artifact releases; a broken prerelease gets a new tag rather than replaced assets.
 
 ## Labels
 
@@ -84,7 +84,7 @@ the canonical room protocol or actor lifecycle on a first contribution.
 ## Release policy
 
 - release publication is tag-triggered only;
-- `-beta.*` and `-rc.*` versions are prereleases;
+- `-alpha.*`, `-beta.*`, and `-rc.*` versions are prereleases;
 - stable tags are normal/latest releases;
 - release assets for an existing tag are not replaced;
 - debug APKs remain CI artifacts rather than public release downloads;
@@ -93,11 +93,11 @@ the canonical room protocol or actor lifecycle on a first contribution.
 
 ## Promotion checklist
 
-Before sharing the beta broadly:
+Before sharing a prerelease broadly:
 
 - README download/status text matches the actual public release;
 - the exact GitHub-produced APK has been installed and smoke-tested;
-- beta release evidence is updated from real results;
+- prerelease evidence is updated from real results;
 - known issues are explicit and current;
 - screenshots/demo media show real devices/current UI;
 - Discussions and issue/security paths are active.

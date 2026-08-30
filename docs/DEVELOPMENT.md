@@ -63,7 +63,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Do not create tags for ordinary debug builds. Release-style signed APKs are associated with immutable
-prerelease/stable tags such as `v1.2.0-beta.1` or `v1.2.0`.
+prerelease/stable tags such as `v1.2.0-alpha.1` or `v1.2.0`.
 
 ## Repository checks
 

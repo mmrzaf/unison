@@ -9,15 +9,15 @@ builds from `develop`; production-style prerelease/stable artifacts are tied to 
 
 Examples:
 
-- `1.2.0-beta.1` → `v1.2.0-beta.1` → GitHub prerelease
+- `1.2.0-alpha.1` → `v1.2.0-alpha.1` → GitHub prerelease
 - `1.2.0-rc.1` → `v1.2.0-rc.1` → GitHub prerelease
 - `1.2.0` → `v1.2.0` → normal/latest release
 
 Every installable update must use a strictly higher `versionCode`. Never retag or replace assets for a
-published version; make a new beta/RC/patch version instead.
+published version; make a new alpha/beta/RC/patch version instead.
 
 The 1.2 release line keeps Protocol 2 and Room database schema 1. Signed 1.1.x/1.0.x installs may
-upgrade into 1.2, and published 1.2 betas/RCs are expected to upgrade forward into later 1.2 builds
+upgrade into 1.2, and published 1.2 alphas/betas/RCs are expected to upgrade forward into later 1.2 builds
 while those compatibility contracts remain unchanged.
 
 ## GitHub release workflow
@@ -36,7 +36,7 @@ The workflow:
 6. writes public release provenance/checksums and a GitHub/Sigstore build-provenance attestation;
 7. transfers those immutable artifacts to a separate publish job;
 8. refuses to overwrite an existing GitHub Release or its assets;
-9. publishes `-beta.*`/`-rc.*` as prereleases and stable versions as normal/latest releases.
+9. publishes `-alpha.*`/`-beta.*`/`-rc.*` as prereleases and stable versions as normal/latest releases.
 
 Debug APKs remain CI artifacts and are not public release downloads.
 
@@ -76,7 +76,7 @@ Expected local output:
 - `app/build/outputs/apk/release/app-release.apk`
 - `app/build/outputs/release-SHA256SUMS.txt`
 
-A locally built release APK is useful for pre-tag smoke testing, but a public beta/stable decision must
+A locally built release APK is useful for pre-tag smoke testing, but a public alpha/beta/stable decision must
 also test the exact APK produced by the GitHub tag workflow.
 
 ## Source packages
@@ -87,7 +87,7 @@ source artifact because it packages the current uncommitted filesystem state.
 Tagged releases use:
 
 ```bash
-./scripts/package-source.sh v1.2.0-beta.1 dist
+./scripts/package-source.sh v1.2.0-alpha.1 dist
 ```
 
 That path packages the exact tagged Git commit, uses deterministic gzip metadata, validates the archive

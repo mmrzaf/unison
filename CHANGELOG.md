@@ -2,10 +2,10 @@
 
 ## Unreleased
 
-Changes after `1.2.0-beta.1` should be recorded here until the next prerelease or stable release is
+Changes after `1.2.0-alpha.1` should be recorded here until the next prerelease or stable release is
 cut.
 
-## 1.2.0-beta.1
+## 1.2.0-alpha.1
 
 ### Fixed
 

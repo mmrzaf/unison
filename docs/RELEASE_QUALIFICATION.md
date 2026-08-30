@@ -1,6 +1,6 @@
 # Release qualification
 
-Unison uses the same production build/signing path for prereleases and stable releases. A beta is not
+Unison uses the same production build/signing path for prereleases and stable releases. An alpha is not
 an excuse to skip correctness/security gates; it is a way to expose a production-style candidate to
 more real devices before declaring the release line stable.
 
@@ -9,7 +9,7 @@ release evidence: record actual results under [`release-evidence/`](release-evid
 
 ## Release classes
 
-### Public beta / RC gate
+### Public alpha / beta / RC gate
 
 A public prerelease requires:
 
@@ -25,7 +25,7 @@ Device/OEM-specific non-critical issues may remain if documented honestly in pre
 ### Stable gate
 
 Stable `1.2.0` requires all prerelease gates plus the complete physical-device matrix, soak/stress
-qualification, retained diagnostic evidence, and no unresolved high-priority beta regression.
+qualification, retained diagnostic evidence, and no unresolved high-priority prerelease regression.
 
 ## Repository and Android gate
 
@@ -147,7 +147,7 @@ when the corresponding obsolete work was rejected before current-state mutation.
 
 ## Exact-artifact publication gate
 
-For a tag such as `v1.2.0-beta.1`:
+For a tag such as `v1.2.0-alpha.1`:
 
 1. tag the exact qualified commit and push that immutable tag;
 2. let the GitHub release workflow re-run verification/instrumentation and build/sign the APK;

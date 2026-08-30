@@ -220,7 +220,10 @@ jobs:
           for asset in "${assets[@]}"; do
             test -f "$asset" || { echo "Missing release asset: $asset" >&2; exit 1; }
           done
-          if [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]]; then
+          if [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-alpha\.([0-9]+)$ ]]; then
+            release_title="Unison ${BASH_REMATCH[1]} Alpha ${BASH_REMATCH[2]}"
+            release_kind=(--prerelease)
+          elif [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-beta\.([0-9]+)$ ]]; then
             release_title="Unison ${BASH_REMATCH[1]} Beta ${BASH_REMATCH[2]}"
             release_kind=(--prerelease)
           elif [[ "$VERSION_NAME" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
