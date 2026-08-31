@@ -9,7 +9,7 @@ targetSdk = "33"
 composeBom = "2026.06.00"
 # Unison is a sideloaded APK qualified on Android 11, 13, and 16. compileSdk 36 supports
 # guarded current-platform APIs; targetSdk intentionally remains 33 for the 1.2 release line.
-coreKtx = "1.18.0"
+coreKtx = "1.19.0"
 activityCompose = "1.13.0"
 lifecycle = "2.10.0"
 datastore = "1.2.1"
