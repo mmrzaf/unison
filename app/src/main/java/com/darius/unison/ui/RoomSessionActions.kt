@@ -4,6 +4,7 @@ import android.app.Application
 import com.darius.unison.app.AppContainer
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.RoomLifecycleState
+import com.darius.unison.model.RoomRecoveryAction
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.model.TransportCommandStatus
@@ -145,13 +146,35 @@ internal class RoomSessionActions(
     }
 
     fun retryRoomIssue() {
-        val status = container.roomStore.structure.value.transportStatus
-        val retryCommand = status?.retryCommandOrNull()
-        if (retryCommand == null) {
-            message.value = "Repeat the action that failed"
-            return
+        val state = container.roomStore.structure.value
+        val issue = state.issue
+        when (issue?.recoveryAction) {
+            RoomRecoveryAction.RETRY_PREPARATION -> {
+                val queueItemId = issue.queueItemId
+                if (queueItemId == null) {
+                    message.value = "Repeat the action that failed"
+                    return
+                }
+                command(
+                    AppCommand.PrepareQueueItem(
+                        queueItemId = queueItemId,
+                        retryPeerId = issue.relatedPeerId,
+                    ),
+                    feedback = null,
+                )
+            }
+
+            RoomRecoveryAction.RETRY -> {
+                val retryCommand = state.transportStatus?.retryCommandOrNull()
+                if (retryCommand == null) {
+                    message.value = "Repeat the action that failed"
+                    return
+                }
+                command(retryCommand, feedback = null)
+            }
+
+            else -> message.value = "Repeat the action that failed"
         }
-        command(retryCommand, feedback = null)
     }
 
     fun clearRoomError(expected: String) {
