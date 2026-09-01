@@ -5,10 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -76,7 +76,7 @@ internal fun MusicDestinationSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 20.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SheetHeader(
@@ -92,7 +92,7 @@ internal fun MusicDestinationSheet(
 
             ListItem(
                 headlineContent = {
-                    Text(if (pending.isM3u) "Keep playlist in library" else "Keep in library")
+                    Text(if (pending.isM3u) "Keep playlist in library" else "Keep in my library")
                 },
                 supportingContent = {
                     Text(
@@ -101,7 +101,7 @@ internal fun MusicDestinationSheet(
                         } else if (playlistRequiresLibrary) {
                             "Playlist songs are kept in your library automatically."
                         } else {
-                            "Keep these songs after the room ends."
+                            "Keep these songs on this phone after the room ends."
                         }
                     )
                 },
@@ -120,12 +120,9 @@ internal fun MusicDestinationSheet(
 
             if (roomActive) {
                 ListItem(
-                    headlineContent = { Text("Add to room") },
+                    headlineContent = { Text("Add to room queue") },
                     supportingContent = {
-                        Text(
-                            if (addToRoom) "Adds this music to the shared queue."
-                            else "The room keeps playing unchanged."
-                        )
+                        Text("Make these songs available to everyone in the room.")
                     },
                     leadingContent = {
                         Checkbox(checked = addToRoom, onCheckedChange = { addToRoom = it })
@@ -149,16 +146,14 @@ internal fun MusicDestinationSheet(
                     onSelectionChange = { selectedPlaylistIds = it },
                     newPlaylistName = newPlaylistName,
                     onNewPlaylistNameChange = { newPlaylistName = it },
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier.heightIn(max = 440.dp),
                 )
-            } else {
-                Spacer(Modifier.weight(1f))
             }
 
             Button(
                 onClick = { onConfirm(destination) },
                 enabled = destination.hasDestination,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             ) {
                 Text(if (pending.isM3u) "Import" else "Add")
             }
@@ -184,7 +179,7 @@ internal fun PlaylistPickerSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 20.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             SheetHeader(title = title, onClose = onDismiss)
@@ -196,14 +191,14 @@ internal fun PlaylistPickerSheet(
                 onSelectionChange = { selected = it },
                 newPlaylistName = newPlaylistName,
                 onNewPlaylistNameChange = { newPlaylistName = it },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.heightIn(max = 520.dp),
             )
             Button(
                 onClick = {
                     onConfirm(selected, newPlaylistName.trim().takeIf(String::isNotEmpty))
                 },
                 enabled = hasTarget,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             ) {
                 Text("Add")
             }
@@ -232,28 +227,43 @@ private fun PlaylistPickerContent(
     val recent = filtered.filter { it.playlistId in recentIds }
     val remaining = filtered.filterNot { it.playlistId in recentIds }
 
+    var creatingPlaylist by remember { mutableStateOf(newPlaylistName.isNotBlank()) }
+    val showSearch = playlists.size >= 5 || query.isNotBlank()
+
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        UnisonSearchField(
-            value = query,
-            onValueChange = { onQueryChange(it.take(120)) },
-            placeholder = "Search playlists",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = newPlaylistName,
-            onValueChange = { onNewPlaylistNameChange(it.take(128)) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("New playlist") },
-            placeholder = { Text("Create and add here") },
-            leadingIcon = { Icon(Icons.Default.Add, null) },
-            singleLine = true,
-        )
+        if (showSearch) {
+            UnisonSearchField(
+                value = query,
+                onValueChange = { onQueryChange(it.take(120)) },
+                placeholder = "Search playlists",
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         if (playlists.isEmpty()) {
             Text(
-                "No playlists yet. Name a new playlist above and Unison will create it when you add the music.",
-                style = MaterialTheme.typography.bodySmall,
+                "No playlists yet.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (creatingPlaylist) {
+            OutlinedTextField(
+                value = newPlaylistName,
+                onValueChange = { onNewPlaylistNameChange(it.take(128)) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Playlist name") },
+                placeholder = { Text("New playlist") },
+                leadingIcon = { Icon(Icons.Default.Add, null) },
+                singleLine = true,
+            )
+        } else {
+            FilledTonalButton(onClick = { creatingPlaylist = true }) {
+                Icon(Icons.Default.Add, null)
+                Text("Create playlist", modifier = Modifier.padding(start = 6.dp))
+            }
+        }
+        if (playlists.isEmpty()) {
+            // There is no list to render until the first playlist is created.
         } else if (filtered.isEmpty()) {
             Text(
                 "No playlists match this search.",

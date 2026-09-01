@@ -36,7 +36,7 @@ class RoomQueueUiPolicyTest {
             )
 
         assertEquals(RoomQueueUiPolicy.TapAction.PLAY, presentation.tapAction)
-        assertEquals("Ready", presentation.detail)
+        assertEquals("", presentation.detail)
     }
 
     @Test
@@ -60,7 +60,7 @@ class RoomQueueUiPolicyTest {
             )
 
         assertEquals(RoomQueueUiPolicy.TapAction.NONE, presentation.tapAction)
-        assertEquals("Preparing · 42%", presentation.detail)
+        assertEquals("Syncing · 42%", presentation.detail)
     }
 
     @Test
@@ -88,6 +88,21 @@ class RoomQueueUiPolicyTest {
     }
 
     @Test
+    fun blockedPreparationIsActionableEvenIfReadinessStillSaysPreparing() {
+        val presentation =
+            RoomQueueUiPolicy.mediaPresentation(
+                readiness = RoomMediaReadiness.PREPARING,
+                transfer = null,
+                current = false,
+                playing = false,
+                blocked = true,
+            )
+
+        assertEquals(RoomQueueUiPolicy.TapAction.PREPARE, presentation.tapAction)
+        assertEquals("Transfer blocked", presentation.detail)
+    }
+
+    @Test
     fun queueSummaryShowsUsefulReadinessCounts() {
         val summary =
             RoomQueueUiPolicy.queueSummary(
@@ -102,7 +117,24 @@ class RoomQueueUiPolicyTest {
                     ),
             )
 
-        assertEquals("5 songs · 2 ready · 1 preparing", summary)
+        assertEquals("5 songs · 1 syncing", summary)
+    }
+
+    @Test
+    fun queueSummaryDoesNotDescribeBlockedPreparationAsPreparing() {
+        val summary =
+            RoomQueueUiPolicy.queueSummary(
+                queueSize = 3,
+                readiness =
+                    listOf(
+                        RoomMediaReadiness.READY,
+                        RoomMediaReadiness.PREPARING,
+                        RoomMediaReadiness.NEEDS_PREPARATION,
+                    ),
+                blockedCount = 1,
+            )
+
+        assertEquals("3 songs · 1 blocked", summary)
     }
 
     @Test
@@ -113,7 +145,7 @@ class RoomQueueUiPolicyTest {
                 readiness = listOf(RoomMediaReadiness.READY),
             )
 
-        assertEquals("3 songs · 1 ready", summary)
+        assertEquals("3 songs", summary)
     }
 
     @Test
@@ -125,5 +157,19 @@ class RoomQueueUiPolicyTest {
         assertTrue(
             RoomQueueUiPolicy.roomPresenceLabel(RoomLifecycleState.CONNECTED, 2).contains("2")
         )
+    }
+
+    @Test
+    fun emptyQueueHidesToolbar() {
+        assertEquals(false, RoomQueueUiPolicy.showQueueToolbar(0))
+        assertEquals(true, RoomQueueUiPolicy.showQueueToolbar(1))
+    }
+
+    @Test
+    fun queueSearchIsProgressive() {
+        assertEquals(false, RoomQueueUiPolicy.showQueueSearchField(3, "", false))
+        assertEquals(true, RoomQueueUiPolicy.showQueueSearchField(8, "", false))
+        assertEquals(true, RoomQueueUiPolicy.showQueueSearchField(3, "queen", false))
+        assertEquals(true, RoomQueueUiPolicy.showQueueSearchField(3, "", true))
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.DropdownMenu
@@ -104,6 +105,7 @@ internal fun SharedCompactPlayer(
 @Composable
 internal fun RoomQueueToolbar(
     query: String,
+    queueSize: Int,
     repeatMode: RepeatMode,
     queueEnabled: Boolean,
     shuffleAvailable: Boolean,
@@ -119,17 +121,31 @@ internal fun RoomQueueToolbar(
     onClearQueue: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var searchExpanded by remember { mutableStateOf(query.isNotBlank()) }
+    val showSearch =
+        RoomQueueUiPolicy.showQueueSearchField(
+            queueSize = queueSize,
+            query = query,
+            searchExpanded = searchExpanded,
+        )
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        UnisonSearchField(
-            value = query,
-            onValueChange = { onQueryChange(it.take(80)) },
-            placeholder = "Search queue",
-            modifier = Modifier.weight(1f),
-        )
+        if (showSearch) {
+            UnisonSearchField(
+                value = query,
+                onValueChange = { onQueryChange(it.take(80)) },
+                placeholder = "Search queue",
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            IconButton(onClick = { searchExpanded = true }) {
+                Icon(Icons.Default.Search, "Search queue")
+            }
+        }
         Box {
             IconButton(onClick = { menuOpen = true }) {
                 Icon(Icons.Default.MoreVert, "Queue options")

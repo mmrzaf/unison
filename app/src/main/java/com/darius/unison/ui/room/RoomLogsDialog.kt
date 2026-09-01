@@ -6,8 +6,10 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,10 +18,15 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -76,6 +83,7 @@ internal fun RoomLogsDialog(
     var severityFilter by remember { mutableStateOf(RoomLogSeverityFilter.ALL) }
     var categoryFilter by remember { mutableStateOf<DiagnosticCategory?>(null) }
     var copied by remember { mutableStateOf(false) }
+    var actionsOpen by remember { mutableStateOf(false) }
 
     val availableCategories =
         remember(events) {
@@ -127,13 +135,25 @@ internal fun RoomLogsDialog(
                             "Diagnostics",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
+                            maxLines = 1,
                         )
                         Text(
-                            "${events.size} events · $warningCount warnings · $errorCount errors",
+                            diagnosticsSummary(events.size, warningCount, errorCount),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, "Close diagnostics")
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     TextButton(
                         enabled = filtered.isNotEmpty(),
                         onClick = {
@@ -182,16 +202,26 @@ internal fun RoomLogsDialog(
                     ) {
                         Text("Share")
                     }
-                    TextButton(
-                        enabled = events.isNotEmpty(),
-                        onClick = {
-                            onClear()
-                            copied = false
-                        },
-                    ) {
-                        Text("Clear view")
+                    Spacer(Modifier.weight(1f))
+                    Box {
+                        IconButton(onClick = { actionsOpen = true }) {
+                            Icon(Icons.Default.MoreVert, "More diagnostics actions")
+                        }
+                        DropdownMenu(
+                            expanded = actionsOpen,
+                            onDismissRequest = { actionsOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Clear view") },
+                                enabled = events.isNotEmpty(),
+                                onClick = {
+                                    actionsOpen = false
+                                    onClear()
+                                    copied = false
+                                },
+                            )
+                        }
                     }
-                    TextButton(onClick = onDismiss) { Text("Done") }
                 }
 
                 OutlinedTextField(
@@ -273,6 +303,11 @@ internal fun RoomLogsDialog(
         }
     }
 }
+
+private fun diagnosticsSummary(eventCount: Int, warningCount: Int, errorCount: Int): String =
+    "$eventCount ${if (eventCount == 1) "event" else "events"} · " +
+        "$warningCount ${if (warningCount == 1) "warning" else "warnings"} · " +
+        "$errorCount ${if (errorCount == 1) "error" else "errors"}"
 
 private fun roomLogClipboardText(newestFirst: List<DiagnosticEvent>): String {
     val selected = ArrayDeque<String>()
