@@ -36,9 +36,14 @@ Event names describe what happened, for example:
 - `playback.state.changed`;
 - `sync.speed_adjustment`;
 - `sync.hard_seek`;
+- `network.socket.route_attempt`;
 - `network.socket.route_selected`;
+- `network.socket.route_failed`;
+- `transfer.download.route_start`;
 - `transfer.track.failed`;
 - `transfer.assignment.created`;
+- `transfer.route.suspended`;
+- `transfer.route.retry_requested`;
 - `room.media.prepare_requested`;
 - `room.session.ended`;
 - `room.event.stale_session`;
@@ -52,6 +57,14 @@ duration are attributes. Transfer attempts also carry `transfer.operation_id`; c
 carry a safe derived `transfer.assignment_id`. These IDs correlate coordinator/source/destination
 lifecycle without logging the single-use authorization token. This lets the room console and
 qualification scripts reconstruct causality without parsing prose.
+
+For outbound file transfer, `transfer.download.route_start` is emitted before Android socket
+provisioning, so an exception raised by `Network.socketFactory.createSocket()` still has a track, peer,
+operation, and assignment identity. `network.socket.route_attempt` then records the requested route
+mode and sanitized selected/default-network facts before socket creation. `network.socket.route_failed`
+records the typed failure reason and errno when Android exposes one. Coordinator-side
+`transfer.route.suspended` records when a source/destination circuit is stopped, and
+`transfer.route.retry_requested` records the explicit user/network recovery boundary that reopens it.
 
 ## Room scope and privacy
 
@@ -133,8 +146,13 @@ participation.
 
 The stability analyzer independently rejects unavailable-media command rejection, duplicate transfer
 assignment, handshake timeout, reconnect/retry churn, malformed records, unclean room teardown, and any
-`room.event.unexpected_handler_cancellation`. Stale/provenance rejection events are retained as bounded
-forensic evidence but are not themselves failures: their presence means the fence rejected obsolete work.
+`room.event.unexpected_handler_cancellation`. Transfer-attempt accounting deduplicates
+`transfer.download.route_start`, `transfer.download.connecting`, and failure-detail records by operation
+or assignment ID. This intentionally counts Beta 5-style failures that happened before TCP connect and
+therefore never emitted `transfer.download.connecting`. The summary separately reports transfer-purpose
+socket route attempts/failures, typed route-failure reasons, circuit suspensions, and explicit retry
+requests. Stale/provenance rejection events are retained as bounded forensic evidence but are not
+themselves failures: their presence means the fence rejected obsolete work.
 Scheduled playback now records `playback.arrival_late_ms` and `playback.executor_late_ms` separately:
 a command that reaches the scheduler after its target time is a delivery/actor problem, while extra
 lateness accumulated after scheduling is a PlayerExecutor problem. Both are release failures when
