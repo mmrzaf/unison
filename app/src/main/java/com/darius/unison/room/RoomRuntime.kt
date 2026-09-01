@@ -7,6 +7,7 @@ import com.darius.unison.BuildConfig
 import com.darius.unison.app.AppContainer
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.CoordinatorTerm
+import com.darius.unison.model.DEFAULT_DISPLAY_NAME
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.HotspotInfo
 import com.darius.unison.model.LocalIdentity
@@ -541,6 +542,13 @@ class RoomRuntime(
                     return
                 }
                 val failure = event.failure
+                if (!failure.retryable && failure.blame == TransferFailureBlame.DESTINATION) {
+                    setTransferBlockedIssue(
+                        destinationPeerId = identity.peerId,
+                        trackId = failure.trackId,
+                        failureCode = failure.code,
+                    )
+                }
                 sendToCoordinator(
                     ProtocolBody.TrackFailed(
                         trackId = failure.trackId,
@@ -607,7 +615,10 @@ class RoomRuntime(
             val recoveringFromLocalNetwork = localNetworkRecoveryJob != null
             localNetworkRecoveryJob?.cancel()
             localNetworkRecoveryJob = null
+            transferCoordinator.clearRouteHealthForPeer(identity.peerId)
+            cancelTransferRetriesForPeer(identity.peerId)
             refreshLocalCoordinatorEndpoint()
+            assignEligibleTransfers()
             if (recoveringFromLocalNetwork) restoreConnectedLifecycle("Network restored")
         } else {
             // A participant whose control socket survived a brief route transition can continue on
@@ -946,7 +957,7 @@ class RoomRuntime(
                 identity =
                     container.settings
                         .ensureIdentity()
-                        .copy(displayName = command.name.trim().ifBlank { "Friend" })
+                        .copy(displayName = command.name.trim().ifBlank { DEFAULT_DISPLAY_NAME })
                 container.roomStore.update { it.copy(localIdentity = identity) }
                 if (isCoordinator()) {
                     refreshLocalCoordinatorEndpoint()
@@ -1037,6 +1048,8 @@ class RoomRuntime(
                 requestQueueItemPreparation(
                     queueItemId = command.queueItemId,
                     requestId = command.requestId,
+                    requestingPeerId = identity.peerId,
+                    retryPeerId = command.retryPeerId,
                 )
 
             AppCommand.ShuffleQueue ->
@@ -2818,6 +2831,7 @@ class RoomRuntime(
                             requestQueueItemPreparation(
                                 queueItemId = body.queueItemId,
                                 requestId = body.commandId,
+                                requestingPeerId = peerId,
                             )
                         }
                     }
@@ -3025,7 +3039,12 @@ class RoomRuntime(
             is ProtocolBody.TrackSourceAuthorized ->
                 if (isCoordinator()) onTrackSourceAuthorized(peerId, body)
             is ProtocolBody.TrackReady -> if (isCoordinator()) onTrackHave(peerId, body.trackId)
-            is ProtocolBody.TrackFailed -> if (isCoordinator()) onTrackFailed(peerId, body)
+            is ProtocolBody.TrackFailed ->
+                if (isCoordinator()) {
+                    onTrackFailed(peerId, body)
+                } else if (peerId == coordinatorPeerId && !body.retryable) {
+                    onCoordinatorTransferBlocked(body)
+                }
             is ProtocolBody.LeaveRoom -> {
                 if (!isCoordinator() && peerId == coordinatorPeerId) {
                     setRoomEnded(
@@ -3204,6 +3223,7 @@ class RoomRuntime(
     private suspend fun onTrackHaveInActor(peerId: PeerId, trackId: TrackId) {
         recordTrackAvailability(peerId, trackId)
         transferCoordinator.finish(trackId, peerId)
+        clearTransferBlockedIssue(peerId, trackId)
         discardPendingTransferAssignments(trackId, peerId)
         cancelTransferRetry(trackId, peerId)
         assignWaiting(trackId)
@@ -3221,6 +3241,7 @@ class RoomRuntime(
                 .toList()
         trackIds.forEach {
             transferCoordinator.finish(it, peerId)
+            clearTransferBlockedIssue(peerId, it)
             cancelTransferRetry(it, peerId)
         }
         changedTrackIds.forEach { assignWaiting(it) }
@@ -3408,11 +3429,24 @@ class RoomRuntime(
             "transfer.source_peer_id" to expired.source.peerId.value.take(12),
             "transfer.destination_peer_id" to expired.destinationPeerId.value.take(12),
         )
-        val retryAt = transferCoordinator.recordRouteFailure(route, clock.nowNs())
+        val decision = transferCoordinator.recordRouteFailure(route, clock.nowNs())
         waitingForSource
             .computeIfAbsent(expired.track.trackId) { ConcurrentHashMap.newKeySet() }
             .add(expired.destinationPeerId)
-        scheduleTransferRetry(expired.track.trackId, expired.destinationPeerId, retryAt)
+        decision.retryAtCoordinatorNs?.let { retryAt ->
+            scheduleTransferRetry(expired.track.trackId, expired.destinationPeerId, retryAt)
+        }
+        if (decision.suspended) {
+            diagnostics.warn(
+                "transfer.route.suspended",
+                null,
+                "track.id" to expired.track.trackId.value.take(12),
+                "transfer.source_peer_id" to expired.source.peerId.value.take(12),
+                "transfer.destination_peer_id" to expired.destinationPeerId.value.take(12),
+                "transfer.route_failures" to decision.failures,
+                "transfer.suspension_reason" to "authorization_timeout",
+            )
+        }
         assignEligibleTransfers()
     }
 
@@ -3486,66 +3520,63 @@ class RoomRuntime(
         availability[failure.trackId]?.remove(peerId)
         val sourcePeerId = failure.sourcePeerId
         val nowCoordinatorNs = clock.nowNs()
-        val retryAtCoordinatorNs =
+        var routeDecision: TransferRouteFailureDecision? = null
+        val retryAtCoordinatorNs: Long? =
             if (sourcePeerId != null) {
                 val route = TransferRouteKey(failure.trackId, sourcePeerId, peerId)
                 when (failure.blame) {
-                    TransferFailureBlame.ROUTE ->
-                        transferCoordinator.recordRouteFailure(route, nowCoordinatorNs)
+                    TransferFailureBlame.ROUTE -> {
+                        transferCoordinator
+                            .recordRouteFailure(
+                                route = route,
+                                nowCoordinatorNs = nowCoordinatorNs,
+                                suspendImmediately = !failure.retryable,
+                            )
+                            .also { routeDecision = it }
+                            .retryAtCoordinatorNs
+                    }
 
                     TransferFailureBlame.SOURCE -> {
                         transferCoordinator.markTerminal(failure.trackId, peerId)
                         if (failure.code == TransferFailureCode.SOURCE_UNAVAILABLE) {
                             availability[failure.trackId]?.remove(sourcePeerId)
                         }
-                        nowCoordinatorNs
+                        nowCoordinatorNs.takeIf { failure.retryable }
                     }
 
                     TransferFailureBlame.DESTINATION,
                     TransferFailureBlame.UNKNOWN -> {
-                        // A local validation/state problem is not evidence that the network route
-                        // is unhealthy. Release the assignment without poisoning route health.
+                        // A destination validation/state failure is not evidence that the source
+                        // route is unhealthy. Release the assignment without poisoning pair health.
                         transferCoordinator.markTerminal(failure.trackId, peerId)
-                        nowCoordinatorNs + BASE_TRANSFER_RETRY_DELAY_MS * 1_000_000L
+                        (nowCoordinatorNs + BASE_TRANSFER_RETRY_DELAY_MS * 1_000_000L).takeIf {
+                            failure.retryable
+                        }
                     }
                 }
             } else {
                 transferCoordinator.markTerminal(failure.trackId, peerId)
-                nowCoordinatorNs + BASE_TRANSFER_RETRY_DELAY_MS * 1_000_000L
+                (nowCoordinatorNs + BASE_TRANSFER_RETRY_DELAY_MS * 1_000_000L).takeIf {
+                    failure.retryable
+                }
             }
 
         val demandStillWanted = transferCoordinator.demandFor(failure.trackId, peerId) != null
-        if (!failure.retryable && failure.blame == TransferFailureBlame.DESTINATION) {
+        val terminalDestinationFailure =
+            !failure.retryable && failure.blame == TransferFailureBlame.DESTINATION
+
+        if (terminalDestinationFailure) {
             transferCoordinator.finish(failure.trackId, peerId)
             cancelTransferRetry(failure.trackId, peerId)
             discardPendingTransferAssignments(failure.trackId, peerId)
             waitingForSource[failure.trackId]?.remove(peerId)
-            if (peerId == identity.peerId) {
-                val snapshot = engine?.snapshot()
-                pendingSuccessor
-                    ?.takeIf { pending ->
-                        snapshot
-                            ?.queue
-                            ?.firstOrNull { it.queueItemId == pending.targetQueueItemId }
-                            ?.track
-                            ?.trackId == failure.trackId
-                    }
-                    ?.let {
-                        cancelPendingSuccessor(
-                            message = "Next song could not be prepared",
-                            phase = TransportCommandPhase.REJECTED,
-                        )
-                    }
-                setIssue(
-                    RoomIssue(
-                        code = RoomIssueCode.PLAYBACK_TRACK_UNAVAILABLE,
-                        message = failure.reason,
-                        severity = RoomIssueSeverity.WARNING,
-                        recoveryAction = RoomRecoveryAction.NONE,
-                        deduplicationKey = "transfer-destination:${failure.trackId.value}",
-                    )
-                )
-            }
+            cancelPendingSuccessorForFailedTrack(failure.trackId)
+            setTransferBlockedIssue(
+                destinationPeerId = peerId,
+                trackId = failure.trackId,
+                failureCode = failure.code,
+            )
+            notifyTransferBlockedPeer(peerId, failure)
         } else if (demandStillWanted) {
             waitingForSource
                 .computeIfAbsent(failure.trackId) { ConcurrentHashMap.newKeySet() }
@@ -3554,11 +3585,150 @@ class RoomRuntime(
             waitingForSource[failure.trackId]?.remove(peerId)
             cancelTransferRetry(failure.trackId, peerId)
         }
+
+        val decision = routeDecision
+        if (decision?.suspended == true) {
+            cancelTransferRetry(failure.trackId, peerId)
+            diagnostics.warn(
+                "transfer.route.suspended",
+                null,
+                "track.id" to failure.trackId.value.take(12),
+                "transfer.source_peer_id" to sourcePeerId?.value?.take(12),
+                "transfer.destination_peer_id" to peerId.value.take(12),
+                "transfer.route_failures" to decision.failures,
+                "transfer.suspension_reason" to
+                    if (failure.retryable) "circuit_breaker" else "terminal_route_failure",
+            )
+        }
+
         reevaluatePreparation(failure.trackId)
         if (failure.retryable && demandStillWanted) {
-            scheduleTransferRetry(failure.trackId, peerId, retryAtCoordinatorNs)
+            retryAtCoordinatorNs?.let { retryAt ->
+                scheduleTransferRetry(failure.trackId, peerId, retryAt)
+            }
         }
         assignEligibleTransfers()
+
+        // A suspended source/destination pair may still fail over to another source immediately.
+        // Surface the blocked preparation only when no alternate route was admitted.
+        if (
+            decision?.suspended == true &&
+                demandStillWanted &&
+                !transferCoordinator.isActive(failure.trackId, peerId)
+        ) {
+            cancelPendingSuccessorForFailedTrack(failure.trackId)
+            setTransferBlockedIssue(
+                destinationPeerId = peerId,
+                trackId = failure.trackId,
+                failureCode = failure.code,
+            )
+            notifyTransferBlockedPeer(
+                peerId,
+                failure.copy(
+                    retryable = false,
+                    reason = "Transfer paused after repeated connection failures",
+                ),
+            )
+        }
+    }
+
+    private suspend fun cancelPendingSuccessorForFailedTrack(trackId: TrackId) {
+        val snapshot = engine?.snapshot() ?: return
+        pendingSuccessor
+            ?.takeIf { pending ->
+                snapshot.queue
+                    .firstOrNull { it.queueItemId == pending.targetQueueItemId }
+                    ?.track
+                    ?.trackId == trackId
+            }
+            ?.let {
+                cancelPendingSuccessor(
+                    message = "Next song could not be prepared",
+                    phase = TransportCommandPhase.REJECTED,
+                )
+            }
+    }
+
+    private suspend fun setTransferBlockedIssue(
+        destinationPeerId: PeerId,
+        trackId: TrackId,
+        failureCode: TransferFailureCode,
+    ) {
+        val snapshot = engine?.snapshot() ?: return
+        val queueItemId =
+            snapshot.queue.firstOrNull { it.track.trackId == trackId }?.queueItemId ?: return
+        val destinationName =
+            snapshot.members.firstOrNull { it.peerId == destinationPeerId }?.displayName
+        val localDestination = destinationPeerId == identity.peerId
+        val subject = destinationName?.takeIf { it.isNotBlank() } ?: "Another phone"
+        val message =
+            when (failureCode) {
+                TransferFailureCode.DESTINATION_STORAGE ->
+                    if (localDestination) {
+                        "This phone doesn't have enough storage to receive the song."
+                    } else {
+                        "$subject doesn't have enough storage to receive the song."
+                    }
+
+                TransferFailureCode.CONNECT_FAILED ->
+                    if (localDestination) {
+                        "This phone couldn't reach the other phone over the local network. Check VPN or network settings, then try again."
+                    } else {
+                        "$subject couldn't receive this song over the local network. Check that phone's VPN or network settings, then try again."
+                    }
+
+                else ->
+                    if (localDestination) {
+                        "This phone couldn't receive the song. Check the local connection, then try again."
+                    } else {
+                        "$subject couldn't receive this song. Check that phone's local connection, then try again."
+                    }
+            }
+        setIssue(
+            RoomIssue(
+                code = RoomIssueCode.TRANSFER_BLOCKED,
+                message = message,
+                severity = RoomIssueSeverity.WARNING,
+                recoveryAction = RoomRecoveryAction.RETRY_PREPARATION,
+                queueItemId = queueItemId,
+                relatedPeerId = destinationPeerId,
+                deduplicationKey = "transfer-blocked:${destinationPeerId.value}:${trackId.value}",
+            )
+        )
+    }
+
+    private suspend fun notifyTransferBlockedPeer(
+        destinationPeerId: PeerId,
+        failure: ProtocolBody.TrackFailed,
+    ) {
+        if (destinationPeerId == identity.peerId) return
+        send(destinationPeerId, failure.copy(retryable = false))
+    }
+
+    private suspend fun onCoordinatorTransferBlocked(failure: ProtocolBody.TrackFailed) {
+        setTransferBlockedIssue(
+            destinationPeerId = identity.peerId,
+            trackId = failure.trackId,
+            failureCode = failure.code,
+        )
+    }
+
+    private suspend fun clearTransferBlockedIssue(destinationPeerId: PeerId, trackId: TrackId) {
+        val snapshot = engine?.snapshot() ?: return
+        val queueItemId =
+            snapshot.queue.firstOrNull { it.track.trackId == trackId }?.queueItemId ?: return
+        container.roomStore.update { state ->
+            val issue = state.issue
+            if (
+                issue?.code == RoomIssueCode.TRANSFER_BLOCKED &&
+                    issue.queueItemId == queueItemId &&
+                    issue.relatedPeerId == destinationPeerId
+            ) {
+                state.copy(issue = null, errorMessage = null)
+            } else {
+                state
+            }
+        }
     }
 
     private fun cancelTransferRetry(trackId: TrackId, destinationPeerId: PeerId) {
@@ -3641,6 +3811,7 @@ class RoomRuntime(
     private suspend fun onLocalTrackReady(descriptor: TrackDescriptor) {
         announcedTrackIds.add(descriptor.trackId)
         localTrackAvailability[descriptor.trackId] = true
+        clearTransferBlockedIssue(identity.peerId, descriptor.trackId)
         val snapshot = engine?.snapshot() ?: return
         publishMediaReadiness(snapshot)
         requestTimelineRefresh(snapshot)
@@ -3847,6 +4018,8 @@ class RoomRuntime(
     private suspend fun requestQueueItemPreparation(
         queueItemId: QueueItemId,
         requestId: String? = null,
+        requestingPeerId: PeerId? = null,
+        retryPeerId: PeerId? = null,
     ) {
         val snapshot =
             engine?.snapshot()
@@ -3860,11 +4033,45 @@ class RoomRuntime(
                     setError("That song is no longer in the queue")
                     return
                 }
+        if (requestId != null) {
+            container.roomStore.update { state ->
+                val issue = state.issue
+                if (
+                    issue?.code == RoomIssueCode.TRANSFER_BLOCKED &&
+                        issue.queueItemId == queueItemId
+                ) {
+                    state.copy(issue = null, errorMessage = null)
+                } else {
+                    state
+                }
+            }
+        }
+
+        // An explicit Prepare request is also the user-controlled retry boundary for suspended
+        // transfer routes. A participant retry reopens only routes involving that participant; a
+        // coordinator retry reopens the room's transfer routes because the host may be retrying a
+        // failure reported by another member.
+        if (isCoordinator() && requestId != null) {
+            val peerToReopen = retryPeerId ?: requestingPeerId
+            if (peerToReopen != null) {
+                transferCoordinator.clearRouteHealthForPeer(peerToReopen)
+                cancelTransferRetriesForPeer(peerToReopen)
+            } else {
+                transferCoordinator.clearRouteHealth()
+                clearTransferRetries()
+            }
+            diagnostics.info(
+                "transfer.route.retry_requested",
+                "queue.item_id" to queueItemId.value.take(12),
+                "track.id" to item.track.trackId.value.take(12),
+                "peer.id" to peerToReopen?.value?.take(12),
+            )
+        }
         val newlyRequested = queueItemId !in explicitPreparationQueueItemIds
         explicitPreparationQueueItemIds += queueItemId
         publishMediaReadiness(snapshot)
         prepareWindow(snapshot, priorityQueueItemId = queueItemId)
-        if (!newlyRequested) {
+        if (!newlyRequested && requestId == null) {
             if (isCoordinator()) reevaluatePreparation(item.track.trackId)
             return
         }
@@ -5364,7 +5571,17 @@ class RoomRuntime(
             )
         }
         val normalized = update.endpoint
+        val previousEndpoint = peerDirectory[peerId]
         peerDirectory[peerId] = normalized
+        val routeChanged =
+            previousEndpoint == null ||
+                previousEndpoint.hostAddress != normalized.hostAddress ||
+                previousEndpoint.port != normalized.port
+        if (routeChanged) {
+            transferCoordinator.clearRouteHealthForPeer(peerId)
+            cancelTransferRetriesForPeer(peerId)
+            assignEligibleTransfers()
+        }
         val member = engine?.snapshot()?.members?.firstOrNull { it.peerId == peerId } ?: return
         if (member.displayName != normalized.displayName) {
             emitCanonical(

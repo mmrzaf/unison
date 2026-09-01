@@ -58,6 +58,7 @@ sealed interface AppCommand {
     data class PrepareQueueItem(
         val queueItemId: QueueItemId,
         val requestId: String = UUID.randomUUID().toString(),
+        val retryPeerId: PeerId? = null,
     ) : AppCommand
 
     data object ShuffleQueue : AppCommand

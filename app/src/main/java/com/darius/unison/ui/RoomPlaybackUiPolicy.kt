@@ -64,6 +64,7 @@ internal object RoomPlaybackUiPolicy {
 
     enum class IssueAction {
         RETRY_TRANSPORT,
+        RETRY_PREPARATION,
         CHOOSE_FILES,
         LEAVE_ROOM,
     }
@@ -74,9 +75,12 @@ internal object RoomPlaybackUiPolicy {
         canonicalIsPlaying: Boolean,
         localParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
         localInhibitionReason: LocalPlaybackInhibitionReason? = null,
+        currentQueueItemId: QueueItemId? = null,
         currentReadiness: RoomMediaReadiness = RoomMediaReadiness.READY,
         currentTransfer: TransferProgress? = null,
         pendingSuccessorQueueItemId: QueueItemId? = null,
+        pendingSuccessorTransfer: TransferProgress? = null,
+        issue: RoomIssue? = null,
         status: TransportCommandStatus? = null,
     ): Controls {
         val active = status?.takeIf { it.active }
@@ -104,6 +108,11 @@ internal object RoomPlaybackUiPolicy {
                 currentTransfer?.state == MemberTrackState.VERIFYING ||
                 currentTransfer?.state == MemberTrackState.PREPARING_PLAYER
         val transferFailed = currentTransfer?.state == MemberTrackState.FAILED
+        val currentPreparationBlocked = issue.blocksPreparation(currentQueueItemId)
+        val pendingPreparationBlocked =
+            issue.blocksPreparation(pendingSuccessorQueueItemId) ||
+                pendingSuccessorTransfer?.state == MemberTrackState.FAILED
+        val waitingForSuccessor = pendingSuccessorQueueItemId != null && !pendingPreparationBlocked
         val manualRejoinPending = outputInhibited && active?.action == TransportAction.PLAY
         val primaryControl =
             when {
@@ -113,8 +122,8 @@ internal object RoomPlaybackUiPolicy {
                     localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
                     PrimaryControl.RECOVERING
                 outputInhibited -> PrimaryControl.REJOIN
-                pendingSuccessorQueueItemId != null -> PrimaryControl.WAITING_FOR_NEXT
-                transferFailed -> PrimaryControl.PREPARE
+                currentPreparationBlocked || transferFailed -> PrimaryControl.PREPARE
+                waitingForSuccessor -> PrimaryControl.WAITING_FOR_NEXT
                 transferPreparing || currentReadiness == RoomMediaReadiness.PREPARING ->
                     PrimaryControl.PREPARING
                 currentReadiness == RoomMediaReadiness.NEEDS_PREPARATION -> PrimaryControl.PREPARE
@@ -135,7 +144,7 @@ internal object RoomPlaybackUiPolicy {
             canSeek =
                 hasCurrentItem &&
                     currentReady &&
-                    pendingSuccessorQueueItemId == null &&
+                    !waitingForSuccessor &&
                     hasSeekableDuration &&
                     !navigationPending,
             // Next is intentionally allowed even when the successor is unready: Phase 1 turns that
@@ -154,6 +163,7 @@ internal object RoomPlaybackUiPolicy {
         status: TransportCommandStatus?,
         transfers: Map<TrackId, TransferProgress>,
         pendingSuccessorQueueItemId: QueueItemId? = null,
+        issue: RoomIssue? = null,
         localParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
         localInhibitionReason: LocalPlaybackInhibitionReason? = null,
     ): TransitionPresentation? {
@@ -164,25 +174,59 @@ internal object RoomPlaybackUiPolicy {
             )
         }
 
+        val command = status
+        val pendingTarget = pendingSuccessorQueueItemId?.let { queueItemId ->
+            snapshot.queue.firstOrNull { it.queueItemId == queueItemId }
+        }
+        val pendingTransfer = pendingTarget?.track?.trackId?.let(transfers::get)
+        val pendingRejected =
+            pendingSuccessorQueueItemId != null &&
+                command?.phase == TransportCommandPhase.REJECTED &&
+                command.queueItemId == pendingSuccessorQueueItemId
+        val pendingBlocked =
+            issue.blocksPreparation(pendingSuccessorQueueItemId) ||
+                pendingTransfer?.state == MemberTrackState.FAILED ||
+                pendingRejected
+        if (pendingSuccessorQueueItemId != null && pendingBlocked) {
+            return failedPreparationPresentation(
+                queueItemId = pendingSuccessorQueueItemId,
+                target = pendingTarget,
+            )
+        }
+
         pendingSuccessorQueueItemId?.let { queueItemId ->
-            val target = snapshot.queue.firstOrNull { it.queueItemId == queueItemId }
-            val transfer = target?.track?.trackId?.let(transfers::get)
             return TransitionPresentation(
                 kind = TransitionKind.WAITING_FOR_CONTENT,
                 queueItemId = queueItemId,
-                trackId = target?.track?.trackId,
-                message = "Preparing next song…",
+                trackId = pendingTarget?.track?.trackId,
+                message =
+                    pendingTarget?.track?.displayTitle?.let { "Preparing “$it”…" }
+                        ?: "Preparing next song…",
                 progressFraction =
-                    transfer?.fraction?.takeIf {
-                        transfer.state == MemberTrackState.RECEIVING ||
-                            transfer.state == MemberTrackState.VERIFYING ||
-                            transfer.state == MemberTrackState.PREPARING_PLAYER
+                    pendingTransfer?.fraction?.takeIf {
+                        pendingTransfer.state == MemberTrackState.RECEIVING ||
+                            pendingTransfer.state == MemberTrackState.VERIFYING ||
+                            pendingTransfer.state == MemberTrackState.PREPARING_PLAYER
                     },
             )
         }
 
+        val relevantBlockedQueueItemId =
+            issue
+                ?.takeIf { it.code == RoomIssueCode.TRANSFER_BLOCKED }
+                ?.queueItemId
+                ?.takeIf { queueItemId ->
+                    queueItemId == snapshot.playback.queueItemId ||
+                        queueItemId == command?.queueItemId
+                }
+        relevantBlockedQueueItemId?.let { queueItemId ->
+            return failedPreparationPresentation(
+                queueItemId = queueItemId,
+                target = snapshot.queue.firstOrNull { it.queueItemId == queueItemId },
+            )
+        }
+
         val outputInhibited = localParticipation == LocalPlaybackParticipation.OUTPUT_INHIBITED
-        val command = status
         if (outputInhibited && snapshot.playback.isPlaying) {
             if (command?.active == true && command.action == TransportAction.PLAY) {
                 return TransitionPresentation(
@@ -214,6 +258,12 @@ internal object RoomPlaybackUiPolicy {
         val title = target?.track?.displayTitle
         val quotedTitle = title?.let { "“$it”" }
         return when (transfer?.state) {
+            MemberTrackState.FAILED ->
+                failedPreparationPresentation(
+                    queueItemId = target.queueItemId,
+                    target = target,
+                )
+
             MemberTrackState.RECEIVING ->
                 TransitionPresentation(
                     kind = TransitionKind.WAITING_FOR_CONTENT,
@@ -251,6 +301,24 @@ internal object RoomPlaybackUiPolicy {
                 )
         }
     }
+
+    private fun RoomIssue?.blocksPreparation(queueItemId: QueueItemId?): Boolean =
+        this?.code == RoomIssueCode.TRANSFER_BLOCKED &&
+            queueItemId != null &&
+            this.queueItemId == queueItemId
+
+    private fun failedPreparationPresentation(
+        queueItemId: QueueItemId,
+        target: com.darius.unison.model.QueueItem?,
+    ): TransitionPresentation =
+        TransitionPresentation(
+            kind = TransitionKind.FAILED,
+            queueItemId = queueItemId,
+            trackId = target?.track?.trackId,
+            message =
+                target?.track?.displayTitle?.let { "Couldn't prepare “$it”" }
+                    ?: "Couldn't prepare this song",
+        )
 
     fun issuePresentation(issue: RoomIssue): IssuePresentation =
         when (issue.code) {
@@ -323,6 +391,12 @@ internal object RoomPlaybackUiPolicy {
                     message = "Unison couldn't get this song ready for playback.",
                 )
 
+            RoomIssueCode.TRANSFER_BLOCKED ->
+                IssuePresentation(
+                    title = "Music transfer blocked",
+                    message = issue.message,
+                )
+
             RoomIssueCode.PARTIAL_TRACK_IMPORT ->
                 IssuePresentation(
                     title = "Some songs need attention",
@@ -340,6 +414,8 @@ internal object RoomPlaybackUiPolicy {
         when (issue?.recoveryAction) {
             RoomRecoveryAction.RETRY ->
                 status?.retryCommandOrNull()?.let { IssueAction.RETRY_TRANSPORT }
+            RoomRecoveryAction.RETRY_PREPARATION ->
+                issue.queueItemId?.let { IssueAction.RETRY_PREPARATION }
             RoomRecoveryAction.READD_TRACK -> IssueAction.CHOOSE_FILES
             RoomRecoveryAction.LEAVE_ROOM -> IssueAction.LEAVE_ROOM
             RoomRecoveryAction.NONE,

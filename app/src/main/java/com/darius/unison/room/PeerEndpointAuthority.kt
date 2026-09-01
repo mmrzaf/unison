@@ -1,5 +1,6 @@
 package com.darius.unison.room
 
+import com.darius.unison.model.DEFAULT_DISPLAY_NAME
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.network.NetworkAddressPolicy
@@ -27,7 +28,8 @@ internal object PeerEndpointAuthority {
         return PeerEndpointUpdate(
             endpoint =
                 announced.copy(
-                    displayName = announced.displayName.trim().take(40).ifBlank { "Friend" },
+                    displayName =
+                        announced.displayName.trim().take(40).ifBlank { DEFAULT_DISPLAY_NAME },
                     hostAddress = authenticatedAddress.hostAddress ?: return null,
                     lastSeenElapsedMs = lastSeenElapsedMs,
                 ),

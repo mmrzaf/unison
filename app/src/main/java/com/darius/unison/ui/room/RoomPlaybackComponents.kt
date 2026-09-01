@@ -109,9 +109,11 @@ internal fun UpNextStatus(
     track: TrackDescriptor,
     transfer: TransferProgress?,
     readiness: RoomMediaReadiness,
+    blocked: Boolean = false,
 ) {
     val suffix =
         when {
+            blocked -> " · Transfer blocked"
             transfer?.state == MemberTrackState.RECEIVING -> " · Preparing"
             transfer?.state == MemberTrackState.VERIFYING ||
                 transfer?.state == MemberTrackState.PREPARING_PLAYER -> " · Almost ready"
@@ -120,7 +122,7 @@ internal fun UpNextStatus(
             readiness == RoomMediaReadiness.PREPARING -> " · Preparing"
             else -> ""
         }
-    val failed = transfer?.state == MemberTrackState.FAILED
+    val failed = blocked || transfer?.state == MemberTrackState.FAILED
     Surface(
         shape = MaterialTheme.shapes.medium,
         color =
@@ -130,9 +132,10 @@ internal fun UpNextStatus(
             if (failed) MaterialTheme.colorScheme.onErrorContainer
             else MaterialTheme.colorScheme.onSurface,
     ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp),
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
                 "Up next",
@@ -147,6 +150,7 @@ internal fun UpNextStatus(
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
             )
         }
     }
@@ -405,6 +409,7 @@ internal fun QueueRow(
     pending: Boolean,
     transfer: TransferProgress? = null,
     readiness: RoomMediaReadiness = RoomMediaReadiness.NEEDS_PREPARATION,
+    blocked: Boolean = false,
     canReorder: Boolean,
     draggedIndex: Int?,
     dragTargetIndex: Int?,
@@ -427,6 +432,7 @@ internal fun QueueRow(
             transfer = transfer,
             current = current,
             playing = playing,
+            blocked = blocked,
         )
     val primaryActionLabel =
         when (mediaPresentation.tapAction) {

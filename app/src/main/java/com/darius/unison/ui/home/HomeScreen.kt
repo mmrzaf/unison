@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.darius.unison.model.DEFAULT_DISPLAY_NAME
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.RoomIssueCode
@@ -194,21 +195,28 @@ internal fun HomeScreen(
         }
 
         item(key = "nearby-title") {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Nearby",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.weight(1f))
-                if (state.room.lifecycle == RoomLifecycleState.DISCOVERING) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    IconButton(onClick = onStartDiscovery, enabled = !connecting) {
-                        Icon(Icons.Default.Refresh, "Refresh nearby rooms")
+            SectionHeader(
+                title = "Nearby",
+                subtitle =
+                    if (!connecting && state.room.discoveredRooms.isEmpty()) {
+                        if (state.room.lifecycle == RoomLifecycleState.DISCOVERING) {
+                            "Looking for rooms…"
+                        } else {
+                            "No rooms found"
+                        }
+                    } else {
+                        null
+                    },
+                action = {
+                    if (state.room.lifecycle == RoomLifecycleState.DISCOVERING) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        IconButton(onClick = onStartDiscovery, enabled = !connecting) {
+                            Icon(Icons.Default.Refresh, "Refresh nearby rooms")
+                        }
                     }
-                }
-            }
+                },
+            )
         }
 
         if (connecting) {
@@ -226,14 +234,7 @@ internal fun HomeScreen(
                 }
             }
         } else if (state.room.discoveredRooms.isEmpty()) {
-            item(key = "nearby-empty") {
-                Text(
-                    if (state.room.lifecycle == RoomLifecycleState.DISCOVERING) "Looking nearby…"
-                    else "No nearby rooms",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 6.dp),
-                )
-            }
+            // The empty discovery state is summarized in the Nearby header to keep Home compact.
         } else {
             items(state.room.discoveredRooms, key = { "room:${it.roomId}" }) { room ->
                 ListItem(
@@ -289,7 +290,7 @@ internal fun HomeScreen(
                 title = "Your music",
                 subtitle =
                     "${state.libraryTotalCount} ${if (state.libraryTotalCount == 1) "song" else "songs"}",
-                modifier = Modifier.padding(top = 22.dp),
+                modifier = Modifier.padding(top = 8.dp),
                 action = {
                     TextButton(onClick = onChooseFiles) {
                         Icon(Icons.Default.Add, null)
@@ -384,7 +385,9 @@ internal fun HomeScreen(
             )
             ListItem(
                 headlineContent = { Text("Your name") },
-                supportingContent = { Text(state.room.localIdentity?.displayName ?: "Friend") },
+                supportingContent = {
+                    Text(state.room.localIdentity?.displayName ?: DEFAULT_DISPLAY_NAME)
+                },
                 leadingContent = { Icon(Icons.Default.Person, null) },
                 modifier =
                     Modifier.clickable {

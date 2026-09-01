@@ -9,6 +9,7 @@ import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransferProgress
+import com.darius.unison.network.LocalNetworkRouteException
 import com.darius.unison.network.LocalNetworkSocketProvider
 import com.darius.unison.network.NetworkAddressPolicy
 import com.darius.unison.protocol.AuthenticatedFileStreamCodec
@@ -568,11 +569,12 @@ class TransferManager(
         assignmentId: String,
     ) {
         var phase = "VALIDATE"
-        var routeAttributes: Map<String, Any?> =
+        val transferAttemptAttributes: Map<String, Any?> =
             mapOf(
                 "transfer.operation_id" to operationId,
                 "transfer.assignment_id" to assignmentId,
             )
+        var routeAttributes: Map<String, Any?> = transferAttemptAttributes
         var socket: Socket? = null
         try {
             require(track.sizeBytes in 1..MAX_TRACK_SIZE_BYTES) { "Unsupported track size" }
@@ -597,8 +599,22 @@ class TransferManager(
             }
 
             phase = "CONNECT"
+            log.debug(
+                TAG,
+                DiagnosticCategory.TRANSFER,
+                "transfer.download.route_start",
+                attributes =
+                    transferAttemptAttributes +
+                        mapOf(
+                            "track.id" to track.trackId.value.take(12),
+                            "peer.id" to source.peerId.value.take(12),
+                            "transfer.offset" to offset,
+                            "transfer.expected_bytes" to track.sizeBytes,
+                            "network.remote_port" to source.port,
+                        ),
+            )
             val route = socketProvider.createSocket(address, purpose = "transfer")
-            routeAttributes = route.diagnosticAttributes()
+            routeAttributes = transferAttemptAttributes + route.diagnosticAttributes()
             socket = route.socket
             cancellationRegistry.attachSocket(track.trackId, socket)
             currentCoroutineContext().ensureActive()
@@ -950,16 +966,21 @@ class TransferManager(
                 "REGISTER" -> TransferFailureStage.REGISTER
                 else -> TransferFailureStage.UNKNOWN
             }
+        val rootCause = staged?.cause ?: error
         val problem =
             (staged?.cause as? TransferProblemException) ?: (error as? TransferProblemException)
+        val routeFailure = rootCause as? LocalNetworkRouteException
+        val disposition = routeFailure?.let(LocalNetworkTransferFailurePolicy::classify)
         val (code, blame, retryable) =
             when {
                 problem != null -> Triple(problem.code, problem.blame, problem.retryable)
+                disposition != null ->
+                    Triple(disposition.code, disposition.blame, disposition.retryable)
                 stage == TransferFailureStage.CONNECT ->
                     Triple(TransferFailureCode.CONNECT_FAILED, TransferFailureBlame.ROUTE, true)
                 stage == TransferFailureStage.HANDSHAKE ->
                     Triple(TransferFailureCode.PROTOCOL, TransferFailureBlame.ROUTE, true)
-                (staged?.cause ?: error) is java.io.IOException ->
+                rootCause is java.io.IOException ->
                     Triple(TransferFailureCode.IO, TransferFailureBlame.ROUTE, true)
                 else -> Triple(TransferFailureCode.UNKNOWN, TransferFailureBlame.UNKNOWN, true)
             }

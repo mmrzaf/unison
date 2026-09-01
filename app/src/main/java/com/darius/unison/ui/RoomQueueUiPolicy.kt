@@ -23,10 +23,12 @@ internal object RoomQueueUiPolicy {
         transfer: TransferProgress?,
         current: Boolean,
         playing: Boolean,
+        blocked: Boolean = false,
     ): MediaPresentation {
         if (playing) return MediaPresentation("Playing", TapAction.PLAY)
+        if (blocked) return MediaPresentation("Transfer blocked", TapAction.PREPARE)
         if (current && readiness == RoomMediaReadiness.READY) {
-            return MediaPresentation("Ready", TapAction.PLAY)
+            return MediaPresentation("", TapAction.PLAY)
         }
         if (transfer?.state == MemberTrackState.FAILED) {
             return MediaPresentation("Preparation failed", TapAction.PREPARE)
@@ -38,21 +40,21 @@ internal object RoomQueueUiPolicy {
         ) {
             val detail =
                 when (transfer.state) {
-                    MemberTrackState.RECEIVING ->
-                        "Preparing · ${(transfer.fraction * 100).toInt()}%"
+                    MemberTrackState.RECEIVING -> "Syncing · ${(transfer.fraction * 100).toInt()}%"
                     MemberTrackState.VERIFYING -> "Verifying…"
                     MemberTrackState.PREPARING_PLAYER -> "Finishing preparation…"
+                    else -> "Preparing…"
                 }
             return MediaPresentation(detail, TapAction.NONE)
         }
         return when (readiness) {
-            RoomMediaReadiness.READY -> MediaPresentation("Ready", TapAction.PLAY)
+            RoomMediaReadiness.READY -> MediaPresentation("", TapAction.PLAY)
 
             RoomMediaReadiness.PREPARING -> {
                 val detail =
                     when (transfer?.state) {
                         MemberTrackState.RECEIVING ->
-                            "Preparing · ${(transfer.fraction * 100).toInt()}%"
+                            "Syncing · ${(transfer.fraction * 100).toInt()}%"
                         MemberTrackState.VERIFYING,
                         MemberTrackState.PREPARING_PLAYER -> "Almost ready"
                         else -> "Preparing…"
@@ -68,21 +70,30 @@ internal object RoomQueueUiPolicy {
     fun queueSummary(
         queueSize: Int,
         readiness: Collection<RoomMediaReadiness>,
+        blockedCount: Int = 0,
     ): String {
         if (queueSize <= 0) return "0 songs"
-        val ready = readiness.count { it == RoomMediaReadiness.READY }.coerceAtMost(queueSize)
-        val preparing =
-            readiness
-                .count { it == RoomMediaReadiness.PREPARING }
-                .coerceAtMost((queueSize - ready).coerceAtLeast(0))
+        val blocked = blockedCount.coerceIn(0, queueSize)
+        val syncing =
+            (readiness.count { it == RoomMediaReadiness.PREPARING } - blocked)
+                .coerceAtLeast(0)
+                .coerceAtMost((queueSize - blocked).coerceAtLeast(0))
         val songCount = "$queueSize ${if (queueSize == 1) "song" else "songs"}"
         return buildList {
                 add(songCount)
-                if (ready > 0) add("$ready ready")
-                if (preparing > 0) add("$preparing preparing")
+                if (syncing > 0) add("$syncing syncing")
+                if (blocked > 0) add("$blocked blocked")
             }
             .joinToString(" · ")
     }
+
+    fun showQueueToolbar(queueSize: Int): Boolean = queueSize > 0
+
+    fun showQueueSearchField(
+        queueSize: Int,
+        query: String,
+        searchExpanded: Boolean,
+    ): Boolean = query.isNotBlank() || searchExpanded || queueSize >= 8
 
     fun roomPresenceLabel(lifecycle: RoomLifecycleState, memberCount: Int): String =
         when (lifecycle) {
