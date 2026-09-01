@@ -94,7 +94,8 @@ internal fun PersistentRoomIssueCard(
                 )
                 Text(presentation.message, style = MaterialTheme.typography.bodyMedium)
                 when (action) {
-                    RoomPlaybackUiPolicy.IssueAction.RETRY_TRANSPORT ->
+                    RoomPlaybackUiPolicy.IssueAction.RETRY_TRANSPORT,
+                    RoomPlaybackUiPolicy.IssueAction.RETRY_PREPARATION ->
                         TextButton(onClick = onRetryTransport) {
                             Icon(
                                 Icons.Default.Refresh,
