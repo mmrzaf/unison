@@ -32,6 +32,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/model/TransportCommandResult.kt
   app/src/main/java/com/darius/unison/ui/PermissionController.kt
   app/src/main/java/com/darius/unison/ui/RoomPlaybackUiPolicy.kt
+  app/src/main/java/com/darius/unison/ui/RoomQueueUiPolicy.kt
   app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt
   app/src/main/java/com/darius/unison/protocol/ProtocolException.kt
   app/src/main/java/com/darius/unison/protocol/AuthenticatedFileStreamCodec.kt
@@ -61,6 +62,7 @@ SOURCES=(
   app/src/main/java/com/darius/unison/room/QueueDragPolicy.kt
   app/src/main/java/com/darius/unison/room/QueueShufflePolicy.kt
   app/src/main/java/com/darius/unison/transfer/TransferCapacityPolicy.kt
+  app/src/main/java/com/darius/unison/transfer/LocalNetworkTransferFailurePolicy.kt
   app/src/main/java/com/darius/unison/room/TransferCoordinator.kt
   app/src/main/java/com/darius/unison/room/TrackPrefetchPolicy.kt
   app/src/main/java/com/darius/unison/room/TransportIntentCoordinator.kt
@@ -112,6 +114,8 @@ SOURCES=(
   app/src/main/java/com/darius/unison/library/UriPermissionLedger.kt
   app/src/main/java/com/darius/unison/library/LibraryImportProgress.kt
   app/src/main/java/com/darius/unison/network/NetworkAddressPolicy.kt
+  app/src/main/java/com/darius/unison/network/LocalNetworkSocketProvider.kt
+  app/src/main/java/com/darius/unison/network/LocalNetworkRoutePolicy.kt
   app/src/main/java/com/darius/unison/network/ControlTraffic.kt
   app/src/main/java/com/darius/unison/network/DiscoveredRoomRegistry.kt
   app/src/main/java/com/darius/unison/transfer/TransferCancellationRegistry.kt
@@ -131,7 +135,10 @@ SOURCES=(
   app/src/test/java/com/darius/unison/model/TransportCommandResultTest.kt
   app/src/test/java/com/darius/unison/ui/PermissionControllerTest.kt
   app/src/test/java/com/darius/unison/ui/RoomPlaybackUiPolicyTest.kt
+  app/src/test/java/com/darius/unison/ui/RoomQueueUiPolicyTest.kt
   app/src/test/java/com/darius/unison/network/NetworkAddressPolicyTest.kt
+  app/src/test/java/com/darius/unison/network/LocalNetworkRoutePolicyTest.kt
+  app/src/test/java/com/darius/unison/transfer/LocalNetworkTransferFailurePolicyTest.kt
   app/src/test/java/com/darius/unison/util/AudioMimePolicyTest.kt
   app/src/test/java/com/darius/unison/network/DiscoveredRoomRegistryTest.kt
   app/src/test/java/com/darius/unison/protocol/CryptoTest.kt
