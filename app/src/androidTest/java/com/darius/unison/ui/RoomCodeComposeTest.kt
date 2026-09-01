@@ -1,13 +1,9 @@
 package com.darius.unison.ui
 
 import androidx.activity.ComponentActivity
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import com.darius.unison.model.RoomLifecycleState
 import org.junit.Rule
 import org.junit.Test
 
@@ -15,27 +11,23 @@ class RoomCodeComposeTest {
     @get:Rule val composeRule = createAndroidComposeRule<ComponentActivity>()
 
     @Test
-    fun roomCodeDialogDisplaysTheCode() {
-        showRoomCode()
+    fun roomHeaderShowsPlainNumericCodeWithoutCopyUi() {
+        composeRule.setContent {
+            RoomHeader(
+                roomName = "Darius's room",
+                roomCode = PIN,
+                connectedListeners = 1,
+                lifecycle = RoomLifecycleState.CONNECTED,
+                onShowListeners = {},
+                onShowLogs = {},
+                onShowAbout = {},
+                onLeave = {},
+            )
+        }
 
         composeRule.onNodeWithText(PIN).assertExists()
-        composeRule.onNodeWithText("Room code").assertExists()
-    }
-
-    @Test
-    fun doneDismissesRoomCodeDialog() {
-        showRoomCode()
-
-        composeRule.onNodeWithText("Done").performClick()
-
-        composeRule.onNodeWithText(PIN).assertDoesNotExist()
-    }
-
-    private fun showRoomCode() {
-        composeRule.setContent {
-            var shown by remember { mutableStateOf(true) }
-            if (shown) RoomCodeDialog(roomCode = PIN, onDismiss = { shown = false })
-        }
+        composeRule.onNodeWithText("Room code").assertDoesNotExist()
+        composeRule.onNodeWithText("Copy").assertDoesNotExist()
     }
 
     private companion object {
