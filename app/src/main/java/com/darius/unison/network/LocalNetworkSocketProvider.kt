@@ -1,5 +1,6 @@
 package com.darius.unison.network
 
+import java.io.IOException
 import java.net.InetAddress
 import java.net.Socket
 
@@ -11,6 +12,34 @@ import java.net.Socket
  * validated endpoint fallback when Android exposes no Network (for example some hotspot downstream
  * interfaces).
  */
+enum class LocalNetworkRouteFailureReason {
+    /** Android policy (for example a non-bypassable VPN) rejected explicit network selection. */
+    POLICY_BLOCKED,
+
+    /** The process is not allowed to perform the requested network operation. */
+    ACCESS_DENIED,
+
+    /** The selected Android Network disappeared or stopped routing to the peer endpoint. */
+    NETWORK_LOST,
+
+    /** Socket creation failed for a reason that could not be classified more precisely. */
+    SOCKET_PROVISION_FAILED,
+}
+
+/**
+ * Typed failure raised while provisioning a local-network socket, before TCP connect begins.
+ *
+ * Transfer/control code can distinguish this from an ordinary connect timeout or refusal without
+ * parsing platform exception text. [errno] and [errnoCode] are diagnostic metadata only.
+ */
+class LocalNetworkRouteException(
+    val reason: LocalNetworkRouteFailureReason,
+    val errno: String? = null,
+    val errnoCode: Int? = null,
+    message: String,
+    cause: Throwable? = null,
+) : IOException(message, cause)
+
 interface LocalNetworkSocketProvider {
     fun createSocket(remoteAddress: InetAddress, purpose: String): RoutedSocket
 
