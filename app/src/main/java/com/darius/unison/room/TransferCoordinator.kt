@@ -22,13 +22,29 @@ internal data class TransferRouteKey(
     val destinationPeerId: PeerId,
 )
 
+/**
+ * Connectivity health deliberately excludes track identity: a broken phone-to-phone route is not
+ * healed by assigning another song over the same source/destination pair.
+ */
+internal data class TransferPeerRouteKey(
+    val sourcePeerId: PeerId,
+    val destinationPeerId: PeerId,
+)
+
 internal data class TransferRouteHealth(
     val failures: Int = 0,
     val retryAfterCoordinatorNs: Long = 0L,
+    val suspended: Boolean = false,
+)
+
+internal data class TransferRouteFailureDecision(
+    val failures: Int,
+    val retryAtCoordinatorNs: Long?,
+    val suspended: Boolean,
 )
 
 /**
- * Coordinator-side owner of transfer demand, admission, active routes, and route backoff.
+ * Coordinator-side owner of transfer demand, admission, active routes, and route health.
  * Authorization and byte transport remain effects executed by
  * [com.darius.unison.transfer.TransferManager]. All methods are called from the serialized room
  * actor, so transfer policy has one deterministic owner without adding another concurrency domain.
@@ -39,7 +55,7 @@ internal class TransferCoordinator(
 
     private val demands = mutableMapOf<Pair<TrackId, PeerId>, TransferDemand>()
     private val activeRoutes = mutableMapOf<Pair<TrackId, PeerId>, TransferRouteKey>()
-    private val routeHealth = mutableMapOf<TransferRouteKey, TransferRouteHealth>()
+    private val routeHealth = mutableMapOf<TransferPeerRouteKey, TransferRouteHealth>()
 
     fun upsert(demand: TransferDemand) {
         val key = demand.trackId to demand.destinationPeerId
@@ -58,10 +74,13 @@ internal class TransferCoordinator(
         demands.remove(trackId to destinationPeerId)
     }
 
-    /** Terminal success/non-retryable removal: demand and any admitted route are both finished. */
+    /**
+     * Terminal success/non-retryable removal. If this finishes an admitted transfer, successful
+     * delivery proves the source/destination route healthy again and clears its prior penalty.
+     */
     fun finish(trackId: TrackId, destinationPeerId: PeerId) {
         demands.remove(trackId to destinationPeerId)
-        activeRoutes.remove(trackId to destinationPeerId)
+        activeRoutes.remove(trackId to destinationPeerId)?.let(::recordRouteSuccess)
     }
 
     fun removePeer(peerId: PeerId) {
@@ -72,13 +91,24 @@ internal class TransferCoordinator(
             }
             .map { it.key }
             .forEach { key -> activeRoutes.remove(key) }
-        routeHealth.keys.removeAll { it.sourcePeerId == peerId || it.destinationPeerId == peerId }
+        clearRouteHealthForPeer(peerId)
     }
 
     fun clear() {
         demands.clear()
         activeRoutes.clear()
         routeHealth.clear()
+    }
+
+    fun clearRouteHealth() {
+        routeHealth.clear()
+    }
+
+    /** A peer endpoint/network transition is an explicit reason to reconsider suspended routes. */
+    fun clearRouteHealthForPeer(peerId: PeerId) {
+        routeHealth.keys.removeAll {
+            it.sourcePeerId == peerId || it.destinationPeerId == peerId
+        }
     }
 
     fun markActive(route: TransferRouteKey) {
@@ -94,22 +124,50 @@ internal class TransferCoordinator(
         activeRoutes.remove(trackId to destinationPeerId)
     }
 
-    /** Records one genuine route failure and returns the coordinator time when it may retry. */
-    fun recordRouteFailure(route: TransferRouteKey, nowCoordinatorNs: Long): Long {
-        val previous = routeHealth[route] ?: TransferRouteHealth()
-        val failures = (previous.failures + 1).coerceAtMost(MAX_FAILURE_PENALTY)
-        val cooldownNs =
-            (BASE_ROUTE_RETRY_COOLDOWN_NS shl (failures - 1).coerceAtMost(3)).coerceAtMost(
-                MAX_ROUTE_RETRY_COOLDOWN_NS
-            )
-        val retryAfter = nowCoordinatorNs + cooldownNs
-        routeHealth[route] =
-            previous.copy(
+    /**
+     * Records a phone-to-phone connectivity failure and releases the current assignment.
+     *
+     * Repeated transient failures use bounded exponential backoff and then suspend the pair after
+     * [MAX_CONSECUTIVE_ROUTE_FAILURES]. A deterministic failure can suspend immediately. A
+     * suspension is intentionally open-ended: peer/network change or explicit user preparation
+     * retry clears route health and re-enters source selection.
+     */
+    fun recordRouteFailure(
+        route: TransferRouteKey,
+        nowCoordinatorNs: Long,
+        suspendImmediately: Boolean = false,
+    ): TransferRouteFailureDecision {
+        val peerRoute = route.peerRoute()
+        val previous = routeHealth[peerRoute] ?: TransferRouteHealth()
+        val failures = (previous.failures + 1).coerceAtMost(MAX_CONSECUTIVE_ROUTE_FAILURES)
+        val suspended =
+            suspendImmediately || previous.suspended || failures >= MAX_CONSECUTIVE_ROUTE_FAILURES
+        val retryAt =
+            if (suspended) {
+                null
+            } else {
+                val cooldownNs =
+                    (BASE_ROUTE_RETRY_COOLDOWN_NS shl (failures - 1).coerceAtMost(3)).coerceAtMost(
+                        MAX_ROUTE_RETRY_COOLDOWN_NS
+                    )
+                nowCoordinatorNs + cooldownNs
+            }
+        routeHealth[peerRoute] =
+            TransferRouteHealth(
                 failures = failures,
-                retryAfterCoordinatorNs = retryAfter,
+                retryAfterCoordinatorNs = retryAt ?: Long.MAX_VALUE,
+                suspended = suspended,
             )
         markTerminal(route.trackId, route.destinationPeerId)
-        return retryAfter
+        return TransferRouteFailureDecision(
+            failures = failures,
+            retryAtCoordinatorNs = retryAt,
+            suspended = suspended,
+        )
+    }
+
+    private fun recordRouteSuccess(route: TransferRouteKey) {
+        routeHealth.remove(route.peerRoute())
     }
 
     fun activeCount(destinationPeerId: PeerId): Int =
@@ -167,14 +225,13 @@ internal class TransferCoordinator(
                 canAdmit(TransferRouteKey(demand.trackId, source, demand.destinationPeerId))
             }
             .filter { source ->
-                val health =
-                    routeHealth[TransferRouteKey(demand.trackId, source, demand.destinationPeerId)]
-                health == null || nowCoordinatorNs >= health.retryAfterCoordinatorNs
+                val health = routeHealth[TransferPeerRouteKey(source, demand.destinationPeerId)]
+                health == null ||
+                    (!health.suspended && nowCoordinatorNs >= health.retryAfterCoordinatorNs)
             }
             .minWithOrNull(
                 compareBy<PeerId> { source ->
-                        routeHealth[
-                                TransferRouteKey(demand.trackId, source, demand.destinationPeerId)]
+                        routeHealth[TransferPeerRouteKey(source, demand.destinationPeerId)]
                             ?.failures ?: 0
                     }
                     .thenBy { activeSourceCount(it) }
@@ -184,11 +241,19 @@ internal class TransferCoordinator(
     fun demandFor(trackId: TrackId, destinationPeerId: PeerId): TransferDemand? =
         demands[trackId to destinationPeerId]
 
+    internal fun routeHealthFor(
+        sourcePeerId: PeerId,
+        destinationPeerId: PeerId,
+    ): TransferRouteHealth? = routeHealth[TransferPeerRouteKey(sourcePeerId, destinationPeerId)]
+
+    private fun TransferRouteKey.peerRoute(): TransferPeerRouteKey =
+        TransferPeerRouteKey(sourcePeerId, destinationPeerId)
+
     private fun TransferDemand.isMoreUrgentThan(other: TransferDemand): Boolean =
         DEMAND_ORDER.compare(this, other) < 0
 
     companion object {
-        private const val MAX_FAILURE_PENALTY = 8
+        internal const val MAX_CONSECUTIVE_ROUTE_FAILURES = 5
         private const val BASE_ROUTE_RETRY_COOLDOWN_NS = 500_000_000L
         private const val MAX_ROUTE_RETRY_COOLDOWN_NS = 4_000_000_000L
         private val DEMAND_ORDER =

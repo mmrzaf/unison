@@ -32,10 +32,11 @@ without leaving and rejoining the room.
     platform suppression is clear, the room clock is locked, and the current item is locally
     executable, verify that the interrupted phone automatically rejoins the current canonical
     song/current room position exactly once.
-12. On Android 16, keep cellular data enabled while connected to a private Wi-Fi network with no
-    Internet. Join from Android 11/13 and transfer several full songs in both directions; verify the
-    selected control/transfer route is `SYSTEM_DEFAULT` when the owning Wi-Fi network is already
-    Android's active network, and stays `NETWORK_BOUND` when the room uses a non-default LAN.
+12. On Android 16 with no VPN active, keep cellular data enabled while connected to a private Wi-Fi
+    network with no Internet. Join from Android 11/13 and transfer several full songs in both directions;
+    verify the selected control/transfer route is `SYSTEM_DEFAULT` when the owning Wi-Fi network is
+    already Android's active network, and stays `NETWORK_BOUND` when the room uses a legitimate
+    non-default LAN. No fallback may route the local peer connection over cellular.
 13. Android 16 development-only Local Network Protection check: enable the platform compatibility
     restriction for the debug package, revoke Nearby devices, verify Create/Join requests permission,
     grant it, then verify discovery, control, full transfer, and playback. Disable the compatibility
@@ -72,6 +73,17 @@ without leaving and rejoining the room.
 23. During a large transfer, keep lower-priority transfer/telemetry/playback-reference traffic active and
     repeatedly issue room commands while clock sync is active. Verify room commands remain responsive,
     clock traffic continues, and diagnostics show no starvation/reconnect storm.
+24. Exercise the Beta 6 VPN/LAN matrix with an API 36 phone and an API 33 phone in both coordinator and
+    participant roles. With no VPN, full-song transfer must work in both directions. With a VPN/VpnService
+    that permits local-LAN traffic, Unison must respect the system-default/VPN route and transfers must
+    still work. With a VPN that blocks local LAN, Unison must show one actionable blocked-transfer state
+    on the affected phone and coordinator, must not remain indefinitely on `Preparing`, and must not
+    generate repeated per-song assignment/retry storms. Disable/fix the VPN and use Try again; preparation
+    must recover without recreating the room. Retain `network.socket.route_attempt`/`route_failed`,
+    `transfer.download.route_start`, `transfer.route.suspended`, and retry/recovery diagnostics. For an
+    otherwise-unclassified transient route failure, verify the source/destination circuit suspends after
+    at most five consecutive failures without a topology change; a deterministic policy/access denial
+    should suspend immediately.
 
 ## Evidence to retain
 

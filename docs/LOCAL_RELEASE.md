@@ -14,7 +14,7 @@ Every installable update must use a strictly higher `versionCode`.
 
 Version tags map directly to releases:
 
-- `1.2.0-beta.5` → `v1.2.0-beta.5` → GitHub prerelease
+- `1.2.0-beta.6` → `v1.2.0-beta.6` → GitHub prerelease
 - `1.2.0-rc.1` → `v1.2.0-rc.1` → GitHub prerelease
 - `1.2.0` → `v1.2.0` → normal/latest GitHub release
 
@@ -34,8 +34,8 @@ For each beta, RC, or stable release:
 Example:
 
 ```bash
-git tag v1.2.0-beta.5
-git push origin v1.2.0-beta.5
+git tag v1.2.0-beta.6
+git push origin v1.2.0-beta.6
 ```
 
 Publication is tag-triggered only.
@@ -87,7 +87,7 @@ the archive before publication.
 Example:
 
 ```bash
-./scripts/package-source.sh v1.2.0-beta.5 dist
+./scripts/package-source.sh v1.2.0-beta.6 dist
 ```
 
 ## Local signing setup

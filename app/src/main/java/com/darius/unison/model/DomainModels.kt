@@ -3,6 +3,8 @@ package com.darius.unison.model
 import java.util.UUID
 import kotlinx.serialization.Serializable
 
+const val DEFAULT_DISPLAY_NAME = "Listener"
+
 @JvmInline
 @Serializable
 value class PeerId(val value: String) {

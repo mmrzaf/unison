@@ -13,6 +13,7 @@ enum class RoomIssueCode {
     ROOM_QUEUE_FULL,
     TRACK_OPEN_FAILED,
     TRACK_PREPARATION_TIMED_OUT,
+    TRANSFER_BLOCKED,
     PARTIAL_TRACK_IMPORT,
     LOCAL_NETWORK_UNAVAILABLE,
     CONNECTION_FAILED,
@@ -31,6 +32,7 @@ enum class RoomIssueSeverity {
 enum class RoomRecoveryAction {
     NONE,
     RETRY,
+    RETRY_PREPARATION,
     READD_TRACK,
     LEAVE_ROOM,
 }
@@ -42,10 +44,12 @@ data class RoomIssue(
     val recoveryAction: RoomRecoveryAction = RoomRecoveryAction.NONE,
     val commandId: String? = null,
     val queueItemId: QueueItemId? = null,
+    val relatedPeerId: PeerId? = null,
     val deduplicationKey: String = buildString {
         append(code.name)
         commandId?.let { append(":command:").append(it) }
         queueItemId?.let { append(":item:").append(it.value) }
+        relatedPeerId?.let { append(":peer:").append(it.value) }
     },
 ) {
     companion object {

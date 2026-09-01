@@ -5,6 +5,8 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.system.ErrnoException
+import android.system.OsConstants
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import java.io.IOException
@@ -76,13 +78,62 @@ class AndroidLocalNetworkRouter(
     override fun createSocket(remoteAddress: InetAddress, purpose: String): RoutedSocket {
         NetworkAddressPolicy.requireAllowed(remoteAddress)
 
-        val network = resolveNetwork(remoteAddress)
+        val selectedNetwork = resolveNetwork(remoteAddress)
+        val activeNetwork = connectivityManager.activeNetwork
+        val routeMode =
+            LocalNetworkRoutePolicy.choose(
+                LocalNetworkRouteContext(
+                    hasSelectedNetwork = selectedNetwork != null,
+                    selectedNetworkIsActive =
+                        selectedNetwork != null && selectedNetwork == activeNetwork,
+                    activeNetworkIsVpn = activeNetwork?.let(::isVpnNetwork) == true,
+                )
+            )
+        val attemptAttributes =
+            routeAttemptAttributes(
+                remoteAddress = remoteAddress,
+                purpose = purpose,
+                selectedNetwork = selectedNetwork,
+                activeNetwork = activeNetwork,
+                requestedRouteMode = routeMode,
+            )
+
+        log.debug(
+            TAG,
+            DiagnosticCategory.NETWORK,
+            "network.socket.route_attempt",
+            attributes = attemptAttributes,
+        )
+
         val routed =
-            when {
-                network == null -> endpointFallbackRoute(remoteAddress)
-                network == connectivityManager.activeNetwork ->
-                    systemDefaultRoute(remoteAddress, network)
-                else -> createNetworkBoundRoute(remoteAddress, network, purpose)
+            try {
+                when (routeMode) {
+                    LocalNetworkRouteMode.SYSTEM_DEFAULT ->
+                        systemDefaultRoute(
+                            remoteAddress,
+                            checkNotNull(activeNetwork) {
+                                "System-default LAN route requires an active Android network"
+                            },
+                        )
+                    LocalNetworkRouteMode.NETWORK_BOUND ->
+                        createNetworkBoundRoute(
+                            remoteAddress,
+                            checkNotNull(selectedNetwork) {
+                                "Network-bound LAN route requires a selected Android network"
+                            },
+                            purpose,
+                        )
+                    LocalNetworkRouteMode.ENDPOINT_FALLBACK -> endpointFallbackRoute(remoteAddress)
+                }
+            } catch (error: LocalNetworkRouteException) {
+                log.warn(
+                    TAG,
+                    DiagnosticCategory.NETWORK,
+                    "network.socket.route_failed",
+                    attributes = attemptAttributes + error.diagnosticAttributes(),
+                    throwable = error,
+                )
+                throw error
             }
 
         log.debug(
@@ -96,8 +147,9 @@ class AndroidLocalNetworkRouter(
 
     /**
      * The system default route already follows [ConnectivityManager.activeNetwork]. Avoiding an
-     * explicit bind here is both cheaper and more robust on Android 16 devices where binding a raw
-     * socket back onto the already-active Wi-Fi network can fail with EPERM.
+     * explicit bind is both cheaper and more robust when the selected LAN is already default. It is
+     * also the only policy-respecting choice when a VPN is the default: Unison must not attempt to
+     * punch underneath a non-bypassable VPN by selecting its physical network directly.
      */
     private fun systemDefaultRoute(
         remoteAddress: InetAddress,
@@ -122,8 +174,15 @@ class AndroidLocalNetworkRouter(
         remoteAddress: InetAddress,
         network: Network,
         purpose: String,
-    ): RoutedSocket =
-        try {
+    ): RoutedSocket {
+        if (!isLocalNetworkUsable(network) || !networkRoutesTo(network, remoteAddress)) {
+            throw LocalNetworkRouteException(
+                reason = LocalNetworkRouteFailureReason.NETWORK_LOST,
+                message = "Selected local network is no longer available for the peer endpoint",
+            )
+        }
+
+        return try {
             RoutedSocket(
                 socket = network.socketFactory.createSocket(),
                 routeMode = LocalNetworkRouteMode.NETWORK_BOUND,
@@ -132,15 +191,19 @@ class AndroidLocalNetworkRouter(
                 addressFamily = addressFamily(remoteAddress),
             )
         } catch (error: IOException) {
-            fallbackAfterNetworkBindFailure(remoteAddress, network, purpose, error) ?: throw error
+            fallbackAfterNetworkBindFailure(remoteAddress, network, purpose, error)
+                ?: throw classifyNetworkProvisionFailure(remoteAddress, network, error)
         } catch (error: SecurityException) {
-            fallbackAfterNetworkBindFailure(remoteAddress, network, purpose, error) ?: throw error
+            fallbackAfterNetworkBindFailure(remoteAddress, network, purpose, error)
+                ?: throw classifyNetworkProvisionFailure(remoteAddress, network, error)
         }
+    }
 
     /**
-     * A network can become the system default between route selection and socket creation. If an
-     * explicit bind fails, a plain socket is safe only when the current active LAN itself routes to
-     * the validated endpoint. Otherwise preserve the failure instead of silently switching LANs.
+     * Re-reads Android's default network after a failed explicit bind. A plain-socket fallback is
+     * safe only when the default is now a VPN (which must retain policy control), or when the
+     * default itself is a local Wi-Fi/Ethernet network that routes to the peer. Cellular is never
+     * selected as a fallback for a validated LAN endpoint.
      */
     private fun fallbackAfterNetworkBindFailure(
         remoteAddress: InetAddress,
@@ -148,10 +211,14 @@ class AndroidLocalNetworkRouter(
         purpose: String,
         error: Exception,
     ): RoutedSocket? {
-        val activeNetwork =
-            connectivityManager.activeNetwork?.takeIf(::isLocalNetworkUsable)?.takeIf { network ->
-                networkRoutesTo(network, remoteAddress)
-            } ?: return null
+        val activeNetwork = connectivityManager.activeNetwork ?: return null
+        val fallbackReason =
+            when {
+                isVpnNetwork(activeNetwork) -> "ACTIVE_VPN"
+                isLocalNetworkUsable(activeNetwork) &&
+                    networkRoutesTo(activeNetwork, remoteAddress) -> "ACTIVE_LOCAL_ROUTE"
+                else -> return null
+            }
 
         log.warn(
             TAG,
@@ -164,11 +231,48 @@ class AndroidLocalNetworkRouter(
                     "network.selected_transport" to transportName(selectedNetwork),
                     "network.fallback_id" to networkId(activeNetwork),
                     "network.fallback_transport" to transportName(activeNetwork),
+                    "network.fallback_reason" to fallbackReason,
                     "network.address_family" to addressFamily(remoteAddress),
-                ),
+                ) + errnoAttributes(error),
             throwable = error,
         )
         return systemDefaultRoute(remoteAddress, activeNetwork)
+    }
+
+    private fun classifyNetworkProvisionFailure(
+        remoteAddress: InetAddress,
+        selectedNetwork: Network,
+        error: Exception,
+    ): LocalNetworkRouteException {
+        val errno = errnoDetails(error)
+        val reason =
+            when {
+                errno?.name == "EPERM" -> LocalNetworkRouteFailureReason.POLICY_BLOCKED
+                errno?.name == "EACCES" || error is SecurityException ->
+                    LocalNetworkRouteFailureReason.ACCESS_DENIED
+                !isLocalNetworkUsable(selectedNetwork) ||
+                    !networkRoutesTo(selectedNetwork, remoteAddress) ->
+                    LocalNetworkRouteFailureReason.NETWORK_LOST
+                else -> LocalNetworkRouteFailureReason.SOCKET_PROVISION_FAILED
+            }
+        val message =
+            when (reason) {
+                LocalNetworkRouteFailureReason.POLICY_BLOCKED ->
+                    "Android network policy blocked local socket provisioning"
+                LocalNetworkRouteFailureReason.ACCESS_DENIED ->
+                    "Android denied local socket provisioning"
+                LocalNetworkRouteFailureReason.NETWORK_LOST ->
+                    "Selected local network was lost while provisioning a socket"
+                LocalNetworkRouteFailureReason.SOCKET_PROVISION_FAILED ->
+                    "Could not provision a socket on the selected local network"
+            }
+        return LocalNetworkRouteException(
+            reason = reason,
+            errno = errno?.name,
+            errnoCode = errno?.code,
+            message = message,
+            cause = error,
+        )
     }
 
     override fun onConnected(route: RoutedSocket, socket: Socket) {
@@ -328,6 +432,11 @@ class AndroidLocalNetworkRouter(
     private fun networkRoutesTo(network: Network, remoteAddress: InetAddress): Boolean =
         linkProperties(network)?.routes?.any { route -> route.matches(remoteAddress) } == true
 
+    private fun isVpnNetwork(network: Network): Boolean =
+        connectivityManager
+            .getNetworkCapabilities(network)
+            ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+
     private fun isLocalNetworkUsable(network: Network): Boolean {
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
         if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return false
@@ -379,14 +488,79 @@ class AndroidLocalNetworkRouter(
             "network.address_family" to addressFamily(address),
         )
 
+    private fun routeAttemptAttributes(
+        remoteAddress: InetAddress,
+        purpose: String,
+        selectedNetwork: Network?,
+        activeNetwork: Network?,
+        requestedRouteMode: LocalNetworkRouteMode,
+    ): Map<String, Any?> =
+        mapOf(
+            "network.socket_purpose" to purpose,
+            "network.address_family" to addressFamily(remoteAddress),
+            "network.route_mode_requested" to requestedRouteMode.name,
+            "network.selected_present" to (selectedNetwork != null),
+            "network.selected_id" to selectedNetwork?.let(::networkId),
+            "network.selected_transport" to selectedNetwork?.let(::transportName),
+            "network.selected_is_active" to
+                (selectedNetwork != null && selectedNetwork == activeNetwork),
+            "network.selected_routes_to_endpoint" to
+                selectedNetwork?.let { network -> networkRoutesTo(network, remoteAddress) },
+            "network.active_present" to (activeNetwork != null),
+            "network.active_id" to activeNetwork?.let(::networkId),
+            "network.active_transport" to activeNetwork?.let(::transportName),
+            "network.active_is_vpn" to (activeNetwork?.let(::isVpnNetwork) == true),
+            "network.active_routes_to_endpoint" to
+                activeNetwork?.let { network -> networkRoutesTo(network, remoteAddress) },
+        )
+
+    private fun LocalNetworkRouteException.diagnosticAttributes(): Map<String, Any?> =
+        mapOf(
+            "network.failure_reason" to reason.name,
+            "network.errno" to errno,
+            "network.errno_code" to errnoCode,
+        )
+
+    private fun errnoAttributes(error: Throwable): Map<String, Any?> {
+        val errno = errnoDetails(error)
+        return mapOf(
+            "network.errno" to errno?.name,
+            "network.errno_code" to errno?.code,
+        )
+    }
+
+    private fun errnoDetails(error: Throwable): ErrnoDetails? {
+        var current: Throwable? = error
+        repeat(MAX_CAUSE_DEPTH) {
+            val candidate = current ?: return null
+            if (candidate is ErrnoException) {
+                return ErrnoDetails(
+                    name = errnoName(candidate.errno),
+                    code = candidate.errno,
+                )
+            }
+            current = candidate.cause
+        }
+        return null
+    }
+
+    private fun errnoName(errno: Int): String =
+        when (errno) {
+            OsConstants.EPERM -> "EPERM"
+            OsConstants.EACCES -> "EACCES"
+            else -> "ERRNO_$errno"
+        }
+
     private fun routedAttributes(route: RoutedSocket): Map<String, Any?> =
         route.diagnosticAttributes()
 
     private fun transportName(network: Network): String {
         val capabilities = connectivityManager.getNetworkCapabilities(network)
         return when {
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true -> "VPN"
             capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "WIFI"
             capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "ETHERNET"
+            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "CELLULAR"
             else -> "UNKNOWN"
         }
     }
@@ -403,7 +577,13 @@ class AndroidLocalNetworkRouter(
             else -> "UNKNOWN"
         }
 
+    private data class ErrnoDetails(
+        val name: String,
+        val code: Int,
+    )
+
     private companion object {
         const val TAG = "AndroidLocalNetworkRouter"
+        const val MAX_CAUSE_DEPTH = 8
     }
 }

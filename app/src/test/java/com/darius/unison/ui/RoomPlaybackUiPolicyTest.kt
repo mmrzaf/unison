@@ -255,8 +255,172 @@ class RoomPlaybackUiPolicyTest {
             )
 
         assertEquals(RoomPlaybackUiPolicy.TransitionKind.WAITING_FOR_CONTENT, presentation?.kind)
-        assertEquals("Preparing next song…", presentation?.message)
+        assertEquals("Preparing “B”…", presentation?.message)
         assertEquals(0.5f, presentation?.progressFraction)
+    }
+
+    @Test
+    fun failedPendingSuccessorBeatsPreparingAndReleasesCurrentControls() {
+        val peer = PeerId("peer-123456789012")
+        val currentTrack =
+            TrackDescriptor(TrackId("c".repeat(64)), 1_000, durationMs = 60_000, title = "Current")
+        val nextTrack =
+            TrackDescriptor(TrackId("d".repeat(64)), 1_000, durationMs = 60_000, title = "Next")
+        val current = QueueItem(QueueItemId("current"), currentTrack, peer, 1)
+        val next = QueueItem(QueueItemId("next"), nextTrack, peer, 2)
+        val snapshot =
+            RoomSnapshot(
+                roomId = "room",
+                roomName = "Room",
+                term = CoordinatorTerm(1, peer),
+                sequence = 2,
+                members = listOf(MemberSnapshot(peer, "Phone")),
+                queue = listOf(current, next),
+                playback = CanonicalPlaybackState(queueItemId = current.queueItemId, revision = 2),
+                queueRevision = 2,
+            )
+        val failedTransfer =
+            TransferProgress(
+                trackId = nextTrack.trackId,
+                bytesTransferred = 0,
+                totalBytes = 1_000,
+                sourcePeerId = peer,
+                destinationPeerId = peer,
+                state = MemberTrackState.FAILED,
+            )
+
+        val presentation =
+            RoomPlaybackUiPolicy.transition(
+                snapshot = snapshot,
+                lifecycle = RoomLifecycleState.CONNECTED,
+                status = null,
+                transfers = mapOf(nextTrack.trackId to failedTransfer),
+                pendingSuccessorQueueItemId = next.queueItemId,
+            )
+        val controls =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = true,
+                hasSeekableDuration = true,
+                canonicalIsPlaying = false,
+                currentQueueItemId = current.queueItemId,
+                currentReadiness = RoomMediaReadiness.READY,
+                pendingSuccessorQueueItemId = next.queueItemId,
+                pendingSuccessorTransfer = failedTransfer,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.TransitionKind.FAILED, presentation?.kind)
+        assertEquals("Couldn't prepare “Next”", presentation?.message)
+        assertEquals(RoomPlaybackUiPolicy.PrimaryControl.PLAY, controls.primaryControl)
+        assertTrue(controls.primaryActionEnabled)
+        assertTrue(controls.canSeek)
+    }
+
+    @Test
+    fun coordinatorBlockedIssueBeatsPendingSuccessorEvenWithoutLocalTransferFailure() {
+        val peer = PeerId("peer-123456789012")
+        val currentTrack =
+            TrackDescriptor(TrackId("e".repeat(64)), 1_000, durationMs = 60_000, title = "Current")
+        val nextTrack =
+            TrackDescriptor(TrackId("f".repeat(64)), 1_000, durationMs = 60_000, title = "Blocked")
+        val current = QueueItem(QueueItemId("current"), currentTrack, peer, 1)
+        val next = QueueItem(QueueItemId("next"), nextTrack, peer, 2)
+        val snapshot =
+            RoomSnapshot(
+                roomId = "room",
+                roomName = "Room",
+                term = CoordinatorTerm(1, peer),
+                sequence = 2,
+                members = listOf(MemberSnapshot(peer, "Phone")),
+                queue = listOf(current, next),
+                playback = CanonicalPlaybackState(queueItemId = current.queueItemId, revision = 2),
+                queueRevision = 2,
+            )
+        val issue =
+            RoomIssue(
+                code = RoomIssueCode.TRANSFER_BLOCKED,
+                message = "Phone couldn't receive the song",
+                recoveryAction = RoomRecoveryAction.RETRY_PREPARATION,
+                queueItemId = next.queueItemId,
+            )
+
+        val presentation =
+            RoomPlaybackUiPolicy.transition(
+                snapshot = snapshot,
+                lifecycle = RoomLifecycleState.CONNECTED,
+                status = null,
+                transfers = emptyMap(),
+                pendingSuccessorQueueItemId = next.queueItemId,
+                issue = issue,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.TransitionKind.FAILED, presentation?.kind)
+        assertEquals(next.queueItemId, presentation?.queueItemId)
+        assertEquals("Couldn't prepare “Blocked”", presentation?.message)
+    }
+
+    @Test
+    fun blockedCurrentItemOffersPrepareInsteadOfStayingBusy() {
+        val queueItemId = QueueItemId("current")
+        val issue =
+            RoomIssue(
+                code = RoomIssueCode.TRANSFER_BLOCKED,
+                message = "Transfer blocked",
+                recoveryAction = RoomRecoveryAction.RETRY_PREPARATION,
+                queueItemId = queueItemId,
+            )
+
+        val controls =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = true,
+                hasSeekableDuration = true,
+                canonicalIsPlaying = false,
+                currentQueueItemId = queueItemId,
+                currentReadiness = RoomMediaReadiness.PREPARING,
+                issue = issue,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.PrimaryControl.PREPARE, controls.primaryControl)
+        assertTrue(controls.primaryActionEnabled)
+    }
+
+    @Test
+    fun blockedBackgroundItemDoesNotHijackCurrentPlaybackPresentation() {
+        val peer = PeerId("peer-123456789012")
+        val currentTrack =
+            TrackDescriptor(TrackId("1".repeat(64)), 1_000, durationMs = 60_000, title = "Current")
+        val backgroundTrack =
+            TrackDescriptor(TrackId("2".repeat(64)), 1_000, durationMs = 60_000, title = "Later")
+        val current = QueueItem(QueueItemId("current"), currentTrack, peer, 1)
+        val background = QueueItem(QueueItemId("later"), backgroundTrack, peer, 2)
+        val snapshot =
+            RoomSnapshot(
+                roomId = "room",
+                roomName = "Room",
+                term = CoordinatorTerm(1, peer),
+                sequence = 2,
+                members = listOf(MemberSnapshot(peer, "Phone")),
+                queue = listOf(current, background),
+                playback = CanonicalPlaybackState(queueItemId = current.queueItemId, revision = 2),
+                queueRevision = 2,
+            )
+        val issue =
+            RoomIssue(
+                code = RoomIssueCode.TRANSFER_BLOCKED,
+                message = "Later song is blocked",
+                recoveryAction = RoomRecoveryAction.RETRY_PREPARATION,
+                queueItemId = background.queueItemId,
+            )
+
+        val presentation =
+            RoomPlaybackUiPolicy.transition(
+                snapshot = snapshot,
+                lifecycle = RoomLifecycleState.CONNECTED,
+                status = null,
+                transfers = emptyMap(),
+                issue = issue,
+            )
+
+        assertNull(presentation)
     }
 
     @Test
@@ -340,6 +504,27 @@ class RoomPlaybackUiPolicyTest {
         )
         assertNotNull(
             status(TransportAction.PLAY, TransportCommandPhase.REJECTED).retryCommandOrNull()
+        )
+    }
+
+    @Test
+    fun blockedTransferOffersPreparationRetryWithoutTransportStatus() {
+        val queueItemId = QueueItemId("queue-item")
+        val issue =
+            RoomIssue(
+                code = RoomIssueCode.TRANSFER_BLOCKED,
+                message = "Local connection blocked",
+                recoveryAction = RoomRecoveryAction.RETRY_PREPARATION,
+                queueItemId = queueItemId,
+            )
+
+        assertEquals(
+            RoomPlaybackUiPolicy.IssueAction.RETRY_PREPARATION,
+            RoomPlaybackUiPolicy.issueAction(issue, null),
+        )
+        assertEquals(
+            "Music transfer blocked",
+            RoomPlaybackUiPolicy.issuePresentation(issue).title,
         )
     }
 

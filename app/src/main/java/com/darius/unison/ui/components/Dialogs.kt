@@ -1,5 +1,7 @@
 package com.darius.unison.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
@@ -10,6 +12,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun NameDialog(
@@ -19,19 +23,27 @@ internal fun NameDialog(
     onSave: (String) -> Unit,
 ) {
     var name by rememberSaveable(initialName) { mutableStateOf(initialName) }
+    val trimmedName = name.trim()
     AlertDialog(
         onDismissRequest = { if (dismissible) onDismiss() },
         title = { Text("Your name") },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it.take(32) },
-                label = { Text("Shown to friends") },
-                singleLine = true,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Name others in the room will see.")
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(32) },
+                    modifier = Modifier,
+                    label = { Text("Name") },
+                    singleLine = true,
+                )
+            }
         },
         confirmButton = {
-            Button(onClick = { onSave(name.trim().ifBlank { "Friend" }) }) {
+            Button(
+                enabled = trimmedName.isNotEmpty(),
+                onClick = { onSave(trimmedName) },
+            ) {
                 Text(if (dismissible) "Save" else "Continue")
             }
         },

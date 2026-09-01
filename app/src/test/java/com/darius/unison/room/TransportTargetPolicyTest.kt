@@ -226,7 +226,7 @@ class TransportTargetPolicyTest {
                 roomName = "Room",
                 term = CoordinatorTerm(1, peer),
                 sequence = 0,
-                members = listOf(MemberSnapshot(peer, "Friend")),
+                members = listOf(MemberSnapshot(peer, "Alex")),
                 queue = items,
                 playback =
                     CanonicalPlaybackState(

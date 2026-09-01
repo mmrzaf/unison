@@ -90,6 +90,8 @@ def main() -> int:
             "app/src/main/java/com/darius/unison/protocol/Srp6aCore.kt",
             "app/src/test/java/com/darius/unison/protocol/Srp6aCoreRfc5054Test.kt",
             "app/src/test/java/com/darius/unison/network/ControlConnectionPriorityTest.kt",
+            "app/src/test/java/com/darius/unison/network/LocalNetworkRoutePolicyTest.kt",
+            "app/src/test/java/com/darius/unison/transfer/LocalNetworkTransferFailurePolicyTest.kt",
             "app/src/test/java/com/darius/unison/room/RoomLifecycleSeamRegressionTest.kt",
             "app/src/main/java/com/darius/unison/storage/Database.kt",
             "app/src/main/java/com/darius/unison/ui/UnisonApp.kt",
@@ -406,6 +408,28 @@ def main() -> int:
         )
         require("transfer.download.duplicate_ignored" in transfer_manager, "Duplicate download assignment guard is missing")
         require("currentCoroutineContext().ensureActive()" in transfer_manager, "Cancellation can be misclassified as transfer failure")
+        local_transfer_failure_policy = text("app/src/main/java/com/darius/unison/transfer/LocalNetworkTransferFailurePolicy.kt")
+        require(
+            "POLICY_BLOCKED" in local_transfer_failure_policy
+            and "TransferFailureBlame.DESTINATION" in local_transfer_failure_policy
+            and "retryable = false" in local_transfer_failure_policy,
+            "Deterministic local route-policy failures can regress into retry storms",
+        )
+        require(
+            "LocalNetworkTransferFailurePolicy::classify" in transfer_manager,
+            "TransferManager bypasses typed local route-failure classification",
+        )
+        require(
+            "TransferPeerRouteKey" in transfer_coordinator
+            and "MAX_CONSECUTIVE_ROUTE_FAILURES" in transfer_coordinator
+            and "suspended" in transfer_coordinator,
+            "Transfer connectivity health is not pair-scoped and circuit-broken",
+        )
+        require(
+            '"transfer.route.suspended"' in room_runtime
+            and '"transfer.route.retry_requested"' in room_runtime,
+            "Bounded route suspension/manual preparation retry diagnostics are missing",
+        )
         require("CATCHING_UP" in peer_health and "contentReady" in peer_health, "Content-aware playback admission is missing")
         require("isClockReady" in peer_health and "wasClockReady" in room_runtime, "Clock acquisition is conflated with playback admission")
         require(
@@ -479,8 +503,37 @@ def main() -> int:
         require('contains("offset"' not in transfer_manager, "Transfer behavior depends on English offset text")
         require("message.lowercase()" not in transfer_manager, "Transfer failure classification depends on user-facing text")
         require("FileResponseStatus.NOT_FOUND" in transfer_manager, "Typed source-unavailable response is missing")
+        require(
+            '"transfer.download.route_start"' in transfer_manager
+            and "transferAttemptAttributes + route.diagnosticAttributes()" in transfer_manager,
+            "Pre-connect transfer attempt identity/diagnostics are missing",
+        )
         require("127.0.0.1" not in room_runtime, "Room peer endpoint must never synthesize loopback")
         require("transferRetryJobs" not in room_runtime, "Per-route transfer retry jobs returned")
+        local_network_router = text("app/src/main/java/com/darius/unison/network/AndroidLocalNetworkRouter.kt")
+        local_route_policy = text("app/src/main/java/com/darius/unison/network/LocalNetworkRoutePolicy.kt")
+        require("LocalNetworkRoutePolicy.choose" in local_network_router, "Outbound LAN routing bypasses the testable route policy")
+        require('"network.socket.route_attempt"' in local_network_router, "Pre-socket LAN route diagnostics are missing")
+        require("activeNetworkIsVpn" in local_route_policy and "SYSTEM_DEFAULT" in local_route_policy, "VPN-aware system-default LAN routing is missing")
+        require("LocalNetworkRouteException" in local_network_router, "Typed local socket-provision failures are missing")
+        stability_analyzer = text("scripts/analyze-stability-log.py")
+        analyzer_fixtures = text("scripts/check-log-analyzer-fixtures.py")
+        require(
+            '"transfer.download.route_start"' in stability_analyzer
+            and '"transfer.download.failure_detail"' in stability_analyzer
+            and '"network.socket.route_attempt"' in stability_analyzer,
+            "Stability analyzer no longer counts pre-connect transfer/socket route attempts",
+        )
+        require(
+            "good-transfer-policy-blocked-bounded.ndjson" in analyzer_fixtures
+            and "bad-transfer-preconnect-retry-storm.ndjson" in analyzer_fixtures,
+            "Beta 6 transfer diagnostics regression fixtures are missing",
+        )
+        require(
+            "VPN/LAN matrix" in physical_qualification
+            and "at most five consecutive failures" in physical_qualification,
+            "Beta 6 VPN/circuit-breaker physical qualification is missing",
+        )
 
         manifest_path = ROOT / "app/src/main/AndroidManifest.xml"
         manifest = ET.parse(manifest_path).getroot()
@@ -495,6 +548,7 @@ def main() -> int:
             "android.permission.FOREGROUND_SERVICE",
             "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
             "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+            "android.permission.CHANGE_NETWORK_STATE",
             "android.permission.NEARBY_WIFI_DEVICES",
         ):
             require(permission in permissions, f"Required Android permission missing: {permission}")
@@ -532,6 +586,12 @@ def main() -> int:
         playlist_detail = text("app/src/main/java/com/darius/unison/ui/playlists/PlaylistDetailScreen.kt")
         require("ShareDestination" not in production, "Legacy Room/Library/Both import destination returned")
         require("MusicDestination" in music_models and "MusicDestinationSheet" in music_picker_sheets, "Unified music destination flow is missing")
+        require('const val DEFAULT_DISPLAY_NAME = "Listener"' in domain, "Default display-name fallback changed unexpectedly")
+        require('"Friend"' not in production, "Legacy Friend display-name fallback returned")
+        require("RoomQueueUiPolicy.showQueueToolbar" in room, "Empty-room queue chrome is no longer policy-gated")
+        require('Text("Create playlist"' in music_picker_sheets and '"No playlists yet."' in music_picker_sheets, "Empty playlist placement flow regressed")
+        room_logs = text("app/src/main/java/com/darius/unison/ui/room/RoomLogsDialog.kt")
+        require('Icon(Icons.Default.Close, "Close diagnostics")' in room_logs and 'Text("Clear view")' in room_logs, "Responsive diagnostics header/actions are missing")
         require("newPlaylistName" in import_coordinator and "New playlist" in music_picker_sheets, "Inline playlist creation is missing from music placement")
         require("TrackPickerSheet" in playlist_detail and "PlaylistPickerSheet" in playlist_detail, "Playlist curation returned to one-off dialogs")
         require("detectDragGesturesAfterLongPress" in playlist_detail and 'Text("Edit order")' in playlist_detail, "Playlist drag reordering is missing")

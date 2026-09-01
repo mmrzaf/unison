@@ -78,6 +78,10 @@ For the 1.2 line:
 
 - wire protocol remains Protocol 2;
 - Room database schema remains schema 1;
+- local transfer policy/access denial must be bounded and visible rather than entering an automatic
+  retry storm;
+- a blocked current/pending successor must not remain presented as `Preparing` after preparation has
+  reached a terminal or circuit-suspended state;
 - GitHub Actions remain pinned to reviewed full commit SHAs;
 - dependency-verification changes are reviewed rather than blindly accepted;
 - release assets are immutable and are never replaced in place.

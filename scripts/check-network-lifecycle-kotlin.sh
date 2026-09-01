@@ -12,12 +12,14 @@ run_standalone_kotlinc \
   scripts/network-lifecycle-kotlin-check/stubs/android/net/nsd/Nsd.kt \
   scripts/network-lifecycle-kotlin-check/stubs/android/net/wifi/Wifi.kt \
   scripts/network-lifecycle-kotlin-check/stubs/android/os/Os.kt \
+  scripts/network-lifecycle-kotlin-check/stubs/android/system/Os.kt \
   scripts/network-lifecycle-kotlin-check/stubs/com/darius/unison/model/Models.kt \
   scripts/network-lifecycle-kotlin-check/stubs/com/darius/unison/protocol/Protocol.kt \
   scripts/network-lifecycle-kotlin-check/stubs/com/darius/unison/util/DiagnosticLog.kt \
   scripts/network-lifecycle-kotlin-check/stubs/com/darius/unison/network/Stubs.kt \
   app/src/main/java/com/darius/unison/network/NetworkAddressPolicy.kt \
   app/src/main/java/com/darius/unison/network/LocalNetworkSocketProvider.kt \
+  app/src/main/java/com/darius/unison/network/LocalNetworkRoutePolicy.kt \
   app/src/main/java/com/darius/unison/network/AndroidLocalNetworkRouter.kt \
   app/src/main/java/com/darius/unison/network/NsdRoomDiscovery.kt \
   app/src/main/java/com/darius/unison/network/LocalHotspotController.kt \

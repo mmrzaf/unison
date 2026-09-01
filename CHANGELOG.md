@@ -2,8 +2,45 @@
 
 ## Unreleased
 
-Changes after `1.2.0-beta.5` should be recorded here until the next prerelease or stable release is
+Changes after `1.2.0-beta.6` should be recorded here until the next prerelease or stable release is
 cut.
+
+## 1.2.0-beta.6
+
+### Fixed
+
+- Made Android LAN socket selection VPN-aware, preserved system policy instead of forcing an
+  underlying-network bind, and added the normal network-state permission required by explicit
+  non-default network selection.
+- Split pre-connect socket-provision failures from ordinary TCP connection failures so policy/access
+  denial is terminal until the environment changes while transient route failures remain retryable.
+- Replaced per-song route retry storms with source/destination route health, bounded backoff, a
+  five-failure circuit breaker, alternate-source failover, and explicit preparation retry/recovery.
+- Propagated blocked preparation to both the affected listener and coordinator and prevented failed
+  successors from remaining indefinitely presented as Preparing.
+- Added pre-socket/transfer-attempt diagnostics and taught the stability analyzer to count failures
+  that happen before TCP connect, including the Beta 5 bind-failure retry-storm shape.
+
+### Changed
+
+- Simplified empty-room and empty-queue UI, made queue search progressive, reduced healthy transfer
+  status noise, tightened the playing/Up Next layout, and compacted the empty Nearby section.
+- Made shared-music destination/playlist sheets content-sized and removed search controls when no
+  playlists exist.
+- Made Diagnostics responsive on narrow displays while retaining explicit Copy/Share actions and
+  moving Clear view into overflow.
+- New installs now require an explicit display name instead of proposing `Friend`; `Listener` is the
+  centralized defensive fallback for malformed/legacy blank identity only.
+- Kept the room PIN as the plain four-digit value with no extra Copy/Code chrome.
+
+### Reliability and testing
+
+- Added route-policy, route-failure classification, circuit-breaker, preparation/error propagation,
+  room playback/queue presentation, UI invariant, and diagnostic analyzer regression coverage.
+- Added explicit physical qualification for Android 16 VPN/LAN combinations, non-default local-only
+  Wi-Fi, both transfer directions, route recovery, and retry-storm prevention.
+- Kept Protocol 2, Room schema 1, `targetSdk 33`, and the existing storage/playback architecture
+  unchanged.
 
 ## 1.2.0-beta.5
 
