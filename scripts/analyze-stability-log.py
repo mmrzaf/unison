@@ -80,12 +80,26 @@ def schedule_key(event):
     )
 
 
+def transfer_attempt_identity(event):
+    operation_id = attr(event, "transfer.operation_id")
+    if operation_id:
+        return ("operation", str(operation_id))
+    assignment_id = attr(event, "transfer.assignment_id")
+    if assignment_id:
+        return ("assignment", str(assignment_id))
+    return None
+
+
 def analyze(events, malformed=0):
     counts = Counter()
-    attempts_by_track = Counter()
+    attempt_keys_by_track = {}
+    legacy_attempts_by_track = Counter()
     completed_by_track = Counter()
     retries_by_route = Counter()
     failures_by_phase = Counter()
+    socket_route_failures_by_reason = Counter()
+    socket_route_attempts = 0
+    socket_route_failures = 0
     teardown_violations = []
     unavailable_rejection_keys = set()
     legacy_unavailable_rejections = []
@@ -101,9 +115,26 @@ def analyze(events, malformed=0):
         counts[name] += 1
         track = attr(event, "track.id")
 
-        if name == "transfer.download.connecting" and track:
-            attempts_by_track[track] += 1
-        elif name == "transfer.download.completed" and track:
+        if name in {
+            "transfer.download.route_start",
+            "transfer.download.connecting",
+            "transfer.download.failure_detail",
+        } and track:
+            attempt_identity = transfer_attempt_identity(event)
+            if attempt_identity is not None:
+                attempt_keys_by_track.setdefault(track, set()).add(attempt_identity)
+            elif name != "transfer.download.failure_detail":
+                # Legacy logs may lack operation/assignment IDs. Count route/connect start events,
+                # but do not infer an extra attempt from their adjacent failure-detail record.
+                legacy_attempts_by_track[track] += 1
+
+        if name == "network.socket.route_attempt" and attr(event, "network.socket_purpose") == "transfer":
+            socket_route_attempts += 1
+        elif name == "network.socket.route_failed" and attr(event, "network.socket_purpose") == "transfer":
+            socket_route_failures += 1
+            socket_route_failures_by_reason[str(attr(event, "network.failure_reason", "UNKNOWN"))] += 1
+
+        if name == "transfer.download.completed" and track:
             completed_by_track[track] += 1
         elif name == "transfer.track.failed":
             # Terminal failure events own release accounting. The adjacent
@@ -186,6 +217,16 @@ def analyze(events, malformed=0):
         ):
             unavailable_rejection_keys.add(f"legacy:{rejected_at.isoformat()}")
 
+    attempts_by_track = Counter(
+        {
+            track: len(keys) + legacy_attempts_by_track[track]
+            for track, keys in attempt_keys_by_track.items()
+        }
+    )
+    for track, count in legacy_attempts_by_track.items():
+        if track not in attempts_by_track:
+            attempts_by_track[track] = count
+
     handshake_timeout_keys = set()
     for event in events:
         if event.get("eventName") != "transfer.track.failed":
@@ -240,6 +281,12 @@ def analyze(events, malformed=0):
         "transfer_cancelled": counts["transfer.download.cancelled"],
         "transfer_duplicate_ignored": counts["transfer.download.duplicate_ignored"],
         "transfer_retries": counts["transfer.retry.scheduled"],
+        "transfer_route_starts": counts["transfer.download.route_start"],
+        "socket_route_attempts": socket_route_attempts,
+        "socket_route_failures": socket_route_failures,
+        "socket_route_failures_by_reason": dict(sorted(socket_route_failures_by_reason.items())),
+        "transfer_route_suspensions": counts["transfer.route.suspended"],
+        "transfer_route_retry_requests": counts["transfer.route.retry_requested"],
         "unavailable_playback_rejections": len(unavailable_rejection_keys),
         "max_playback_late_ms": max_total_late_ms,
         "max_playback_arrival_late_ms": max_arrival_late_ms,
@@ -251,6 +298,7 @@ def analyze(events, malformed=0):
 
 def self_test():
     good = [
+        {"eventName": "transfer.download.route_start", "attributes": {"track.id": "a", "transfer.operation_id": "op1"}},
         {"eventName": "transfer.download.connecting", "attributes": {"track.id": "a", "transfer.operation_id": "op1"}},
         {"eventName": "transfer.download.completed", "attributes": {"track.id": "a", "transfer.operation_id": "op1"}},
         {"eventName": "playback.command.scheduled", "timestamp": "2026-01-01T10:00:00Z", "attributes": {"command.id": "cmd", "playback.arrival_late_ms": 0}},
@@ -258,7 +306,43 @@ def self_test():
         {"eventName": "room.session.ended", "attributes": {"coroutine.remaining_jobs": 0, "transfer.active_count": 0}},
     ]
     result = analyze(good)
+    assert result["transfer_attempts"] == 1, result
     assert not result["violations"], result
+
+    preconnect = []
+    for index in range(4):
+        preconnect.extend(
+            [
+                {
+                    "eventName": "transfer.download.failure_detail",
+                    "attributes": {
+                        "track.id": "preconnect",
+                        "transfer.operation_id": f"op-{index}",
+                        "transfer.phase": "CONNECT",
+                    },
+                    "exception": {"type": "java.net.SocketException", "message": "EPERM"},
+                },
+                {
+                    "eventName": "transfer.track.failed",
+                    "attributes": {
+                        "track.id": "preconnect",
+                        "transfer.operation_id": f"op-{index}",
+                        "transfer.phase": "CONNECT",
+                    },
+                },
+                {
+                    "eventName": "transfer.retry.scheduled",
+                    "attributes": {
+                        "track.id": "preconnect",
+                        "transfer.destination_peer_id": "peer",
+                    },
+                },
+            ]
+        )
+    result = analyze(preconnect)
+    assert result["transfer_attempts"] == 4, result
+    assert any("transfer reconnect churn" in value for value in result["violations"]), result
+    assert any("transfer retry storm" in value for value in result["violations"]), result
 
     arrival_late = [
         {"eventName": "playback.command.scheduled", "timestamp": "2026-01-01T10:00:00Z", "attributes": {"command.id": "late"}},
@@ -337,6 +421,17 @@ def main():
     else:
         print(f"events={result['events']}")
         print(f"transfer attempts={result['transfer_attempts']} completed={result['transfer_completed']} failed={result['transfer_failed']} cancelled={result['transfer_cancelled']} retries={result['transfer_retries']}")
+        print(
+            "socket route "
+            f"attempts={result['socket_route_attempts']} failures={result['socket_route_failures']} "
+            f"suspensions={result['transfer_route_suspensions']} "
+            f"retry_requests={result['transfer_route_retry_requests']}"
+        )
+        if result["socket_route_failures_by_reason"]:
+            print(
+                "socket route failures by reason="
+                + json.dumps(result["socket_route_failures_by_reason"], sort_keys=True)
+            )
         print(f"unavailable playback rejections={result['unavailable_playback_rejections']}")
         print(
             "playback lateness total="
