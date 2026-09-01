@@ -201,7 +201,8 @@ fun UnisonApp(viewModel: MainViewModel) {
 
     if (!ui.onboardingComplete || showNameEdit) {
         NameDialog(
-            initialName = ui.room.localIdentity?.displayName.orEmpty(),
+            initialName =
+                if (ui.onboardingComplete) ui.room.localIdentity?.displayName.orEmpty() else "",
             dismissible = ui.onboardingComplete,
             onDismiss = { showNameEdit = false },
             onSave = { name ->
