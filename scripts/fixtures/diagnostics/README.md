@@ -23,3 +23,10 @@ media metadata.
 - `bad-actor-handler-cancellation.ndjson`: a room-event handler throws `CancellationException` while
   the persistent actor owner is still active; this must be classified as a release failure, not normal
   owner cancellation.
+
+- `good-transfer-policy-blocked-bounded.ndjson`: Beta 6 deterministic pre-connect Android policy
+  denial. One route attempt fails with `POLICY_BLOCKED`, the route is suspended once, and no automatic
+  retry storm follows.
+- `bad-transfer-preconnect-retry-storm.ndjson`: sanitized Beta 5-style bind failure shape where socket
+  provisioning fails before `transfer.download.connecting`; operation IDs prove four distinct attempts
+  and repeated retries must still be rejected by the stability analyzer.

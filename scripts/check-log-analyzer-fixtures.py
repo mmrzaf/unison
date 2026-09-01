@@ -18,7 +18,7 @@ class Case:
     playback_passes: bool
     stability_passes: bool
     playback_marker: str | None = None
-    stability_marker: str | None = None
+    stability_markers: tuple[str, ...] = ()
 
 
 CASES = (
@@ -46,7 +46,7 @@ CASES = (
         False,
         False,
         playback_marker="unavailable-media command rejections",
-        stability_marker="unavailable-media playback rejections",
+        stability_markers=("unavailable-media playback rejections",),
     ),
     Case(
         "bad-auto-rejoin-stuck.ndjson",
@@ -64,25 +64,44 @@ CASES = (
         "bad-teardown.ndjson",
         True,
         False,
-        stability_marker="remaining coroutine jobs",
+        stability_markers=("remaining coroutine jobs",),
     ),
     Case(
         "bad-arrival-late.ndjson",
         True,
         False,
-        stability_marker="before PlayerExecutor",
+        stability_markers=("before PlayerExecutor",),
     ),
     Case(
         "bad-executor-late.ndjson",
         True,
         False,
-        stability_marker="PlayerExecutor missed scheduled playback",
+        stability_markers=("PlayerExecutor missed scheduled playback",),
     ),
     Case(
         "bad-actor-handler-cancellation.ndjson",
         True,
         False,
-        stability_marker="unexpected room actor handler cancellations",
+        stability_markers=("unexpected room actor handler cancellations",),
+    ),
+    Case(
+        "good-transfer-policy-blocked-bounded.ndjson",
+        True,
+        True,
+        stability_markers=(
+            "transfer attempts=1",
+            "socket route attempts=1 failures=1 suspensions=1 retry_requests=0",
+            'socket route failures by reason={"POLICY_BLOCKED": 1}',
+        ),
+    ),
+    Case(
+        "bad-transfer-preconnect-retry-storm.ndjson",
+        True,
+        False,
+        stability_markers=(
+            "transfer attempts=4",
+            "transfer retry storm",
+        ),
     ),
 )
 
@@ -118,8 +137,9 @@ def main() -> int:
             )
         if case.playback_marker and case.playback_marker not in playback_output:
             failures.append(f"{case.name}: playback output missing marker {case.playback_marker!r}")
-        if case.stability_marker and case.stability_marker not in stability_output:
-            failures.append(f"{case.name}: stability output missing marker {case.stability_marker!r}")
+        for marker in case.stability_markers:
+            if marker not in stability_output:
+                failures.append(f"{case.name}: stability output missing marker {marker!r}")
 
     if failures:
         print("LOG_ANALYZER_FIXTURE_FAILURES", file=sys.stderr)
