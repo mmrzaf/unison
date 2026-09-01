@@ -1,6 +1,7 @@
 package com.darius.unison.room
 
 import android.os.SystemClock
+import com.darius.unison.model.DEFAULT_DISPLAY_NAME
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.RoomSnapshot
@@ -276,7 +277,8 @@ internal class ControlAdmissionController(
             val endpoint =
                 PeerEndpoint(
                     peerId = hello.peerId,
-                    displayName = hello.displayName.trim().take(40).ifBlank { "Friend" },
+                    displayName =
+                        hello.displayName.trim().take(40).ifBlank { DEFAULT_DISPLAY_NAME },
                     hostAddress = remoteAddress,
                     port = hello.listeningPort,
                     appVersion = hello.appVersion,

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.darius.unison.model.DEFAULT_DISPLAY_NAME
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RetentionPolicy
@@ -44,7 +45,7 @@ class UnisonSettings(private val context: Context) {
     val identity: Flow<LocalIdentity> = data.map { prefs ->
         LocalIdentity(
             peerId = PeerId(prefs[Keys.peerId] ?: ""),
-            displayName = prefs[Keys.displayName] ?: "Friend",
+            displayName = prefs[Keys.displayName] ?: DEFAULT_DISPLAY_NAME,
         )
     }
 
@@ -64,9 +65,9 @@ class UnisonSettings(private val context: Context) {
         if (existing != null)
             return@withLock LocalIdentity(
                 PeerId(existing),
-                prefs[Keys.displayName] ?: "Friend",
+                prefs[Keys.displayName] ?: DEFAULT_DISPLAY_NAME,
             )
-        createIdentity(prefs[Keys.displayName] ?: "Friend")
+        createIdentity(prefs[Keys.displayName] ?: DEFAULT_DISPLAY_NAME)
     }
 
     /**
@@ -74,7 +75,7 @@ class UnisonSettings(private val context: Context) {
      * intentionally explicit: normal reconnects must keep the same peer ID.
      */
     suspend fun rotateIdentity(): LocalIdentity = identityMutex.withLock {
-        val displayName = data.first()[Keys.displayName] ?: "Friend"
+        val displayName = data.first()[Keys.displayName] ?: DEFAULT_DISPLAY_NAME
         createIdentity(displayName)
     }
 
@@ -91,7 +92,7 @@ class UnisonSettings(private val context: Context) {
         value.length in 16..128 && value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
 
     suspend fun saveDisplayName(name: String) {
-        val safe = name.trim().take(40).ifBlank { "Friend" }
+        val safe = name.trim().take(40).ifBlank { DEFAULT_DISPLAY_NAME }
         context.dataStore.edit {
             it[Keys.displayName] = safe
             it[Keys.onboardingComplete] = true

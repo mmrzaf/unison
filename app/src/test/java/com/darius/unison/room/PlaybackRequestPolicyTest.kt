@@ -50,7 +50,7 @@ class PlaybackRequestPolicyTest {
                 roomName = "Room",
                 term = CoordinatorTerm(1, peer),
                 sequence = 0,
-                members = listOf(MemberSnapshot(peer, "Friend")),
+                members = listOf(MemberSnapshot(peer, "Alex")),
             )
         assertFalse(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot))
     }
@@ -61,7 +61,7 @@ class PlaybackRequestPolicyTest {
             roomName = "Room",
             term = CoordinatorTerm(1, peer),
             sequence = 0,
-            members = listOf(MemberSnapshot(peer, "Friend")),
+            members = listOf(MemberSnapshot(peer, "Alex")),
             queue = listOf(item),
             playback = CanonicalPlaybackState(queueItemId = item.queueItemId),
             options = RoomOptions(waitAtTrackBoundary = wait),
