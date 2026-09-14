@@ -86,16 +86,21 @@ class PlaylistRepository(
             require(fromIndex in entries.indices && toIndex in entries.indices) {
                 "Invalid playlist position"
             }
-            val mutable = entries.toMutableList()
-            val direction = if (toIndex > fromIndex) 1 else -1
-            var position = fromIndex
-            while (position != toIndex) {
-                val next = position + direction
-                swapEntryPositions(dao, mutable[position], mutable[next])
-                val moved = mutable[position]
-                mutable[position] = mutable[next]
-                mutable[next] = moved
-                position = next
+            val reordered = entries.toMutableList()
+            val moved = reordered.removeAt(fromIndex)
+            reordered.add(toIndex, moved)
+            val affectedStart = minOf(fromIndex, toIndex)
+            val affectedEnd = maxOf(fromIndex, toIndex)
+            val affected = reordered.subList(affectedStart, affectedEnd + 1)
+
+            // Park every affected row at a unique negative position before assigning final
+            // positions. This keeps the (playlistId, position) unique index valid for the entire
+            // transaction, including long-distance moves in either direction.
+            affected.forEachIndexed { index, entry ->
+                dao.updateEntryPosition(entry.entryId, PARKED_POSITION_BASE + index)
+            }
+            affected.forEachIndexed { index, entry ->
+                dao.updateEntryPosition(entry.entryId, affectedStart + index)
             }
             dao.upsert(playlist.copy(updatedAt = System.currentTimeMillis()))
         }
@@ -116,16 +121,6 @@ class PlaylistRepository(
             }
             dao.upsert(playlist.copy(updatedAt = System.currentTimeMillis()))
         }
-    }
-
-    private suspend fun swapEntryPositions(
-        dao: com.darius.unison.storage.PlaylistDao,
-        first: PlaylistEntryEntity,
-        second: PlaylistEntryEntity,
-    ) {
-        dao.updateEntryPosition(first.entryId, TEMPORARY_POSITION)
-        dao.updateEntryPosition(second.entryId, first.position)
-        dao.updateEntryPosition(first.entryId, second.position)
     }
 
     private suspend fun replaceTracksInTransaction(
@@ -183,6 +178,6 @@ class PlaylistRepository(
     private companion object {
         const val MAX_PLAYLIST_TRACKS = 10_000
         const val MAX_PLAYLIST_NAME_LENGTH = 128
-        const val TEMPORARY_POSITION = -1
+        const val PARKED_POSITION_BASE = -20_000
     }
 }
