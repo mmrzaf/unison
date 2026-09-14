@@ -17,7 +17,7 @@ Describe any invariant intentionally changed:
 
 ## Compatibility
 
-- Protocol 2 changed? **No / Yes — explain**
+- Protocol 1 changed? **No / Yes — explain**
 - Database schema 1 changed? **No / Yes — explain**
 - Android permissions/targetSdk behavior changed? **No / Yes — explain**
 - Security/privacy behavior changed? **No / Yes — explain**
