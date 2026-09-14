@@ -180,8 +180,6 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
     max_late = 0
     unavailable_errors = 0
     unavailable_rejection_keys: set[str] = set()
-    legacy_unavailable_rejections: list[datetime] = []
-    transport_unavailable_rejections: list[datetime] = []
     transition_circuit_breakers = 0
     playback_failures = 0
     notification_updates_shed = 0
@@ -280,8 +278,6 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
 
         if name == "playback.request.failed" and unavailable_reason(event, values):
             unavailable_errors += 1
-        if name == "room.command.rejected" and unavailable_reason(event, values):
-            legacy_unavailable_rejections.append(timestamp)
         if name == "playback.command.rejected" and unavailable_reason(event, values):
             key = values.get("command.id")
             unavailable_rejection_keys.add(str(key) if key else f"sequence:{event.get('sequence')}:{name}")
@@ -292,7 +288,6 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
         ):
             key = values.get("command.id")
             unavailable_rejection_keys.add(str(key) if key else f"sequence:{event.get('sequence')}:{name}")
-            transport_unavailable_rejections.append(timestamp)
 
         if name == "playback.transition.circuit_breaker":
             transition_circuit_breakers += 1
@@ -330,11 +325,6 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
         if name == "playback.preparation.status":
             connected = values.get("room.connected_members")
             readiness = values.get("playback.readiness_members")
-            if not isinstance(readiness, int):
-                # Pre-Phase-2 traces used playback.cohort_members for both audible participation and
-                # content readiness. Falling back here lets the regression analyzer recognize the
-                # historical empty-cohort deadlock without misreading new split-cohort traces.
-                readiness = values.get("playback.cohort_members")
             empty = isinstance(connected, int) and connected > 0 and isinstance(readiness, int) and readiness == 0
             if empty:
                 if empty_readiness_start is None:
@@ -355,14 +345,6 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
                 empty_readiness_samples = 0
 
         if name == "playback.rejoin.pending" and values.get("playback.rejoin_reason") == "AUTO_AUDIO_FOCUS":
-            auto_rejoin_pending = True
-        if (
-            name == "playback.participation.changed"
-            and values.get("playback.participation_to") == "OUTPUT_INHIBITED"
-            and values.get("playback.inhibition_reason") == "AUDIO_FOCUS"
-        ):
-            # Legacy traces predate playback.rejoin.pending; infer the automatic rejoin intent from
-            # the explicit transient-focus inhibition so the real incident remains a fixture.
             auto_rejoin_pending = True
         if auto_rejoin_pending and (
             (
@@ -456,16 +438,6 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
         preparation_pending_seconds.extend((end - started).total_seconds() for started in pending_preparations.values())
         if auto_rejoin_recoverable_since is not None:
             auto_rejoin_durations.append(max(0.0, (end - auto_rejoin_recoverable_since).total_seconds()))
-
-    # Older coordinator traces emitted both room.command.rejected and a transport REJECTED status
-    # for the same user action. Count that action once; retain a legacy room rejection only when no
-    # transport rejection followed immediately.
-    for rejected_at in legacy_unavailable_rejections:
-        if not any(
-            0.0 <= (transport_at - rejected_at).total_seconds() <= 0.250
-            for transport_at in transport_unavailable_rejections
-        ):
-            unavailable_rejection_keys.add(f"legacy:{rejected_at.isoformat()}")
 
     missing_natural_boundaries = max(
         0,
@@ -643,6 +615,7 @@ def self_test() -> None:
     rejoin_failure = analyze(
         [
             event("2026-01-01T10:00:00Z", "playback.participation.changed", category="room", **{"playback.participation_to": "OUTPUT_INHIBITED", "playback.inhibition_reason": "AUDIO_FOCUS"}),
+            event("2026-01-01T10:00:00.500Z", "playback.rejoin.pending", category="room", **{"playback.rejoin_reason": "AUTO_AUDIO_FOCUS"}),
             event("2026-01-01T10:00:01Z", "playback.output.suppression_cleared", **{"playback.inhibition_reason": "AUDIO_FOCUS"}),
             event("2026-01-01T10:00:20Z", "sync.sample", category="sync", **{"clock.state": "LOCKED", "room.role": "participant"}),
         ]
