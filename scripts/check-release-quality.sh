@@ -10,21 +10,21 @@ elif [[ "${UNISON_SKIP_LOCAL_DEPENDENCY_VERIFICATION:-}" == "true" ]]; then
 else
   python3 ./scripts/check-dependency-verification.py
 fi
+python3 ./scripts/check-release-signing.py --self-test
+python3 ./scripts/check-release-apk-metadata.py --self-test
 ./scripts/check-static.sh
 ./scripts/check-data.sh
 python3 ./scripts/analyze-playback-log.py --self-test
 python3 ./scripts/analyze-stability-log.py --self-test
 python3 ./scripts/check-log-analyzer-fixtures.py
-python3 ./scripts/benchmark-library-search.py --sizes 100000 --iterations 8 --max-p95-ms 50
+python3 ./scripts/benchmark-library-search.py \
+  --sizes 100000 \
+  --iterations 8 \
+  --max-browse-p95-ms 10 \
+  --max-search-p95-ms 50
 
-# These checks compile focused Kotlin components with the repository-pinned toolchain. They require
-# the Gradle distribution and dependency cache verified by verify-offline-ready.sh.
-./scripts/check-hardening-kotlin.sh
-./scripts/check-core.sh
-./scripts/check-diagnostics.sh
-./scripts/check-risky-kotlin.sh
-./scripts/check-player-kotlin.sh
-./scripts/check-session-player-kotlin.sh
+# The network-lifecycle harness exercises Android routing/NSD/hotspot lifecycle seams that are not
+# represented by ordinary JVM tests. Full compiler/unit/lint/build coverage runs through Gradle in CI.
 ./scripts/check-network-lifecycle-kotlin.sh
 
 echo RELEASE_QUALITY_OK
