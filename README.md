@@ -72,8 +72,9 @@ Public network addresses and Internet-based room joining are intentionally outsi
 ## Technical contract
 
 - Application ID: `com.darius.unison`
-- Wire protocol: **2 only**
+- Wire protocol: **1 only**
 - Room database schema: **1 only**
+- Local data format: **1 only**
 - Runtime floor: Android 11 (`minSdk 30`)
 - Audio identity and transferred-file verification use SHA-256
 - Public addresses and DNS joins are rejected

@@ -12,7 +12,7 @@ joined and is itself compromised.
 The room credential is exactly four digits and remains on the coordinator device. First admission
 uses SRP-6a so the code and a reusable offline-testable password proof are not transmitted. The SRP
 arithmetic is shared through `Srp6aCore` and release-tested against the RFC 5054 Appendix B vector;
-production keeps its existing fixed RFC 3526 group-14 / SHA-256 Protocol-2 parameters. JVM
+production keeps the fixed RFC 3526 group-14 / SHA-256 parameters defined by Protocol 1. JVM
 `BigInteger.modPow` is not specified as constant-time, so 1.2 explicitly accepts that residual timing
 limitation within the local, short-lived-room threat model rather than introducing unreviewed custom
 modular arithmetic. See [SRP_REVIEW_1.2.md](SRP_REVIEW_1.2.md). Authentication attempts are
@@ -26,7 +26,7 @@ stale when the accepted socket reaches canonical state.
 
 ## Control traffic
 
-- Protocol 2 uses strict decoding and exact version equality.
+- Protocol 1 uses strict decoding and exact version equality.
 - Direction-specific AES-GCM keys protect every control frame.
 - Headers and envelope context are authenticated.
 - Message UUIDs and sequence checks reject replay and reordering outside allowed semantics.
@@ -75,21 +75,26 @@ only and are cleared when the session ends.
 - Media-session controllers must be trusted by Android before receiving transport capability.
 - Exported components are limited to the launcher/share activity and MediaSessionService contract.
 - Diagnostics use one bounded structured NDJSON sink. Secret/token/PIN/password/proof/key-material
-  attributes, content URIs, and private storage paths are redacted before persistence. Raw room IDs,
+  attributes, quoted credentials, bearer values, content/file URIs, private storage paths, and local
+  IP endpoints are redacted before persistence/Logcat output. The narrow sealed type names used as
+  diagnostic/analyzer labels are preserved through R8 while implementation members remain shrinkable. Raw room IDs,
   file contents, reusable credentials, cryptographic keys, and stack traces are not logged.
 - Diagnostic files rotate at about 6 MiB total, are app-private, and have no automatic network
   exporter. Room-log copy is an explicit user action.
 
 ## Build and supply-chain controls
 
-The public repository defaults to Google's/Maven Central/Gradle Plugin Portal resolution path. Optional
-regional mirrors are an explicit developer opt-in rather than a repository default. Release dependency
-artifacts are intended to be protected by committed Gradle dependency-verification metadata generated
-from a trusted resolution path and reviewed whenever dependencies change.
+The repository resolves only through Google's Maven repository, Maven Central, and the Gradle Plugin
+Portal. Local repository-owned Gradle entry points use an isolated ignored Gradle user home so a
+developer's global `~/.gradle/init.d` scripts cannot silently rewrite that resolution path. Release
+dependency artifacts are protected by committed Gradle dependency-verification metadata generated from
+a trusted resolution path and reviewed whenever dependencies change.
 
 Privileged GitHub release automation pins third-party Actions to full commit SHAs, builds only from an
 immutable version tag that is proven to resolve to the workflow commit, separates signing secrets from
-release-write permission, and refuses to replace assets for an existing release tag. Public releases
+release-write permission, pins the approved signing-certificate SHA-256 independently from the keystore,
+verifies that identity before and after signing, explicitly rejects the certificate exposed in the
+pre-Beta-7 local archive, and refuses to replace assets for an existing release tag. Public releases
 contain the signed production APK and provenance/checksum/source artifacts; debug APKs remain CI-only.
 
 The public vulnerability-reporting process lives in [`.github/SECURITY.md`](../.github/SECURITY.md).
