@@ -7,6 +7,7 @@ import android.database.MatrixCursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
+import androidx.core.net.toUri
 import com.darius.unison.BuildConfig
 import java.io.File
 
@@ -74,7 +75,7 @@ class TestAudioContentProvider : ContentProvider() {
         val AUTHORITY = "${BuildConfig.APPLICATION_ID}.test.audio"
         const val PAYLOAD_SIZE = 8 * 1024
 
-        fun uri(scenario: String): Uri = Uri.parse("content://$AUTHORITY/$scenario")
+        fun uri(scenario: String): Uri = "content://$AUTHORITY/$scenario".toUri()
 
         fun payload(scenario: String): ByteArray =
             ByteArray(PAYLOAD_SIZE) { index -> ((index * 31 + scenario.length) and 0xff).toByte() }
