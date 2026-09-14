@@ -10,7 +10,7 @@ import java.util.Locale
  * Metadata normalization happens once when the queue changes. Querying only scans compact,
  * pre-normalized strings and preserves each item's canonical queue index.
  */
-class QueueSearchIndex(queue: List<QueueItem>) {
+internal class QueueSearchIndex(queue: List<QueueItem>) {
     private data class Entry(
         val originalIndex: Int,
         val item: QueueItem,
@@ -54,7 +54,7 @@ class QueueSearchIndex(queue: List<QueueItem>) {
     }
 }
 
-data class QueueSearchMatch(
+internal data class QueueSearchMatch(
     val originalIndex: Int,
     val item: QueueItem,
 )
