@@ -178,17 +178,19 @@ class TransferCoordinatorTest {
         var decision: TransferRouteFailureDecision? = null
 
         repeat(TransferCoordinator.MAX_CONSECUTIVE_ROUTE_FAILURES) { index ->
-            decision =
+            val routeDecision =
                 coordinator.recordRouteFailure(
                     TransferRouteKey(track(index + 1), sourceA, destination),
                     now,
                 )
-            now = decision!!.retryAtCoordinatorNs ?: now
+            decision = routeDecision
+            now = routeDecision.retryAtCoordinatorNs ?: now
         }
 
-        assertEquals(TransferCoordinator.MAX_CONSECUTIVE_ROUTE_FAILURES, decision!!.failures)
-        assertTrue(decision!!.suspended)
-        assertNull(decision!!.retryAtCoordinatorNs)
+        val finalDecision = requireNotNull(decision)
+        assertEquals(TransferCoordinator.MAX_CONSECUTIVE_ROUTE_FAILURES, finalDecision.failures)
+        assertTrue(finalDecision.suspended)
+        assertNull(finalDecision.retryAtCoordinatorNs)
         assertTrue(coordinator.routeHealthFor(sourceA, destination)!!.suspended)
         assertNull(
             coordinator.chooseSource(
