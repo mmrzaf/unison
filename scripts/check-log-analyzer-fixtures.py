@@ -22,7 +22,7 @@ class Case:
 
 
 CASES = (
-    Case("good-phase4.ndjson", True, True),
+    Case("good-room-lifecycle.ndjson", True, True),
     Case(
         "bad-natural-end-resurrection.ndjson",
         False,
@@ -30,7 +30,7 @@ CASES = (
         playback_marker="natural-end observations missing physical boundary handoff",
     ),
     Case(
-        "bad-empty-readiness-cohort.ndjson",
+        "bad-empty-readiness-set.ndjson",
         False,
         True,
         playback_marker="empty content-readiness cohort",
