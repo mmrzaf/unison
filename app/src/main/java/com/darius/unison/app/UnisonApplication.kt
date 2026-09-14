@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import com.darius.unison.storage.CacheCleanupWorker
 import com.darius.unison.util.DiagnosticCategory
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,9 +32,31 @@ class UnisonApplication : Application(), Configuration.Provider {
         super.onCreate()
         val appContainer = container
         appScope.launch {
-            appContainer.persistedUriPermissions.releaseAllUnused()
-            val identity = appContainer.settings.ensureIdentity()
-            appContainer.roomStore.update { it.copy(localIdentity = identity) }
+            try {
+                appContainer.persistedUriPermissions.releaseAllUnused()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                appContainer.diagnostics.warn(
+                    "UnisonApplication",
+                    DiagnosticCategory.STORAGE,
+                    "storage.uri_permissions.cleanup_failed",
+                    throwable = error,
+                )
+            }
+            try {
+                val identity = appContainer.settings.ensureIdentity()
+                appContainer.roomStore.update { it.copy(localIdentity = identity) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                appContainer.diagnostics.error(
+                    "UnisonApplication",
+                    DiagnosticCategory.APP,
+                    "app.identity.initialize_failed",
+                    throwable = error,
+                )
+            }
         }
         // WorkManager initialization and cleanup scheduling are maintenance, not launch-critical
         // work. Deferring both prevents first-frame contention on slower devices while still
