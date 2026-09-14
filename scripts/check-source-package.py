@@ -11,6 +11,7 @@ SENSITIVE_SUFFIXES = (".jks", ".keystore", ".p12", ".pfx", ".pem", ".key", ".bas
 FORBIDDEN_PARTS = {
     ".git",
     ".gradle",
+    ".gradle-user-home",
     ".kotlin",
     "build",
     "dist",
@@ -39,11 +40,17 @@ REQUIRED_SUFFIXES = {
     "gradle/libs.versions.toml",
     "app/build.gradle.kts",
     "scripts/check-source-tree.py",
+    "scripts/gradle.sh",
+    "scripts/check-release-signing.py",
+    "scripts/check-release-apk-metadata.py",
+    "scripts/verify-release-apk.sh",
 }
 
 
 def normalized_member_path(name: str) -> PurePosixPath:
     path = PurePosixPath(name)
+    if path.is_absolute():
+        raise ValueError(f"Archive member is absolute: {name}")
     parts = tuple(part for part in path.parts if part not in ("", "."))
     if any(part == ".." for part in parts):
         raise ValueError(f"Archive member escapes package root: {name}")
@@ -53,6 +60,7 @@ def normalized_member_path(name: str) -> PurePosixPath:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive")
+    parser.add_argument("--expected-root")
     args = parser.parse_args()
 
     with tarfile.open(args.archive, "r:*") as archive:
@@ -62,6 +70,8 @@ def main() -> int:
             if not path.parts:
                 continue
             paths.append(path)
+            if not (member.isfile() or member.isdir()):
+                raise SystemExit(f"Unsupported archive member type: {path}")
             lower_parts = tuple(part.lower() for part in path.parts)
             basename = lower_parts[-1]
             if basename in SENSITIVE_NAMES:
@@ -70,11 +80,17 @@ def main() -> int:
                 raise SystemExit(f"Sensitive key material found in source package: {path}")
             if any(part in FORBIDDEN_PARTS for part in lower_parts):
                 raise SystemExit(f"Generated/private directory found in source package: {path}")
-            if member.issym() or member.islnk():
-                target = PurePosixPath(member.linkname)
-                if target.is_absolute() or ".." in target.parts:
-                    raise SystemExit(f"Unsafe archive link: {path} -> {member.linkname}")
 
+        top_levels = {path.parts[0] for path in paths if path.parts}
+        if len(top_levels) != 1:
+            raise SystemExit("Source package must contain exactly one top-level directory")
+        package_root = next(iter(top_levels))
+        if not package_root.startswith("unison-"):
+            raise SystemExit(f"Unexpected source package root: {package_root}")
+        if args.expected_root is not None and package_root != args.expected_root:
+            raise SystemExit(
+                f"Source package root mismatch: expected {args.expected_root}, got {package_root}"
+            )
         # All release packages have one versioned top-level prefix. Check required paths beneath it.
         suffixes = {"/".join(path.parts[1:]) for path in paths if len(path.parts) >= 2}
         missing = sorted(REQUIRED_SUFFIXES - suffixes)
