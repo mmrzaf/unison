@@ -2,8 +2,96 @@
 
 ## Unreleased
 
-Changes after `1.2.0-beta.6` should be recorded here until the next prerelease or stable release is
+Changes after `1.2.0-beta.7` should be recorded here until the next prerelease or stable release is
 cut.
+
+## 1.2.0-beta.7
+
+### Fixed
+
+- Fixed long-distance playlist drag reordering by parking affected rows before assigning their final
+  positions, keeping the `(playlistId, position)` uniqueness invariant valid throughout the Room
+  transaction.
+- Routed display-name changes through the room actor and now reload the canonical normalized identity
+  after persistence, preventing a live service from advertising a stale or unnormalized name.
+- Enforced a real byte budget for every managed import even when a provider omits or understates
+  `OpenableColumns.SIZE`; managed imports are serialized so concurrent imports cannot spend the same
+  free-space snapshot.
+
+### Release preparation
+
+- Established `1.2.0-beta.7` (`versionCode 10`) as the next 1.2 stabilization candidate.
+- Established one clean local-data format v1 with canonical database `unison.db`. Beta 7 is the first
+  supported data baseline, so no legacy migration/reset compatibility layer is shipped.
+- Standardized the current strict wire contract as Protocol 1. There is no legacy wire mode, version
+  negotiation, fallback decoder, or parallel protocol implementation.
+- Updated release and physical-qualification guidance to target the current 1.2 candidate without
+  weakening the existing API 30/33/36, VPN/LAN, exact-artifact, and physical-device gates.
+- Pinned the expected release signing-certificate SHA-256 identity in local/CI release configuration;
+  release builds now fail both before and after signing if the supplied key or final APK certificate
+  differs from that identity, and the certificate exposed in the earlier local source archive is
+  explicitly revoked by the release gate.
+- Unified local and GitHub release-artifact verification around the same signed-APK gate: signature,
+  signing identity, zip alignment, package/version/SDK metadata, non-debuggable status, and APK-size
+  limit are all checked before publication.
+- Unified repository-owned Gradle invocations through `scripts/gradle.sh`; local verification uses an
+  ignored isolated Gradle user home so machine-wide `~/.gradle/init.d` repository rewrites cannot
+  silently alter Unison's trusted dependency-resolution path, while GitHub Actions keeps normal caching.
+
+### Reliability and testing
+
+- Added import storage-budget concurrency/failure tests. Android instrumentation now exercises playlist
+  reorder/compaction across a real Room database
+  reopen, picker imports through a real `ContentProvider` into managed storage and Room publication,
+  low-space rollback with no partial publication, display-name synchronization through the actual
+  `RoomRuntime` command path, persisted library sort keys, and RECENT ordering after playback.
+- Reworked the 100,000-track library benchmark to exercise the actual browse/search SQL, all four sort
+  modes, deep paging, and query plans. The release gate now rejects any browse path that falls back to a
+  temporary sort or stops using its intended composite index.
+- Completed a cumulative Beta 7 regression sweep across the v1 data contract, SRP admission,
+  authenticated transfer framing, room reducer/playback dispatch, queue search, import budgeting,
+  diagnostics sanitization, and Android network-lifecycle policies; hardened the Protocol 1 source
+  invariant so superseded protocol-version wording cannot slip through documentation.
+
+### Performance and diagnostics
+
+- Added persisted normalized TITLE/ARTIST/ALBUM sort keys plus a single RECENT sort timestamp and
+  composite indexes matching the paging queries. Empty-library browsing no longer performs a full table
+  scan followed by a temporary B-tree sort; filtered search keeps its existing literal substring
+  semantics.
+- Import/M3U/playlist-update failures now emit sanitized structured diagnostics with operation/count
+  metadata while keeping content URIs, playlist names/IDs, and file paths out of diagnostic attributes.
+- Startup URI-permission cleanup is isolated from identity initialization, so a maintenance failure cannot
+  prevent canonical local identity publication; both failures are diagnosed independently.
+- Optional media-metadata extraction failures remain non-fatal but now leave a sanitized diagnostic
+  event instead of disappearing silently.
+- Hardened diagnostic text sanitization for quoted credential fields, bearer tokens, file/content URIs,
+  private storage paths, and local IPv4/bracketed-IPv6 endpoints before persistence or Logcat output.
+- Preserved only the R8 class names that form structured diagnostic type labels, so minified release
+  builds keep analyzer-compatible command/mutation/failure names without disabling shrinking or
+  optimization for those implementations.
+
+### Cleanup and coherence
+
+- Replaced the room screen's duplicate inline queue filter with the normalized `QueueSearchIndex`,
+  so the tested Unicode/diacritic, multi-term, filename-aware search path is now the one users run.
+- Removed abandoned UI and helper APIs, obsolete transfer verification wrappers, and a superseded
+  repeat-transition path whose only remaining callers were tests.
+- Removed unused room commands for library-file mutations and their asynchronous actor event path;
+  library mutations stay repository-owned while display-name changes remain runtime-owned.
+- Removed the unused serialized room-options feature (`waitAtTrackBoundary` / configurable preload),
+  its unreachable command and protocol message, and tests that existed only to preserve that dead path;
+  prefetch behavior now has one fixed policy owned by `TrackPrefetchPolicy`.
+- Removed three unused direct dependencies and collapsed redundant custom Kotlin/JUnit/Media3/Android
+  stub runners into the real Gradle unit/build gate, retaining only the network-lifecycle harness that
+  exercises unique Android routing/NSD/hotspot behavior.
+- Removed the hand-written Kotlin pseudo-linter and reduced repository source checks to durable
+  release/security/architecture invariants instead of exact UI implementation strings.
+- Normalized current documentation and diagnostic fixtures to Protocol 1/current event names, removing
+  stale implementation-phase and historical diagnostic compatibility branches.
+- Consolidated Beta 7 release-state documentation around one current evidence record, removed abandoned
+  incomplete prerelease evidence stubs, made release instructions version-independent, and removed
+  duplicated physical/release qualification bookkeeping.
 
 ## 1.2.0-beta.6
 
@@ -39,7 +127,7 @@ cut.
   room playback/queue presentation, UI invariant, and diagnostic analyzer regression coverage.
 - Added explicit physical qualification for Android 16 VPN/LAN combinations, non-default local-only
   Wi-Fi, both transfer directions, route recovery, and retry-storm prevention.
-- Kept Protocol 2, Room schema 1, `targetSdk 33`, and the existing storage/playback architecture
+- Kept Protocol 1, Room schema 1, `targetSdk 33`, and the existing storage/playback architecture
   unchanged.
 
 ## 1.2.0-beta.5
@@ -93,7 +181,7 @@ cut.
   work.
 - Hardened `SerializedEventLoop` so handler-thrown cancellation cannot silently kill a healthy owner
   coroutine while genuine owner cancellation still terminates normally.
-- Kept Protocol 2 and Room schema 1 unchanged; no Protocol 3 or database migration was required.
+- Kept Protocol 1 and Room schema 1 unchanged; no wire-version or database-schema change was required.
 - Retained `targetSdk 33` for the 1.2 release line while compiling against SDK 36 and qualifying API
   30/33/36 behavior explicitly.
 
@@ -120,7 +208,7 @@ cut.
 
 - Player timelines stop at the first unavailable or unprepared canonical successor instead of exposing later ready songs.
 - Media3 mutations are serialized behind one player authority; natural completion is reported to canonical room logic.
-- Protocol 2 removes transient readiness, endpoint, connection, and transfer state from canonical snapshots.
+- Protocol 1 removes transient readiness, endpoint, connection, and transfer state from canonical snapshots.
 - Coordinator loss uses bounded reconnect, then ends the room cleanly when recovery is impossible.
 - Playback demand drives bounded, resumable peer transfers with priority, deadlines, preemption, and typed failures.
 - Joining peers catch up only after current and successor content are ready, without stalling healthy listeners.
