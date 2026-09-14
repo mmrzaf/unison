@@ -56,65 +56,94 @@ def entity_identity(entity):
     return digest(append_all(values))
 
 entity_hashes = sorted((entity_identity(entity) for entity in schema['entities']), key=str.lower)
-assert schema['identityHash'] == digest(append_all(entity_hashes)), schema['identityHash']
+expected_identity = digest(append_all(entity_hashes))
+assert schema['identityHash'] == expected_identity, schema['identityHash']
+assert schema['setupQueries'][-1].endswith(f"'{expected_identity}')"), schema['setupQueries'][-1]
+
 tracks = next(entity for entity in schema['entities'] if entity['tableName'] == 'tracks')
-assert any(field['columnName'] == 'searchText' for field in tracks['fields'])
-statements = [
-    index['createSql'].replace('${TABLE_NAME}', 'tracks')
-    for index in tracks['indices']
-]
-assert len(statements) == 7, statements
+fields = {field['columnName'] for field in tracks['fields']}
+assert {'searchText', 'sortTitle', 'sortArtist', 'sortAlbum', 'recentSortAt'} <= fields
+index_names = {index['name'] for index in tracks['indices']}
+expected_indexes = {
+    'index_tracks_recentSortAt_trackId',
+    'index_tracks_sortTitle_trackId',
+    'index_tracks_sortArtist_sortTitle_trackId',
+    'index_tracks_sortAlbum_sortTitle_trackId',
+}
+assert index_names == expected_indexes, index_names
 
 connection = sqlite3.connect(':memory:')
 connection.execute(tracks['createSql'].replace('${TABLE_NAME}', 'tracks'))
-connection.execute(
-    'INSERT INTO tracks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+for index in tracks['indices']:
+    connection.execute(index['createSql'].replace('${TABLE_NAME}', 'tracks'))
+
+rows = [
     (
-        'a' * 64,
-        1234,
-        'audio/mpeg',
-        180000,
-        'The Loneliest',
-        'Måneskin',
-        'Rush!',
-        'track.mp3',
-        'the loneliest måneskin rush! track.mp3',
-        10,
-        None,
+        'a' * 64, 1234, 'audio/mpeg', 180000, 'The Loneliest', 'Måneskin', 'Rush!',
+        'track.mp3', 'the loneliest måneskin rush! track.mp3', 'the loneliest', 'måneskin',
+        'rush!', 10, 10, None,
     ),
+    (
+        'b' * 64, 1234, 'audio/mpeg', 180000, None, None, None,
+        'Fallback.mp3', 'fallback.mp3', 'fallback.mp3', '', '', 20, 20, None,
+    ),
+]
+connection.executemany(
+    'INSERT INTO tracks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', rows
 )
-for statement in statements:
-    connection.execute(statement)
 
 row = connection.execute(
-    'SELECT title, artist, sizeBytes, searchText FROM tracks WHERE trackId = ?',
+    'SELECT title, artist, sizeBytes, searchText, sortTitle, sortArtist, sortAlbum, recentSortAt '
+    'FROM tracks WHERE trackId = ?',
     ('a' * 64,),
 ).fetchone()
-assert row == ('The Loneliest', 'Måneskin', 1234, 'the loneliest måneskin rush! track.mp3'), row
-indexes = {row[1] for row in connection.execute("PRAGMA index_list('tracks')")}
-expected = {
-    'index_tracks_createdAt',
-    'index_tracks_lastPlayedAt',
-    'index_tracks_title',
-    'index_tracks_artist',
-    'index_tracks_album',
-    'index_tracks_originalFileName',
-    'index_tracks_searchText',
-}
-assert expected <= indexes, (expected, indexes)
+assert row == (
+    'The Loneliest', 'Måneskin', 1234, 'the loneliest måneskin rush! track.mp3',
+    'the loneliest', 'måneskin', 'rush!', 10,
+), row
 
-# Exercise every paging/sort query shape against the release schema.
-query = 'loneliest'
-where = "WHERE ? = '' OR searchText LIKE '%' || ? || '%'"
-params = (query, query)
-orders = [
-    'COALESCE(lastPlayedAt, createdAt) DESC, trackId ASC',
-    "LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC",
-    "LOWER(COALESCE(artist, '')) ASC, LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC",
-    "LOWER(COALESCE(album, '')) ASC, LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC",
-]
-for order in orders:
-    rows = connection.execute(f'SELECT trackId FROM tracks {where} ORDER BY {order} LIMIT 60 OFFSET 0', params).fetchall()
-    assert rows == [('a' * 64,)], (order, rows)
+browse_queries = {
+    'recent': (
+        'SELECT * FROM tracks ORDER BY recentSortAt DESC, trackId DESC LIMIT 60 OFFSET 0',
+        'index_tracks_recentSortAt_trackId',
+    ),
+    'title': (
+        'SELECT * FROM tracks ORDER BY sortTitle ASC, trackId ASC LIMIT 60 OFFSET 0',
+        'index_tracks_sortTitle_trackId',
+    ),
+    'artist': (
+        'SELECT * FROM tracks ORDER BY sortArtist ASC, sortTitle ASC, trackId ASC LIMIT 60 OFFSET 0',
+        'index_tracks_sortArtist_sortTitle_trackId',
+    ),
+    'album': (
+        'SELECT * FROM tracks ORDER BY sortAlbum ASC, sortTitle ASC, trackId ASC LIMIT 60 OFFSET 0',
+        'index_tracks_sortAlbum_sortTitle_trackId',
+    ),
+}
+for name, (query, expected_index) in browse_queries.items():
+    plan = ' | '.join(row[3] for row in connection.execute('EXPLAIN QUERY PLAN ' + query))
+    assert expected_index in plan, (name, plan)
+    assert 'TEMP B-TREE FOR ORDER BY' not in plan, (name, plan)
+    assert connection.execute(query).fetchall(), name
+
+search_rows = connection.execute(
+    "SELECT trackId FROM tracks WHERE searchText LIKE '%' || ? || '%' ESCAPE '!' "
+    'ORDER BY sortTitle ASC, trackId ASC LIMIT 60',
+    ('loneliest',),
+).fetchall()
+assert search_rows == [('a' * 64,)], search_rows
+
+# RECENT has one persisted ordering key; marking a track played must update both the public
+# timestamp and the key used by the index-backed browse query.
+connection.execute(
+    'UPDATE tracks SET lastPlayedAt = ?, recentSortAt = ? WHERE trackId = ?',
+    (99, 99, 'a' * 64),
+)
+recent = connection.execute(
+    'SELECT trackId, lastPlayedAt, recentSortAt FROM tracks '
+    'ORDER BY recentSortAt DESC, trackId DESC'
+).fetchall()
+assert recent[0] == ('a' * 64, 99, 99), recent
+
 print('DATA_SCHEMA_OK')
 PY
