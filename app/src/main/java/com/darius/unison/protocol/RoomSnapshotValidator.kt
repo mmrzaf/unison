@@ -127,8 +127,6 @@ class RoomSnapshotValidator(
             reject("playback_speed", "Playback speed is outside the protocol bounds")
         }
 
-        if (snapshot.options.preloadCount !in 1..3) reject("preload", "Invalid preload count")
-
         return if (issues.isEmpty()) SnapshotValidationResult.Valid
         else SnapshotValidationResult.Invalid(issues)
     }

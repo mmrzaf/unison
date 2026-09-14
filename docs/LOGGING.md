@@ -1,7 +1,7 @@
 # Structured diagnostics
 
 Unison has one diagnostic pipeline for application events, room troubleshooting, device captures, and
-release soak analysis. There is no parallel legacy text logger.
+release soak analysis. There is no parallel text-logging implementation.
 
 ## Record format
 
@@ -148,7 +148,7 @@ The stability analyzer independently rejects unavailable-media command rejection
 assignment, handshake timeout, reconnect/retry churn, malformed records, unclean room teardown, and any
 `room.event.unexpected_handler_cancellation`. Transfer-attempt accounting deduplicates
 `transfer.download.route_start`, `transfer.download.connecting`, and failure-detail records by operation
-or assignment ID. This intentionally counts Beta 5-style failures that happened before TCP connect and
+or assignment ID. This intentionally counts pre-connect failures that happen before TCP connect and
 therefore never emitted `transfer.download.connecting`. The summary separately reports transfer-purpose
 socket route attempts/failures, typed route-failure reasons, circuit suspensions, and explicit retry
 requests. Stale/provenance rejection events are retained as bounded forensic evidence but are not

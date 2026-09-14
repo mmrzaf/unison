@@ -6,7 +6,7 @@ import com.darius.unison.protocol.TransferFailureBlame
 import com.darius.unison.protocol.TransferFailureCode
 
 /**
- * Maps pre-connect Android LAN routing failures onto Protocol 2's existing transfer failure model.
+ * Maps pre-connect Android LAN routing failures onto Protocol 1's existing transfer failure model.
  *
  * Policy/access denials are local to the receiving phone and deterministic until the environment
  * changes, so retrying the same assignment cannot help. Network loss and otherwise-unclassified

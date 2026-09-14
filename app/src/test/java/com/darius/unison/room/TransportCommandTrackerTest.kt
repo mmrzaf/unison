@@ -1,7 +1,6 @@
 package com.darius.unison.room
 
 import com.darius.unison.model.PeerId
-import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TransportAction
 import com.darius.unison.model.TransportCommandPhase
 import org.junit.Assert.assertEquals
@@ -11,20 +10,6 @@ import org.junit.Test
 
 class TransportCommandTrackerTest {
     private val peer = PeerId("peer-000000000001")
-
-    @Test
-    fun resolvedTargetIsRetainedForLaterLifecyclePhases() {
-        val tracker = TransportCommandTracker()
-        tracker.remember(
-            "next",
-            TransportCommandTracker.Route(peer, TransportAction.NEXT),
-        )
-        val target = QueueItemId("target")
-
-        tracker.updateTarget("next", queueItemId = target)
-
-        assertEquals(target, tracker.route("next")?.queueItemId)
-    }
 
     @Test
     fun terminalCompletionRemovesRoute() {

@@ -7,7 +7,6 @@ import com.darius.unison.BuildConfig
 import com.darius.unison.app.AppContainer
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.CoordinatorTerm
-import com.darius.unison.model.DEFAULT_DISPLAY_NAME
 import com.darius.unison.model.DiscoveredRoom
 import com.darius.unison.model.HotspotInfo
 import com.darius.unison.model.LocalIdentity
@@ -394,10 +393,6 @@ class RoomRuntime(
                                 ?: error("AddTracks is missing its ingress fence"),
                             event.completion,
                         )
-                    is AppCommand.KeepTrack,
-                    is AppCommand.RemoveTemporaryTrack ->
-                        beginRepositoryCommand(event.command, event.completion)
-
                     else -> completeEvent(event.completion) { handleAppCommand(event.command) }
                 }
 
@@ -483,14 +478,6 @@ class RoomRuntime(
             is RoomEvent.TracksPrepared ->
                 completeEvent(event.completion) {
                     applyPreparedTracks(event)
-                }
-
-            is RoomEvent.RepositoryCommandCompleted ->
-                completeEvent(event.completion) {
-                    event.error?.let { throw it }
-                    if (!sessionJobs.isCurrent(event.generation)) {
-                        return@completeEvent
-                    }
                 }
 
             is RoomEvent.LocalAddressChanged -> processLocalAddressChanged(event.address)
@@ -921,6 +908,23 @@ class RoomRuntime(
     }
 
     private suspend fun handleAppCommand(command: AppCommand) {
+        // Updating local identity must not bring up room networking. Besides being unnecessary,
+        // starting a real PeerServer makes this settings-only command depend on socket setup.
+        if (command is AppCommand.SaveDisplayName) {
+            diagnostics.info("room.command.received", "command.type" to command::class.simpleName)
+            container.settings.saveDisplayName(command.name)
+            identity = container.settings.ensureIdentity()
+            container.roomStore.update { it.copy(localIdentity = identity) }
+            if (isCoordinator()) {
+                refreshLocalCoordinatorEndpoint()
+            } else if (engine != null) {
+                localEndpointOrNull()?.let {
+                    sendToCoordinator(ProtocolBody.EndpointAnnouncement(it))
+                }
+            }
+            return
+        }
+
         ensureInitialized()
         diagnostics.info("room.command.received", "command.type" to command::class.simpleName)
         when (command) {
@@ -952,25 +956,9 @@ class RoomRuntime(
                 }
             }
             is AppCommand.AddTracks -> error("Track preparation must run outside the room actor")
-            is AppCommand.SaveDisplayName -> {
-                container.settings.saveDisplayName(command.name)
-                identity =
-                    container.settings
-                        .ensureIdentity()
-                        .copy(displayName = command.name.trim().ifBlank { DEFAULT_DISPLAY_NAME })
-                container.roomStore.update { it.copy(localIdentity = identity) }
-                if (isCoordinator()) {
-                    refreshLocalCoordinatorEndpoint()
-                } else if (engine != null) {
-                    localEndpointOrNull()?.let {
-                        sendToCoordinator(ProtocolBody.EndpointAnnouncement(it))
-                    }
-                }
-            }
+            // Handled before ensureInitialized() so a settings-only update never starts networking.
+            is AppCommand.SaveDisplayName -> Unit
 
-            is AppCommand.KeepTrack,
-            is AppCommand.RemoveTemporaryTrack ->
-                error("Library file operations must run outside the room actor")
             is AppCommand.Play -> {
                 val snapshot = engine?.snapshot()
                 val local = player.state.value
@@ -1098,14 +1086,6 @@ class RoomRuntime(
 
             AppCommand.ClearQueue ->
                 submitUserCommand(UserCommand.QueueClear(requestedBy = identity.peerId))
-
-            is AppCommand.UpdateRoomOptions ->
-                submitUserCommand(
-                    UserCommand.OptionsChange(
-                        requestedBy = identity.peerId,
-                        options = command.options,
-                    )
-                )
         }
     }
 
@@ -1126,6 +1106,10 @@ class RoomRuntime(
             transferManager =
                 TransferManager(
                     localIdentity = identity,
+                    localDisplayName = {
+                        container.roomStore.structure.value.localIdentity?.displayName
+                            ?: identity.displayName
+                    },
                     listeningPort = { server.port },
                     appVersion = BuildConfig.VERSION_NAME,
                     trackRepository = container.trackRepository,
@@ -1533,55 +1517,6 @@ class RoomRuntime(
                 discoveryCompleted = false,
                 statusMessage = if (state.snapshot == null) null else state.statusMessage,
             )
-        }
-    }
-
-    private fun beginRepositoryCommand(
-        command: AppCommand,
-        completion: CompletableDeferred<Unit>,
-    ) {
-        val generation = sessionJobs.generation
-        val submitted = AtomicBoolean(false)
-        val job = launchSessionJob {
-            val error =
-                try {
-                    withContext(Dispatchers.IO) {
-                        when (command) {
-                            is AppCommand.KeepTrack ->
-                                container.trackRepository.keep(command.trackId)
-                            is AppCommand.RemoveTemporaryTrack ->
-                                container.trackRepository.deleteTemporary(command.trackId)
-
-                            else -> error("Unsupported repository command")
-                        }
-                    }
-                    null
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Throwable) {
-                    failure
-                }
-            val completed =
-                RoomEvent.RepositoryCommandCompleted(
-                    generation = generation,
-                    command = command,
-                    error = error,
-                    completion = completion,
-                )
-            submitted.set(true)
-            try {
-                roomEvents.submit(completed)
-            } catch (failure: Throwable) {
-                submitted.set(false)
-                throw failure
-            }
-        }
-        job.invokeOnCompletion { cause ->
-            if (!submitted.get() && !completion.isCompleted) {
-                completion.completeExceptionally(
-                    cause ?: CancellationException("Room changed during library operation")
-                )
-            }
         }
     }
 
@@ -2845,7 +2780,6 @@ class RoomRuntime(
                     }
                 }
             }
-            is ProtocolBody.RoomOptionsChanged -> applyCanonicalEnvelope(envelope, body)
             is ProtocolBody.QueueShuffled -> applyCanonicalEnvelope(envelope, body)
             is ProtocolBody.RepeatModeChanged -> applyCanonicalEnvelope(envelope, body)
             is ProtocolBody.PlayScheduled -> applyCanonicalEnvelope(envelope, body)
@@ -3872,7 +3806,8 @@ class RoomRuntime(
             PlaybackQueuePolicy.playerWindow(
                 snapshot = snapshot,
                 historyCount = PLAYER_HISTORY_ITEMS,
-                upcomingCount = maxOf(snapshot.options.preloadCount + 2, PLAYER_UPCOMING_ITEMS),
+                upcomingCount =
+                    maxOf(TrackPrefetchPolicy.DEFAULT_UPCOMING_COUNT + 2, PLAYER_UPCOMING_ITEMS),
             )
         val readable =
             withContext(Dispatchers.IO) {
@@ -4160,10 +4095,7 @@ class RoomRuntime(
                     destinationPeerId = identity.peerId,
                     coordinatorNowNs = nowNs,
                     priorityQueueItemId = priorityQueueItemId,
-                    upcomingCount =
-                        snapshot.options.preloadCount.coerceAtMost(
-                            TrackPrefetchPolicy.DEFAULT_UPCOMING_COUNT
-                        ),
+                    upcomingCount = TrackPrefetchPolicy.DEFAULT_UPCOMING_COUNT,
                 )
                 .map { demand ->
                     if (hasCoordinatorClock) demand else demand.copy(neededByCoordinatorNs = null)
@@ -4758,18 +4690,6 @@ class RoomRuntime(
         }
     }
 
-    private suspend fun resetPlaybackSynchronizationAfterRoleChange(reason: String) {
-        resetClockSynchronization()
-        val canonical = engine?.snapshot()?.playback.takeIf { isCoordinator() }
-        localPlaybackSync.resetPlaybackConvergence(
-            canonical = canonical,
-            preserveLearnedBaseline = false,
-        )
-        syncDiagnostics.clear()
-        container.roomStore.updatePlayback { it.copy(localDriftMs = null) }
-        diagnostics.info("sync.reacquire.required", "reason" to reason)
-    }
-
     private fun refreshPowerLocks() {
         val structure = container.roomStore.structure.value
         val demand = RoomPowerPolicy.evaluate(sessionActive = structure.sessionActive)
@@ -5306,7 +5226,7 @@ class RoomRuntime(
             )
         }
         if (isCoordinator()) {
-            // Protocol 2 already has LeaveRoom. From the coordinator it is a terminal room signal,
+            // Protocol 1 already has LeaveRoom. From the coordinator it is a terminal room signal,
             // so healthy participants do not waste a reconnect window after an intentional exit.
             suspendResult { broadcast(ProtocolBody.LeaveRoom(reason)) }
         } else {

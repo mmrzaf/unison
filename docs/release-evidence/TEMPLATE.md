@@ -6,10 +6,12 @@ Status: **IN PROGRESS**
 
 - Version: `<version>`
 - Tag: `v<version>`
+- versionCode: `<versionCode>`
+- Intended release type: **beta / RC / stable**
 - GitHub Release / Actions run: **PENDING**
 
-Machine-generated checksums, signing metadata, automated gate results, and provenance remain attached to
-the GitHub release/run and are not duplicated here.
+Machine-generated checksums, signing metadata, automated gate results, exact release commit, and
+provenance remain attached to the GitHub release/run and are not duplicated here.
 
 ## Human qualification
 

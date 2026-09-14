@@ -18,17 +18,16 @@ import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
+internal const val UNISON_DATABASE_NAME = "unison.db"
+
 @Entity(
     tableName = "tracks",
     indices =
         [
-            Index("createdAt"),
-            Index("lastPlayedAt"),
-            Index("title"),
-            Index("artist"),
-            Index("album"),
-            Index("originalFileName"),
-            Index("searchText"),
+            Index(value = ["recentSortAt", "trackId"]),
+            Index(value = ["sortTitle", "trackId"]),
+            Index(value = ["sortArtist", "sortTitle", "trackId"]),
+            Index(value = ["sortAlbum", "sortTitle", "trackId"]),
         ],
 )
 data class TrackEntity(
@@ -41,6 +40,10 @@ data class TrackEntity(
     val album: String?,
     val originalFileName: String?,
     val searchText: String,
+    val sortTitle: String,
+    val sortArtist: String,
+    val sortAlbum: String,
+    val recentSortAt: Long,
     val createdAt: Long,
     val lastPlayedAt: Long?,
 )
@@ -119,59 +122,71 @@ data class PlaylistEntryEntity(
 
 @Dao
 interface TrackDao {
-    @Query(
-        """
-        SELECT * FROM tracks
-        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
-        ORDER BY COALESCE(lastPlayedAt, createdAt) DESC, trackId ASC
-        """
-    )
-    fun pagingRecent(query: String): PagingSource<Int, TrackEntity>
+    @Query("SELECT * FROM tracks ORDER BY recentSortAt DESC, trackId DESC")
+    fun pagingRecent(): PagingSource<Int, TrackEntity>
 
     @Query(
         """
         SELECT * FROM tracks
-        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
-        ORDER BY LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        WHERE searchText LIKE '%' || :query || '%' ESCAPE '!'
+        ORDER BY recentSortAt DESC, trackId DESC
         """
     )
-    fun pagingByTitle(query: String): PagingSource<Int, TrackEntity>
+    fun searchRecent(query: String): PagingSource<Int, TrackEntity>
+
+    @Query("SELECT * FROM tracks ORDER BY sortTitle ASC, trackId ASC")
+    fun pagingByTitle(): PagingSource<Int, TrackEntity>
 
     @Query(
         """
         SELECT * FROM tracks
-        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
-        ORDER BY LOWER(COALESCE(artist, '')) ASC, LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        WHERE searchText LIKE '%' || :query || '%' ESCAPE '!'
+        ORDER BY sortTitle ASC, trackId ASC
         """
     )
-    fun pagingByArtist(query: String): PagingSource<Int, TrackEntity>
+    fun searchByTitle(query: String): PagingSource<Int, TrackEntity>
+
+    @Query("SELECT * FROM tracks ORDER BY sortArtist ASC, sortTitle ASC, trackId ASC")
+    fun pagingByArtist(): PagingSource<Int, TrackEntity>
 
     @Query(
         """
         SELECT * FROM tracks
-        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
-        ORDER BY LOWER(COALESCE(album, '')) ASC, LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        WHERE searchText LIKE '%' || :query || '%' ESCAPE '!'
+        ORDER BY sortArtist ASC, sortTitle ASC, trackId ASC
         """
     )
-    fun pagingByAlbum(query: String): PagingSource<Int, TrackEntity>
+    fun searchByArtist(query: String): PagingSource<Int, TrackEntity>
+
+    @Query("SELECT * FROM tracks ORDER BY sortAlbum ASC, sortTitle ASC, trackId ASC")
+    fun pagingByAlbum(): PagingSource<Int, TrackEntity>
 
     @Query(
         """
-        SELECT COUNT(*) FROM tracks
-        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
+        SELECT * FROM tracks
+        WHERE searchText LIKE '%' || :query || '%' ESCAPE '!'
+        ORDER BY sortAlbum ASC, sortTitle ASC, trackId ASC
         """
     )
-    fun observeLibraryCount(query: String): Flow<Int>
+    fun searchByAlbum(query: String): PagingSource<Int, TrackEntity>
+
+    @Query("SELECT COUNT(*) FROM tracks") fun observeLibraryCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM tracks WHERE searchText LIKE '%' || :query || '%' ESCAPE '!'")
+    fun observeSearchCount(query: String): Flow<Int>
+
+    @Query("SELECT trackId FROM tracks ORDER BY sortTitle ASC, trackId ASC LIMIT :limit")
+    suspend fun libraryTrackIds(limit: Int): List<String>
 
     @Query(
         """
         SELECT trackId FROM tracks
-        WHERE :query = '' OR searchText LIKE '%' || :query || '%' ESCAPE '!'
-        ORDER BY LOWER(COALESCE(title, originalFileName, '')) ASC, trackId ASC
+        WHERE searchText LIKE '%' || :query || '%' ESCAPE '!'
+        ORDER BY sortTitle ASC, trackId ASC
         LIMIT :limit
         """
     )
-    suspend fun libraryTrackIds(query: String, limit: Int): List<String>
+    suspend fun searchTrackIds(query: String, limit: Int): List<String>
 
     @Query(
         """
@@ -191,7 +206,9 @@ interface TrackDao {
 
     @Upsert suspend fun upsert(track: TrackEntity)
 
-    @Query("UPDATE tracks SET lastPlayedAt = :timestamp WHERE trackId = :trackId")
+    @Query(
+        "UPDATE tracks SET lastPlayedAt = :timestamp, recentSortAt = :timestamp WHERE trackId = :trackId"
+    )
     suspend fun markPlayed(trackId: String, timestamp: Long)
 
     @Query("DELETE FROM tracks WHERE trackId = :trackId") suspend fun delete(trackId: String)
@@ -399,7 +416,7 @@ abstract class UnisonDatabase : RoomDatabase() {
             Room.databaseBuilder(
                     context.applicationContext,
                     UnisonDatabase::class.java,
-                    "unison-1.db",
+                    UNISON_DATABASE_NAME,
                 )
                 .build()
     }

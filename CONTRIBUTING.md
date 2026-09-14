@@ -56,11 +56,11 @@ For behavior changes, also run the relevant focused tests plus:
 
 ```bash
 ./scripts/check-release-quality.sh
-./gradlew --no-daemon testDebugUnitTest lintDebug :app:compileDebugAndroidTestKotlin
+./scripts/gradle.sh --no-daemon testDebugUnitTest lintDebug :app:compileDebugAndroidTestKotlin
 ```
 
 Android/framework behavior should be exercised with instrumentation rather than inferred from JVM
-stubs. `connectedDebugAndroidTest` is the normal local entry point when an emulator/device is ready.
+stubs. `./scripts/gradle.sh --no-daemon connectedDebugAndroidTest` is the normal local entry point when an emulator/device is ready.
 The release workflow executes instrumentation on API 30, 33, and 36.
 
 Add focused regression coverage for behavior changes. A small test that asserts an invariant is
@@ -82,7 +82,7 @@ change unless they are inseparable.
 
 ## Protocol and schema changes
 
-The 1.2 release line uses strict Protocol 2 and Room schema 1. Do not increment the protocol merely
+The 1.2 release line uses strict Protocol 1 and Room schema 1. Do not increment the protocol merely
 because implementation code changed. A new protocol version must correspond to a real incompatible
 wire-semantic improvement, with docs/tests updated in the same change. Database migration support is
 also a deliberate product/release decision, not an incidental Room change.

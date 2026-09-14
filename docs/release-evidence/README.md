@@ -1,18 +1,22 @@
 # Release evidence
 
-Keep one concise evidence record for every public beta, RC, and stable release.
+Keep one concise evidence record for every **public** beta, RC, and stable release.
 
-The purpose of these files is to retain **human release evidence** that is not already captured better by
-GitHub Actions or generated release artifacts. They are intentionally not a second copy of the CI log.
+These files retain human release evidence that is not already captured better by GitHub Actions or
+generated release artifacts. They are intentionally not a second copy of the CI log.
 
-For each version:
+For each candidate intended for publication:
 
 1. copy `TEMPLATE.md` to `<version>.md` before tagging;
-2. fill the version/tag and any pre-tag human qualification already completed;
+2. fill the version/tag/versionCode and any pre-tag human qualification already completed;
 3. push the immutable release tag and let the full release workflow run;
 4. after publication, install/smoke-test the exact published APK;
 5. add the GitHub Release/Actions reference, physical-device result, accepted known issues, and final
    reviewer/date.
+
+If an unpublished candidate is abandoned, delete an otherwise-empty evidence stub rather than leaving
+it indefinitely marked **IN PROGRESS**. If a candidate was actually published or materially qualified,
+retain the record and write its real final disposition.
 
 Machine-generated evidence remains authoritative in its original location:
 

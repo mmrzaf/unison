@@ -18,12 +18,12 @@ it does not claim that JVM big-integer arithmetic is constant-time.
   proofs, HKDF session-key derivation, proof/session single use, admission timeouts, concurrency
   limits, and address/global failure throttling remain in `PinPake`/`AdmissionGuard` and retain their
   existing tests.
-- Matching-code, wrong-code, replay/single-use, and public-value tests execute in the release
-  hardening check after the arithmetic extraction.
+- Matching-code, wrong-code, replay/single-use, and public-value tests execute in the normal
+  Gradle unit-test gate alongside the arithmetic conformance test.
 
 The RFC 5054 vector is a conformance check for the standard SRP-6a equations, not a claim that Unison
 uses RFC 5054's Appendix A group or its TLS ciphersuite. Unison's group and SHA-256 transcript wrapper
-are a local protocol choice and remain wire-compatible with Protocol 2.
+are a local protocol choice and remain wire-compatible with Protocol 1.
 
 ## Timing limitation
 

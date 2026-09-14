@@ -11,7 +11,6 @@ from datetime import datetime
 from pathlib import Path
 
 LATE_THRESHOLD_MS = 1_000
-LEGACY_IMMEDIATE_EXECUTION_MS = 100
 
 
 def load_events(path: Path):
@@ -93,7 +92,6 @@ def transfer_attempt_identity(event):
 def analyze(events, malformed=0):
     counts = Counter()
     attempt_keys_by_track = {}
-    legacy_attempts_by_track = Counter()
     completed_by_track = Counter()
     retries_by_route = Counter()
     failures_by_phase = Counter()
@@ -102,8 +100,6 @@ def analyze(events, malformed=0):
     socket_route_failures = 0
     teardown_violations = []
     unavailable_rejection_keys = set()
-    legacy_unavailable_rejections = []
-    transport_unavailable_rejections = []
 
     scheduled = {}
     max_total_late_ms = 0
@@ -123,10 +119,6 @@ def analyze(events, malformed=0):
             attempt_identity = transfer_attempt_identity(event)
             if attempt_identity is not None:
                 attempt_keys_by_track.setdefault(track, set()).add(attempt_identity)
-            elif name != "transfer.download.failure_detail":
-                # Legacy logs may lack operation/assignment IDs. Count route/connect start events,
-                # but do not infer an extra attempt from their adjacent failure-detail record.
-                legacy_attempts_by_track[track] += 1
 
         if name == "network.socket.route_attempt" and attr(event, "network.socket_purpose") == "transfer":
             socket_route_attempts += 1
@@ -164,27 +156,10 @@ def analyze(events, malformed=0):
             else:
                 executor_late = None
 
-            schedule_event = scheduled.get(schedule_key(event))
-            if arrival_late is None and executor_late is None and total_late > 0 and schedule_event is not None:
-                scheduled_at = timestamp(schedule_event)
-                executed_at = timestamp(event)
-                delay_ms = None
-                if scheduled_at is not None and executed_at is not None:
-                    delay_ms = max(0, int((executed_at - scheduled_at).total_seconds() * 1_000))
-                # Legacy diagnostics only exposed total lateness. If the command was logged as
-                # scheduled immediately before an already-late execution, attribute the lateness to
-                # arrival/actor/network delay rather than blaming PlayerExecutor.
-                if delay_ms is not None and delay_ms <= LEGACY_IMMEDIATE_EXECUTION_MS:
-                    arrival_late = total_late
-                    executor_late = 0
-                else:
-                    arrival_late = 0
-                    executor_late = total_late
-            else:
-                if arrival_late is None:
-                    arrival_late = 0
-                if executor_late is None:
-                    executor_late = max(0, total_late - arrival_late)
+            if arrival_late is None:
+                arrival_late = 0
+            if executor_late is None:
+                executor_late = max(0, total_late - arrival_late)
 
             max_arrival_late_ms = max(max_arrival_late_ms, arrival_late)
             max_executor_late_ms = max(max_executor_late_ms, executor_late)
@@ -196,36 +171,14 @@ def analyze(events, malformed=0):
             if isinstance(active, (int, float)) and active > 0:
                 teardown_violations.append(f"room ended with {int(active)} active transfers")
 
-        if name == "room.command.rejected" and unavailable_reason(event):
-            when = timestamp(event)
-            if when is not None:
-                legacy_unavailable_rejections.append(when)
         if name == "playback.command.rejected" and unavailable_reason(event):
             command_id = attr(event, "command.id")
             unavailable_rejection_keys.add(str(command_id) if command_id else f"sequence:{event.get('sequence')}:{name}")
         if name == "room.transport.status" and attr(event, "transport.phase") == "REJECTED" and unavailable_reason(event):
             command_id = attr(event, "command.id")
             unavailable_rejection_keys.add(str(command_id) if command_id else f"sequence:{event.get('sequence')}:{name}")
-            when = timestamp(event)
-            if when is not None:
-                transport_unavailable_rejections.append(when)
 
-    for rejected_at in legacy_unavailable_rejections:
-        if not any(
-            0.0 <= (transport_at - rejected_at).total_seconds() <= 0.250
-            for transport_at in transport_unavailable_rejections
-        ):
-            unavailable_rejection_keys.add(f"legacy:{rejected_at.isoformat()}")
-
-    attempts_by_track = Counter(
-        {
-            track: len(keys) + legacy_attempts_by_track[track]
-            for track, keys in attempt_keys_by_track.items()
-        }
-    )
-    for track, count in legacy_attempts_by_track.items():
-        if track not in attempts_by_track:
-            attempts_by_track[track] = count
+    attempts_by_track = Counter({track: len(keys) for track, keys in attempt_keys_by_track.items()})
 
     handshake_timeout_keys = set()
     for event in events:
@@ -345,8 +298,8 @@ def self_test():
     assert any("transfer retry storm" in value for value in result["violations"]), result
 
     arrival_late = [
-        {"eventName": "playback.command.scheduled", "timestamp": "2026-01-01T10:00:00Z", "attributes": {"command.id": "late"}},
-        {"eventName": "playback.command.executing", "timestamp": "2026-01-01T10:00:00.005Z", "attributes": {"command.id": "late", "playback.late_ms": 1_378}},
+        {"eventName": "playback.command.scheduled", "timestamp": "2026-01-01T10:00:00Z", "attributes": {"command.id": "late", "playback.arrival_late_ms": 1_378}},
+        {"eventName": "playback.command.executing", "timestamp": "2026-01-01T10:00:00.005Z", "attributes": {"command.id": "late", "playback.late_ms": 1_378, "playback.arrival_late_ms": 1_378, "playback.executor_late_ms": 0}},
     ]
     result = analyze(arrival_late)
     assert result["max_playback_arrival_late_ms"] == 1_378, result
@@ -363,8 +316,11 @@ def self_test():
 
     bad = []
     bad.extend(
-        {"eventName": "transfer.download.connecting", "attributes": {"track.id": "deadbeef"}}
-        for _ in range(4)
+        {
+            "eventName": "transfer.download.connecting",
+            "attributes": {"track.id": "deadbeef", "transfer.operation_id": f"op-{index}"},
+        }
+        for index in range(4)
     )
     bad.extend(
         {"eventName": "transfer.retry.scheduled", "attributes": {"track.id": "deadbeef", "transfer.destination_peer_id": "peer"}}
@@ -373,9 +329,13 @@ def self_test():
     bad.extend(
         [
             {
-                "eventName": "room.command.rejected",
+                "eventName": "room.transport.status",
                 "timestamp": "2026-01-01T10:00:03Z",
-                "attributes": {"reason": "Prepare this song before playing it"},
+                "attributes": {
+                    "command.id": "unavailable",
+                    "transport.phase": "REJECTED",
+                    "reason": "Prepare this song before playing it",
+                },
             },
             {"eventName": "transfer.download.duplicate_ignored", "attributes": {"track.id": "deadbeef"}},
             {"eventName": "room.session.ended", "attributes": {"coroutine.remaining_jobs": 2, "transfer.active_count": 1}},

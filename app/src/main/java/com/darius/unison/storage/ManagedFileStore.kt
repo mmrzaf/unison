@@ -343,18 +343,6 @@ class ManagedFileStore(filesDir: File) {
     }
 
     /**
-     * Appends a peer transfer into the content-addressed partial file. All persistent audio writes
-     * go through this store so flush/sync/close ordering is identical for imports and transfers.
-     */
-    suspend fun receivePartial(
-        trackId: TrackId,
-        offset: Long,
-        expectedSize: Long,
-        input: InputStream,
-        onProgress: suspend (Long) -> Unit = {},
-    ): Long = receivePartialAndHash(trackId, offset, expectedSize, input, onProgress).totalBytes
-
-    /**
      * Hashes the existing resume prefix once, then hashes new bytes while writing them. A completed
      * transfer can therefore be committed without rereading the full file from storage.
      */
@@ -430,26 +418,6 @@ class ManagedFileStore(filesDir: File) {
         commitVerifiedStaging(partial, finalFile(trackId), expectedSize, trackId)
         return true
     }
-
-    suspend fun verifyPartial(trackId: TrackId, expectedSize: Long): Boolean =
-        withContext(Dispatchers.IO) {
-            val partial = partialFile(trackId)
-            if (!partial.isFile || partial.length() != expectedSize) return@withContext false
-            val digest = MessageDigest.getInstance("SHA-256")
-            partial.inputStream().buffered(BUFFER_SIZE).use { input ->
-                val buffer = ByteArray(BUFFER_SIZE)
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val read = input.read(buffer)
-                    currentCoroutineContext().ensureActive()
-                    if (read < 0) break
-                    if (read > 0) digest.update(buffer, 0, read)
-                }
-            }
-            if (digest.hex() != trackId.value) return@withContext false
-            commitVerifiedStaging(partial, finalFile(trackId), expectedSize, trackId)
-            true
-        }
 
     fun storedTrackFiles(): Map<TrackId, File> = buildMap {
         root.listFiles().orEmpty().filter(File::isDirectory).forEach { directory ->

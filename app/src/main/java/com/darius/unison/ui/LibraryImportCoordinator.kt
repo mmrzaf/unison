@@ -12,6 +12,7 @@ import com.darius.unison.library.M3uResolutionPolicy
 import com.darius.unison.library.M3uUnresolvedEntry
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackId
+import com.darius.unison.util.DiagnosticCategory
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -109,7 +110,14 @@ internal class LibraryImportCoordinator(
                     }
                 }
                 .onSuccess(::updatePendingM3u)
-                .onFailure { message.value = "Could not update this playlist match" }
+                .onFailure { error ->
+                    logImportFailure(
+                        eventName = "library.import.playlist_match_update_failed",
+                        error = error,
+                        attributes = mapOf("import.operation" to "resolve_ambiguous_match"),
+                    )
+                    message.value = "Could not update this playlist match"
+                }
         }
     }
 
@@ -235,7 +243,16 @@ internal class LibraryImportCoordinator(
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                logImportFailure(
+                    eventName = "library.import.m3u_failed",
+                    error = error,
+                    attributes =
+                        mapOf(
+                            "import.folder_permission" to (treeUri != null),
+                            "import.manual_selection_count" to manualSelections.size,
+                        ),
+                )
                 message.value =
                     if (treeUri == null) {
                         "Unison could not import this playlist"
@@ -306,8 +323,17 @@ internal class LibraryImportCoordinator(
                             container.playlistRepository.appendTracks(playlistId, trackIds)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
-                        } catch (_: Exception) {
+                        } catch (error: Exception) {
                             playlistFailures += 1
+                            logImportFailure(
+                                eventName = "library.import.playlist_update_failed",
+                                error = error,
+                                attributes =
+                                    mapOf(
+                                        "import.operation" to "append",
+                                        "import.track_count" to trackIds.size,
+                                    ),
+                            )
                         }
                     }
                     destination.newPlaylistName?.trim()?.takeIf(String::isNotEmpty)?.let { name ->
@@ -315,10 +341,33 @@ internal class LibraryImportCoordinator(
                             container.playlistRepository.create(name, trackIds)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
-                        } catch (_: Exception) {
+                        } catch (error: Exception) {
                             playlistFailures += 1
+                            logImportFailure(
+                                eventName = "library.import.playlist_update_failed",
+                                error = error,
+                                attributes =
+                                    mapOf(
+                                        "import.operation" to "create",
+                                        "import.track_count" to trackIds.size,
+                                    ),
+                            )
                         }
                     }
+                }
+
+                if (result.errors.isNotEmpty()) {
+                    container.diagnostics.warn(
+                        component = TAG,
+                        category = DiagnosticCategory.STORAGE,
+                        eventName = "library.import.audio_partial_failure",
+                        attributes =
+                            mapOf(
+                                "import.requested_count" to uniqueUris.size,
+                                "import.imported_count" to trackIds.size,
+                                "import.error_count" to result.errors.size,
+                            ),
+                    )
                 }
 
                 message.value =
@@ -331,7 +380,20 @@ internal class LibraryImportCoordinator(
                     )
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                logImportFailure(
+                    eventName = "library.import.audio_failed",
+                    error = error,
+                    attributes =
+                        mapOf(
+                            "import.requested_count" to uniqueUris.size,
+                            "import.keep_in_library" to destination.keepsInLibrary,
+                            "import.add_to_room" to destination.addToRoom,
+                            "import.playlist_count" to destination.playlistIds.distinct().size,
+                            "import.create_playlist" to
+                                !destination.newPlaylistName.isNullOrBlank(),
+                        ),
+                )
                 message.value = "Unison could not add this music"
             } finally {
                 _importProgress.value = null
@@ -478,7 +540,22 @@ internal class LibraryImportCoordinator(
             Result.failure(error)
         }
 
+    private fun logImportFailure(
+        eventName: String,
+        error: Throwable,
+        attributes: Map<String, Any?> = emptyMap(),
+    ) {
+        container.diagnostics.warn(
+            component = TAG,
+            category = DiagnosticCategory.STORAGE,
+            eventName = eventName,
+            attributes = attributes,
+            throwable = error,
+        )
+    }
+
     private companion object {
+        const val TAG = "LibraryImport"
         val M3U_MIME_TYPES =
             setOf(
                 "audio/x-mpegurl",

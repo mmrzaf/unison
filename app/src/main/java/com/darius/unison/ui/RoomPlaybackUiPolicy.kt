@@ -147,8 +147,8 @@ internal object RoomPlaybackUiPolicy {
                     !waitingForSuccessor &&
                     hasSeekableDuration &&
                     !navigationPending,
-            // Next is intentionally allowed even when the successor is unready: Phase 1 turns that
-            // intent into prepare -> wait -> advance instead of rejecting an impossible command.
+            // Navigation stays available while a successor prepares; runtime serializes the
+            // prepare -> wait -> advance transition instead of rejecting the user's intent.
             canNavigate = hasCurrentItem,
             canSelectItem = true,
             playPausePending = playPausePending,

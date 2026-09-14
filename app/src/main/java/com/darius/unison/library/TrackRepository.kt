@@ -45,12 +45,21 @@ enum class LibrarySort {
     ALBUM,
 }
 
-class TrackRepository(
+class TrackRepository
+internal constructor(
     private val context: Context,
     private val database: UnisonDatabase,
     private val fileStore: ManagedFileStore,
     private val log: DiagnosticLog,
+    availableStorageBytes: (() -> Long)? = null,
 ) {
+    private val importStorageGate =
+        ImportStorageGate(
+            maximumTrackBytes = MAX_TRACK_BYTES,
+            reserveBytes = MIN_FREE_SPACE_BYTES,
+            availableBytes = availableStorageBytes ?: ::availableManagedStorageBytes,
+        )
+
     fun pagedLibrary(query: String, sort: LibrarySort): Flow<PagingData<TrackDescriptor>> =
         Pager(
                 config =
@@ -62,27 +71,47 @@ class TrackRepository(
                     ),
                 pagingSourceFactory = {
                     val normalizedQuery = normalizeSearchQuery(query)
-                    when (sort) {
-                        LibrarySort.RECENT -> database.trackDao().pagingRecent(normalizedQuery)
-                        LibrarySort.TITLE -> database.trackDao().pagingByTitle(normalizedQuery)
-                        LibrarySort.ARTIST -> database.trackDao().pagingByArtist(normalizedQuery)
-                        LibrarySort.ALBUM -> database.trackDao().pagingByAlbum(normalizedQuery)
+                    val dao = database.trackDao()
+                    if (normalizedQuery.isEmpty()) {
+                        when (sort) {
+                            LibrarySort.RECENT -> dao.pagingRecent()
+                            LibrarySort.TITLE -> dao.pagingByTitle()
+                            LibrarySort.ARTIST -> dao.pagingByArtist()
+                            LibrarySort.ALBUM -> dao.pagingByAlbum()
+                        }
+                    } else {
+                        when (sort) {
+                            LibrarySort.RECENT -> dao.searchRecent(normalizedQuery)
+                            LibrarySort.TITLE -> dao.searchByTitle(normalizedQuery)
+                            LibrarySort.ARTIST -> dao.searchByArtist(normalizedQuery)
+                            LibrarySort.ALBUM -> dao.searchByAlbum(normalizedQuery)
+                        }
                     }
                 },
             )
             .flow
             .map { pagingData -> pagingData.mapPaging(TrackEntity::toDescriptor) }
 
-    fun observeLibraryCount(query: String): Flow<Int> =
-        database.trackDao().observeLibraryCount(normalizeSearchQuery(query))
+    fun observeLibraryCount(query: String): Flow<Int> {
+        val normalizedQuery = normalizeSearchQuery(query)
+        return if (normalizedQuery.isEmpty()) {
+            database.trackDao().observeLibraryCount()
+        } else {
+            database.trackDao().observeSearchCount(normalizedQuery)
+        }
+    }
 
     suspend fun libraryTrackIds(query: String, limit: Int = Int.MAX_VALUE): Set<TrackId> {
         require(limit >= 0) { "Track limit must not be negative" }
         if (limit == 0) return emptySet()
-        return database
-            .trackDao()
-            .libraryTrackIds(normalizeSearchQuery(query), limit)
-            .mapTo(linkedSetOf(), ::TrackId)
+        val normalizedQuery = normalizeSearchQuery(query)
+        val ids =
+            if (normalizedQuery.isEmpty()) {
+                database.trackDao().libraryTrackIds(limit)
+            } else {
+                database.trackDao().searchTrackIds(normalizedQuery, limit)
+            }
+        return ids.mapTo(linkedSetOf(), ::TrackId)
     }
 
     val temporaryTrackIds: Flow<Set<TrackId>> =
@@ -182,9 +211,11 @@ class TrackRepository(
                     return@withContext verified
                 }
                 val uri = bestReadableUri(trackId) ?: return@withContext null
-                requireSupportedSize(context.contentResolver, uri)
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    val result = fileStore.copyAndHash(input, MAX_TRACK_BYTES)
+                val result =
+                    copyWithStorageBudget(context.contentResolver, uri) { input, copyLimit ->
+                        fileStore.copyAndHash(input, copyLimit)
+                    } ?: return@withContext null
+                run {
                     if (result.trackId != trackId) {
                         if (
                             database.trackSourceDao().managedCountForTrack(result.trackId.value) ==
@@ -219,7 +250,7 @@ class TrackRepository(
                     fileStore.cancelPendingDelete(trackId)
                     if (database.trackSourceDao().managedCountForTrack(trackId.value) == 0) {
                         fileStore.requestDelete(trackId)
-                        return@use null
+                        return@withContext null
                     }
                     result.file
                 }
@@ -321,7 +352,6 @@ class TrackRepository(
     ): TrackDescriptor =
         withContext(Dispatchers.IO) {
             val resolver = context.contentResolver
-            requireSupportedSize(resolver, uri)
             val name = queryDisplayName(resolver, uri)
             val providerMime = resolver.getType(uri)
             val metadata = extractMetadata(uri)
@@ -348,10 +378,10 @@ class TrackRepository(
             )
 
             val result =
-                resolver.openInputStream(uri)?.use { input ->
+                copyWithStorageBudget(resolver, uri) { input, copyLimit ->
                     fileStore.copyAndHashWithLease(
                         input = input,
-                        maxBytes = MAX_TRACK_BYTES,
+                        maxBytes = copyLimit,
                         reason = ManagedFileLeaseReason.REFERENCE_PUBLICATION,
                     )
                 } ?: error("Unable to open selected file")
@@ -526,16 +556,24 @@ class TrackRepository(
             .upsert(
                 descriptor
                     .toEntity(existing?.createdAt ?: now)
-                    .copy(lastPlayedAt = existing?.lastPlayedAt)
+                    .copy(
+                        lastPlayedAt = existing?.lastPlayedAt,
+                        recentSortAt = existing?.recentSortAt ?: now,
+                    )
             )
     }
 
-    @Suppress("UsableSpace")
-    private fun requireSupportedSize(resolver: ContentResolver, uri: Uri) {
-        val declaredSize = querySize(resolver, uri) ?: return
-        require(declaredSize in 1..MAX_TRACK_BYTES) {
-            "Audio files must be between 1 byte and 1 GiB"
+    private suspend fun <T> copyWithStorageBudget(
+        resolver: ContentResolver,
+        uri: Uri,
+        copy: suspend (java.io.InputStream, Long) -> T,
+    ): T? =
+        importStorageGate.withBudget(querySize(resolver, uri)) { copyLimit ->
+            resolver.openInputStream(uri)?.use { input -> copy(input, copyLimit) }
         }
+
+    @Suppress("UsableSpace")
+    private fun availableManagedStorageBytes(): Long {
         val storageManager = context.getSystemService(StorageManager::class.java)
         val allocatableBytes =
             runCatching {
@@ -544,10 +582,7 @@ class TrackRepository(
                     )
                 }
                 .getOrNull()
-        val availableBytes = allocatableBytes ?: context.filesDir.usableSpace
-        require(availableBytes >= declaredSize + MIN_FREE_SPACE_BYTES) {
-            "Not enough storage space"
-        }
+        return allocatableBytes ?: context.filesDir.usableSpace
     }
 
     private fun querySize(resolver: ContentResolver, uri: Uri): Long? =
@@ -620,7 +655,13 @@ class TrackRepository(
                 album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM),
                 mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE),
             )
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            log.debug(
+                TAG,
+                DiagnosticCategory.STORAGE,
+                "storage.track.metadata_unavailable",
+                throwable = error,
+            )
             AudioMetadata()
         } finally {
             runCatching { retriever.release() }
@@ -698,6 +739,10 @@ internal fun TrackDescriptor.toEntity(now: Long) =
             normalizeSearchText(
                 listOfNotNull(title, artist, album, originalFileName).joinToString(" ")
             ),
+        sortTitle = normalizeSearchText(title ?: originalFileName.orEmpty()),
+        sortArtist = normalizeSearchText(artist.orEmpty()),
+        sortAlbum = normalizeSearchText(album.orEmpty()),
+        recentSortAt = now,
         createdAt = now,
         lastPlayedAt = null,
     )

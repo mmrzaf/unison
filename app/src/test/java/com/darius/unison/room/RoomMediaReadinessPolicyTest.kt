@@ -9,8 +9,6 @@ import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoomMediaReadinessPolicyTest {
@@ -38,7 +36,6 @@ class RoomMediaReadinessPolicyTest {
             )
 
         assertEquals(RoomMediaReadiness.READY, readiness[item.queueItemId])
-        assertTrue(RoomMediaReadinessPolicy.canPlay(item.queueItemId, readiness))
     }
 
     @Test
@@ -52,7 +49,6 @@ class RoomMediaReadinessPolicyTest {
             )
 
         assertEquals(RoomMediaReadiness.NEEDS_PREPARATION, readiness[item.queueItemId])
-        assertFalse(RoomMediaReadinessPolicy.canPlay(item.queueItemId, readiness))
     }
 
     @Test

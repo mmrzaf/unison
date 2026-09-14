@@ -5,7 +5,6 @@ import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -235,7 +234,6 @@ class TransportTargetPolicyTest {
                         coordinatorTimestampNs = 0,
                         isPlaying = isPlaying,
                     ),
-                options = RoomOptions(waitAtTrackBoundary = true),
             )
         readiness[snapshot] = prepared
         return snapshot

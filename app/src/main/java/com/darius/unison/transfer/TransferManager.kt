@@ -62,6 +62,7 @@ data class TransferFailure(
 
 class TransferManager(
     private val localIdentity: LocalIdentity,
+    private val localDisplayName: () -> String = { localIdentity.displayName },
     private val listeningPort: () -> Int,
     private val appVersion: String,
     private val trackRepository: TrackRepository,
@@ -213,7 +214,7 @@ class TransferManager(
                     // represent file-level rejection with the typed encrypted response header
                     // rather
                     // than English handshake text. This keeps retry/blame decisions independent of
-                    // user-facing wording while remaining inside Protocol 2.
+                    // user-facing wording while remaining inside Protocol 1.
                     val sessionKey =
                         Crypto.deriveFileTransferSessionKey(
                             authorization.token,
@@ -665,7 +666,7 @@ class TransferManager(
                 socket.getOutputStream(),
                 HandshakeMessage.FileClientHello(
                     peerId = localIdentity.peerId,
-                    displayName = localIdentity.displayName,
+                    displayName = localDisplayName(),
                     appVersion = appVersion,
                     protocolVersion = PROTOCOL_VERSION,
                     listeningPort = listeningPort(),

@@ -60,4 +60,4 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
+          script: ./scripts/gradle.sh --no-daemon --stacktrace connectedDebugAndroidTest
