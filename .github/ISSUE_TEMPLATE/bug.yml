@@ -13,7 +13,7 @@ body:
     attributes:
       label: Unison version
       description: Use the version shown in About or the release tag.
-      placeholder: 1.2.0-beta.4
+      placeholder: e.g. 1.2.0
     validations:
       required: true
 
