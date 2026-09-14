@@ -51,9 +51,6 @@ object NetworkAddressPolicy {
         return address.takeIf(::isAllowed)
     }
 
-    fun parseAllowedIpv4(value: String, allowLoopback: Boolean = false): Inet4Address? =
-        parseAllowedAddress(value, allowLoopback) as? Inet4Address
-
     fun chooseRemoteAddress(addresses: Collection<InetAddress>): InetAddress? =
         addresses
             .asSequence()
@@ -85,10 +82,6 @@ object NetworkAddressPolicy {
 
     fun bestLocalAddress(preferHotspot: Boolean = false): InetAddress? =
         localAddressCandidates(preferHotspot).firstOrNull()?.address
-
-    fun bestLocalIpv4(preferHotspot: Boolean = false): Inet4Address? =
-        localAddressCandidates(preferHotspot).firstOrNull { it.address is Inet4Address }?.address
-            as? Inet4Address
 
     internal fun localAddressCandidates(preferHotspot: Boolean = false): List<AddressCandidate> =
         NetworkInterface.getNetworkInterfaces()

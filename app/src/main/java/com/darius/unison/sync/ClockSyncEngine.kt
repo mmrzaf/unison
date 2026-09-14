@@ -212,13 +212,6 @@ class ClockSyncEngine(
     }
 
     @Synchronized
-    fun toLocalTimeWithUncertainty(coordinatorTimeNs: Long): ClockConversion {
-        val local = toLocalTime(coordinatorTimeNs)
-        val estimate = estimate(local)
-        return ClockConversion(local, estimate.uncertaintyNs, estimate.state)
-    }
-
-    @Synchronized
     fun estimate(atLocalNs: Long = clock.nowNs()): ClockEstimate {
         val last = lastGoodSampleLocalNs
         val age = last?.let { (atLocalNs - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE
