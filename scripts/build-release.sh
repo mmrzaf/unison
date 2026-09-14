@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 }
 
 ./scripts/check-release-quality.sh
-./gradlew --offline --no-daemon --stacktrace \
+./scripts/gradle.sh --offline --no-daemon --stacktrace \
   spotlessCheck testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
   :app:compileDebugAndroidTestKotlin
 
@@ -22,9 +22,6 @@ BUILD_TOOLS="$(find "$SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/d
   echo "apksigner is required to verify the release artifact." >&2
   exit 1
 }
-"$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
-
-MAX_RELEASE_APK_BYTES="${MAX_RELEASE_APK_BYTES:-47185920}"
-python3 ./scripts/analyze-apk-size.py "$APK" --max-bytes "$MAX_RELEASE_APK_BYTES"
+./scripts/verify-release-apk.sh "$APK" "$BUILD_TOOLS"
 sha256sum "$APK" > "$PWD/app/build/outputs/release-SHA256SUMS.txt"
 printf 'APK: %s\nChecksum: %s\n' "$APK" "$PWD/app/build/outputs/release-SHA256SUMS.txt"
