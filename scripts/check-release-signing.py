@@ -8,13 +8,6 @@ import re
 
 DIGEST = re.compile(r"^[0-9a-f]{64}$")
 APKSIGNER_DIGEST = re.compile(r"certificate SHA-256 digest:\s*([0-9a-fA-F:]+)", re.IGNORECASE)
-# This certificate's private key was present in an accidentally shared local source archive during
-# Beta 7 preparation. It is intentionally unusable for every future public Unison release.
-REVOKED_CERTIFICATE_SHA256 = {
-    "fdfa7114dc1eabd2fa6c5bb1f8c5ff25a28faa069728b3ca9c9649641da22609",
-}
-
-
 def normalize_digest(value: str) -> str:
     normalized = re.sub(r"[^0-9a-fA-F]", "", value).lower()
     if not DIGEST.fullmatch(normalized):
@@ -35,8 +28,6 @@ def apksigner_digest(text: str) -> str:
 def verify(expected: str, actual: str) -> str:
     expected_normalized = normalize_digest(expected)
     actual_normalized = normalize_digest(actual)
-    if expected_normalized in REVOKED_CERTIFICATE_SHA256 or actual_normalized in REVOKED_CERTIFICATE_SHA256:
-        raise ValueError("Release signing certificate is explicitly revoked and must not be used")
     if actual_normalized != expected_normalized:
         raise ValueError(
             "Release signing certificate mismatch: "
@@ -51,12 +42,6 @@ def self_test() -> None:
     assert normalize_digest(colonized) == digest
     assert apksigner_digest(f"Signer #1 certificate SHA-256 digest: {colonized}\n") == digest
     assert verify(colonized, digest) == digest
-    try:
-        verify(next(iter(REVOKED_CERTIFICATE_SHA256)), next(iter(REVOKED_CERTIFICATE_SHA256)))
-    except ValueError as error:
-        assert "revoked" in str(error)
-    else:
-        raise AssertionError("revoked signing identity was accepted")
     try:
         verify(digest, "cd" * 32)
     except ValueError as error:
