@@ -539,9 +539,6 @@ class PlayerExecutor(
             true
         }
 
-    private fun isScheduleCurrent(generation: Long): Boolean =
-        synchronized(stateLock) { scheduledGeneration == generation }
-
     private fun scheduledAttributes(
         type: String,
         commandId: String?,
