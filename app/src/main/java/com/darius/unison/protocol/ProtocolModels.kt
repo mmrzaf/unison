@@ -8,7 +8,6 @@ import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RepeatMode
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -19,7 +18,7 @@ import com.darius.unison.model.UserCommand
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-const val PROTOCOL_VERSION = 2
+const val PROTOCOL_VERSION = 1
 const val MAX_CONTROL_PAYLOAD_BYTES = 4 * 1024 * 1024
 
 @Serializable
@@ -176,10 +175,6 @@ sealed interface ProtocolBody {
         val queueItemId: QueueItemId,
         val commandId: String? = null,
     ) : ProtocolBody
-
-    @Serializable
-    @SerialName("room_options_changed")
-    data class RoomOptionsChanged(val options: RoomOptions) : ProtocolBody
 
     @Serializable
     @SerialName("queue_shuffled")

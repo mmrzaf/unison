@@ -5,7 +5,6 @@ import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -24,22 +23,16 @@ class PlaybackRequestPolicyTest {
 
     @Test
     fun `single connected source defers until its local track is prepared`() {
-        val snapshot = snapshot(item, wait = true)
+        val snapshot = snapshot(item)
         assertTrue(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot, emptySet()))
     }
 
     @Test
     fun preparedCurrentTrackCanPlay() {
-        val snapshot = snapshot(item, wait = true)
+        val snapshot = snapshot(item)
         assertFalse(
             PlaybackRequestPolicy.requiresPreparationForPlay(snapshot, setOf(item.queueItemId))
         )
-    }
-
-    @Test
-    fun roomOptionCannotBypassMediaReadiness() {
-        val snapshot = snapshot(item, wait = false)
-        assertTrue(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot, emptySet()))
     }
 
     @Test
@@ -55,7 +48,7 @@ class PlaybackRequestPolicyTest {
         assertFalse(PlaybackRequestPolicy.requiresPreparationForPlay(snapshot))
     }
 
-    private fun snapshot(item: QueueItem, wait: Boolean): RoomSnapshot =
+    private fun snapshot(item: QueueItem): RoomSnapshot =
         RoomSnapshot(
             roomId = "room",
             roomName = "Room",
@@ -64,6 +57,5 @@ class PlaybackRequestPolicyTest {
             members = listOf(MemberSnapshot(peer, "Alex")),
             queue = listOf(item),
             playback = CanonicalPlaybackState(queueItemId = item.queueItemId),
-            options = RoomOptions(waitAtTrackBoundary = wait),
         )
 }

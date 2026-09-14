@@ -3,7 +3,6 @@ package com.darius.unison.ui
 import androidx.compose.runtime.Immutable
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RepeatMode
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.TrackId
 import com.darius.unison.util.DiagnosticEvent
 
@@ -47,7 +46,6 @@ internal class RoomQueueActions(
 
 @Immutable
 internal class RoomSessionUiActions(
-    val updateOptions: (RoomOptions) -> Unit,
     val showAbout: () -> Unit,
     val leave: () -> Unit,
     val retryIssue: () -> Unit,

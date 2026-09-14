@@ -217,14 +217,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         roomActions.loadRoomTrackIds(query, onLoaded)
 
     fun saveName(name: String) {
-        viewModelScope.launch {
-            userResult {
-                    container.settings.saveDisplayName(name)
-                    val identity = container.settings.ensureIdentity()
-                    container.roomStore.update { it.copy(localIdentity = identity) }
-                }
-                .onFailure { message.value = "Could not save your name" }
-        }
+        roomActions.command(AppCommand.SaveDisplayName(name), feedback = null)
     }
 
     fun importMusic(uris: List<Uri>, toRoom: Boolean) = importCoordinator.importMusic(uris, toRoom)
@@ -345,22 +338,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun removeTemporaryTrack(trackId: TrackId) {
-        val activeQueueUsesTrack =
-            container.roomStore.structure.value.snapshot?.queue?.any {
-                it.track.trackId == trackId
-            } == true
-        if (activeQueueUsesTrack) {
-            message.value = "Remove this song after leaving the room"
-            return
-        }
-        viewModelScope.launch {
-            userResult { container.trackRepository.deleteTemporary(trackId) }
-                .onSuccess { message.value = "Temporary copy removed" }
-                .onFailure { message.value = "Could not remove this song" }
-        }
-    }
-
     fun handleIntent(intent: Intent?) = importCoordinator.handleIntent(intent)
 
     fun resolvePendingImport(destination: MusicDestination?) =
@@ -374,9 +351,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun closePlaylist() = playlistActions.close()
 
     fun renamePlaylist(playlistId: String, name: String) = playlistActions.rename(playlistId, name)
-
-    fun updatePlaylistTracks(playlistId: String, trackIds: List<TrackId>) =
-        playlistActions.replaceTracks(playlistId, trackIds)
 
     fun addTracksToPlaylist(playlistId: String, trackIds: List<TrackId>) =
         playlistActions.addTracks(playlistId, trackIds)
@@ -394,8 +368,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         playlistActions.removeTracks(playlistId, indices)
 
     fun deletePlaylist(playlistId: String) = playlistActions.delete(playlistId)
-
-    fun addPlaylistToRoom(playlistId: String) = playlistActions.addToRoom(playlistId)
 
     fun addLibrarySelectionToRoom(
         includeAllMusic: Boolean,

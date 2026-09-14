@@ -47,7 +47,6 @@ class CanonicalPlaybackDispatcher(
     enum class Trigger {
         QUEUE_CHANGED,
         PREPARATION_CHANGED,
-        OPTIONS_CHANGED,
         PLAYBACK_MODE_CHANGED,
     }
 
@@ -218,7 +217,6 @@ class CanonicalPlaybackDispatcher(
             is ProtocolBody.QueueItemsAdded,
             is ProtocolBody.QueueItemMoved -> Classification.Reconcile(Trigger.QUEUE_CHANGED)
 
-            is ProtocolBody.RoomOptionsChanged -> Classification.Reconcile(Trigger.OPTIONS_CHANGED)
             is ProtocolBody.QueueShuffled -> Classification.Reconcile(Trigger.QUEUE_CHANGED)
             is ProtocolBody.RepeatModeChanged ->
                 Classification.Reconcile(Trigger.PLAYBACK_MODE_CHANGED)

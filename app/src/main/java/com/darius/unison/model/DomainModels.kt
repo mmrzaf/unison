@@ -86,10 +86,7 @@ enum class LocalPlaybackInhibitionReason {
     AUDIO_FOCUS,
     BECOMING_NOISY,
     UNSUITABLE_OUTPUT,
-    /**
-     * Protocol-2 compatibility only. Phase 2 no longer infers inhibition from unexplained
-     * callbacks.
-     */
+    /** Explicit system-level output policy inhibition reported by the playback layer. */
     SYSTEM_POLICY,
 }
 
@@ -144,14 +141,6 @@ enum class RepeatMode {
     ALL,
     ONE,
 }
-
-@Serializable
-data class RoomOptions(
-    // Protocol 2 compatibility only. Sequential playback always preserves queue order and waits
-    // for the canonical successor when preparation is required. This is no longer user-facing.
-    val waitAtTrackBoundary: Boolean = true,
-    val preloadCount: Int = 3,
-)
 
 @Serializable
 data class CanonicalPlaybackState(
@@ -237,7 +226,6 @@ data class RoomSnapshot(
     val roomName: String,
     val term: CoordinatorTerm,
     val sequence: Long,
-    val options: RoomOptions = RoomOptions(),
     val members: List<MemberSnapshot> = emptyList(),
     val queue: List<QueueItem> = emptyList(),
     val playback: CanonicalPlaybackState = CanonicalPlaybackState(),
