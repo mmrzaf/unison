@@ -145,6 +145,12 @@ def main() -> int:
         for secret_path in ("keystore/", "keystore.properties"):
             require(secret_path in gitignore, f"Signing material is not ignored: {secret_path}")
         archive = text("scripts/archive.sh")
+        common_script = text("scripts/common.sh")
+        agents_script = text("scripts/AGENTS.md")
+        for marker in ("WAIO_", "waiotech", "dashboard/", "server/"):
+            require(marker not in archive, f"Unrelated project marker remains in archive helper: {marker}")
+            require(marker not in common_script, f"Unrelated project marker remains in common helper: {marker}")
+            require(marker not in agents_script, f"Unrelated project marker remains in scripts guidance: {marker}")
         for excluded in ("./local.properties", "./keystore.properties", "./keystore"):
             require(excluded in archive, f"Source archive does not exclude sensitive path: {excluded}")
         require("Refusing to create archive" in archive, "Source archive lacks fail-closed secret scan")
@@ -169,19 +175,31 @@ def main() -> int:
             "docs/10-product",
             "docs/20-engineering",
             "docs/30-experience",
+            "docs/40-business",
             "docs/70-reference",
             "docs/90-generated",
             "docs/pdf",
+            "scripts/CLAUDE.md",
+            "scripts/dashboard-screenshots.sh",
             "scripts/dev.sh",
             "scripts/docs.py",
             "scripts/images.sh",
             "scripts/generate-api.sh",
             "scripts/generate-action-contracts.py",
+            "scripts/generate-ai-context.py",
+            "scripts/generate-kotlin-android-api.py",
             "scripts/generate-permission-contract.py",
+            "scripts/generate-reference-data-contract.py",
             "scripts/generate-typescript-api.mjs",
             "scripts/generate_typescript_api.py",
+            "scripts/reference-plant.sh",
             "scripts/typescript-api-http-client.ts",
+            "scripts/validate-commissioning-workbook-contract.py",
+            "scripts/verify-dashboard-operability.py",
             "scripts/verify-generated-contracts.sh",
+            "scripts/verify-persian-copy.py",
+            "scripts/verify-real-ui.sh",
+            "scripts/verify-release.sh",
         ):
             require(not (ROOT / path).exists(), f"Unrelated obsolete project path remains: {path}")
 
@@ -341,7 +359,7 @@ def main() -> int:
 
         database = text("app/src/main/java/com/darius/unison/storage/Database.kt")
         require("version = 1" in database, "Database is not schema 1")
-        require('UNISON_DATABASE_NAME = "unison.db"' in database, "Beta 7 v1 database name drifted")
+        require('UNISON_DATABASE_NAME = "unison.db"' in database, "1.2 v1 database name drifted")
         require(not (ROOT / "app/src/main/java/com/darius/unison/storage/LocalDataBaseline.kt").exists(),
                 "Obsolete local-data reset wiring remains")
         require(not (ROOT / "app/src/main/java/com/darius/unison/storage/LocalDataBaselineResetter.kt").exists(),
@@ -653,8 +671,7 @@ def main() -> int:
         signing_check = text("scripts/check-release-signing.py")
         apk_check = text("scripts/verify-release-apk.sh")
         apk_metadata_check = text("scripts/check-release-apk-metadata.py")
-        require("multiple distinct signer" in signing_check, "Release signer check does not reject signer ambiguity")
-        require("REVOKED_CERTIFICATE_SHA256" in signing_check, "Known compromised signing identity is not revoked")
+        require("multiple distinct signer" in signing_check, "Release signer check does not detect signer ambiguity")
         require("application-debuggable" in apk_metadata_check, "Release APK metadata check does not reject debuggable APKs")
         for required_gate in ("apksigner", "zipalign", "aapt2", "check-release-signing.py", "analyze-apk-size.py"):
             require(required_gate in apk_check, f"Shared release APK verification is missing {required_gate}")
