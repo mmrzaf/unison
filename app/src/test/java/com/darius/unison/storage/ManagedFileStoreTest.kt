@@ -199,7 +199,7 @@ class ManagedFileStoreTest {
             val expected = store.hash(ByteArrayInputStream(bytes)).trackId
             val split = 310_000
 
-            store.receivePartial(
+            store.receivePartialAndHash(
                 trackId = expected,
                 offset = 0,
                 expectedSize = split.toLong(),
@@ -208,13 +208,20 @@ class ManagedFileStoreTest {
             val partial = store.partialFile(expected)
             assertEquals(split.toLong(), partial.length())
 
-            store.receivePartial(
-                trackId = expected,
-                offset = split.toLong(),
-                expectedSize = bytes.size.toLong(),
-                input = ByteArrayInputStream(bytes, split, bytes.size - split),
+            val completed =
+                store.receivePartialAndHash(
+                    trackId = expected,
+                    offset = split.toLong(),
+                    expectedSize = bytes.size.toLong(),
+                    input = ByteArrayInputStream(bytes, split, bytes.size - split),
+                )
+            assertTrue(
+                store.commitPartialWithDigest(
+                    expected,
+                    bytes.size.toLong(),
+                    completed.sha256Hex,
+                )
             )
-            assertTrue(store.verifyPartial(expected, bytes.size.toLong()))
             assertTrue(store.finalFile(expected).readBytes().contentEquals(bytes))
         } finally {
             root.deleteRecursively()
