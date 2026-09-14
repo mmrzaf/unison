@@ -62,12 +62,12 @@ def validate_badging(
 
 
 def self_test() -> None:
-    valid = """package: name='com.darius.unison' versionCode='10' versionName='1.2.0-beta.7'\nminSdkVersion:'30'\ntargetSdkVersion:'33'\nlaunchable-activity: name='com.darius.unison.ui.MainActivity'  label='Unison' icon=''\n"""
+    valid = """package: name='com.darius.unison' versionCode='4242' versionName='9.9.9-test.1'\nminSdkVersion:'30'\ntargetSdkVersion:'33'\nlaunchable-activity: name='com.darius.unison.ui.MainActivity'  label='Unison' icon=''\n"""
     validate_badging(
         valid,
         application_id="com.darius.unison",
-        version_name="1.2.0-beta.7",
-        version_code="10",
+        version_name="9.9.9-test.1",
+        version_code="4242",
         min_sdk="30",
         target_sdk="33",
     )
@@ -75,8 +75,8 @@ def self_test() -> None:
         validate_badging(
             valid + "application-debuggable\n",
             application_id="com.darius.unison",
-            version_name="1.2.0-beta.7",
-            version_code="10",
+            version_name="9.9.9-test.1",
+            version_code="4242",
             min_sdk="30",
             target_sdk="33",
         )

@@ -93,8 +93,8 @@ a trusted resolution path and reviewed whenever dependencies change.
 Privileged GitHub release automation pins third-party Actions to full commit SHAs, builds only from an
 immutable version tag that is proven to resolve to the workflow commit, separates signing secrets from
 release-write permission, pins the approved signing-certificate SHA-256 independently from the keystore,
-verifies that identity before and after signing, explicitly rejects the certificate exposed in the
-pre-Beta-7 local archive, and refuses to replace assets for an existing release tag. Public releases
+verifies that identity before and after signing, and refuses to replace assets for an existing release
+tag. Public releases
 contain the signed production APK and provenance/checksum/source artifacts; debug APKs remain CI-only.
 
 The public vulnerability-reporting process lives in [`.github/SECURITY.md`](../.github/SECURITY.md).

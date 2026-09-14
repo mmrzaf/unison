@@ -4,9 +4,9 @@ This roadmap describes direction, not promises or deadlines. Current candidate e
 [`release-evidence/`](release-evidence/README.md); completed implementation work belongs in the
 changelog rather than remaining as future roadmap work.
 
-## 1.2.0-beta.7 qualification
+## 1.2.0-beta.8 qualification
 
-The Beta 7 implementation baseline is feature-frozen. Remaining work is release qualification:
+The Beta 8 implementation baseline is feature-frozen. Remaining work is release qualification:
 
 - run the authoritative GitHub verification workflow, including JVM/lint/build checks and API 33
   instrumentation;
@@ -18,14 +18,14 @@ The Beta 7 implementation baseline is feature-frozen. Remaining work is release 
   physical devices;
 - run an exact-artifact smoke test and the selected soak scenarios against the GitHub-produced APK;
 - record accepted known issues, reviewer/date, and final disposition in
-  `docs/release-evidence/1.2.0-beta.7.md`.
+  `docs/release-evidence/1.2.0-beta.8.md`.
 
-No new product feature or broad architecture refactor should enter Beta 7 while those gates are open.
+No new product feature or broad architecture refactor should enter Beta 8 while those gates are open.
 
 ## 1.2 stable
 
 - No open correctness, security, state-authority, storage-integrity, or release-signing blockers.
-- Beta 7-and-later supported local data survives upgrades to the stable build.
+- Beta 8-and-later supported local data survives upgrades to the stable build.
 - Full automated and physical qualification is attached to the exact candidate APK/source commit.
 - Stable release is built from an immutable `v1.2.0` tag through the same production workflow used by
   prereleases.
