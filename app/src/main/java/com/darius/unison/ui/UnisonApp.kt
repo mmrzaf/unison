@@ -497,9 +497,6 @@ fun UnisonApp(viewModel: MainViewModel) {
                                     ),
                                 session =
                                     RoomSessionUiActions(
-                                        updateOptions = {
-                                            viewModel.command(AppCommand.UpdateRoomOptions(it))
-                                        },
                                         showAbout = { showAbout = true },
                                         leave = { viewModel.command(AppCommand.LeaveRoom) },
                                         retryIssue = viewModel::retryRoomIssue,

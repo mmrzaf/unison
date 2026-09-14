@@ -42,15 +42,15 @@ jobs:
       - name: Check shell, workflow, and Python tooling
         run: ./scripts/check-tooling.sh
 
-      - name: Prepare pinned standalone Kotlin checks
-        run: ./gradlew --no-daemon :app:prepareStandaloneKotlinChecks
+      - name: Prepare pinned network-lifecycle Kotlin check
+        run: ./scripts/gradle.sh --no-daemon :app:prepareStandaloneKotlinChecks
 
       - name: Verify repository
         run: ./scripts/check-release-quality.sh
 
       - name: Formatting, unit tests, lint, and APK compilation
         run: >-
-          ./gradlew --no-daemon --stacktrace
+          ./scripts/gradle.sh --no-daemon --stacktrace
           spotlessCheck testDebugUnitTest lintDebug lintRelease
           assembleDebug assembleRelease
           :app:compileDebugAndroidTestKotlin

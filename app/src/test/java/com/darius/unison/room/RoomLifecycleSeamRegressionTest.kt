@@ -18,7 +18,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Deterministic cross-seam regressions for the lifecycle failures fixed in Milestones 1-4. */
+/**
+ * Deterministic cross-seam regressions for stale admission, connection, session, and replay work.
+ */
 class RoomLifecycleSeamRegressionTest {
     @Test
     fun obsoleteRoomAdmissionAndSupersededSocketAreRejectedAtConsumeTime() {

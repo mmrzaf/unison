@@ -73,7 +73,7 @@ without leaving and rejoining the room.
 23. During a large transfer, keep lower-priority transfer/telemetry/playback-reference traffic active and
     repeatedly issue room commands while clock sync is active. Verify room commands remain responsive,
     clock traffic continues, and diagnostics show no starvation/reconnect storm.
-24. Exercise the Beta 6 VPN/LAN matrix with an API 36 phone and an API 33 phone in both coordinator and
+24. Exercise the current 1.2 candidate VPN/LAN matrix with an API 36 phone and an API 33 phone in both coordinator and
     participant roles. With no VPN, full-song transfer must work in both directions. With a VPN/VpnService
     that permits local-LAN traffic, Unison must respect the system-default/VPN route and transfers must
     still work. With a VPN that blocks local LAN, Unison must show one actionable blocked-transfer state
@@ -99,16 +99,10 @@ For every prerelease/stable candidate retain enough information to reproduce exa
 
 A locally built debug/release APK is not interchangeable with the final GitHub-produced artifact.
 After tag CI succeeds, download/install that exact APK and repeat a focused smoke test before approving
-publication/announcement.
-
-
-- APK version and git/source archive checksum;
-- device model, API level and build fingerprint;
-- room diagnostics from every phone;
-- `Diagnostics` remains responsive, searchable, and free of raw credentials/paths;
-- exact scenario and result;
-- any interval where queue item or play/pause state diverged;
-- whether automatic repair succeeded and how long it took.
+publication/announcement. Retained scenario notes should call out any interval where queue item or
+play/pause state diverged, whether automatic repair succeeded, and how long repair took. Verify that the
+Diagnostics surface remains responsive/searchable and that retained diagnostics contain no raw
+credentials or private paths.
 
 A timing-only drift warning is not a state-divergence failure. Playing a different song or holding a
 different play/pause intent is always a state-divergence failure.

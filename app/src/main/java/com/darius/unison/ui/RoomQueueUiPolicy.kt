@@ -43,7 +43,6 @@ internal object RoomQueueUiPolicy {
                     MemberTrackState.RECEIVING -> "Syncing · ${(transfer.fraction * 100).toInt()}%"
                     MemberTrackState.VERIFYING -> "Verifying…"
                     MemberTrackState.PREPARING_PLAYER -> "Finishing preparation…"
-                    else -> "Preparing…"
                 }
             return MediaPresentation(detail, TapAction.NONE)
         }

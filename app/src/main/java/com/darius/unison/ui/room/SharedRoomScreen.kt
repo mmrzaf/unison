@@ -54,6 +54,7 @@ import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportAction
 import com.darius.unison.room.QueueDragPolicy
+import com.darius.unison.room.QueueSearchIndex
 import com.darius.unison.room.QueueShufflePolicy
 import com.darius.unison.storage.PlaylistSummary
 import kotlin.math.abs
@@ -277,17 +278,10 @@ internal fun SharedRoomScreen(
     var confirmClearQueue by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
     var queueQuery by rememberSaveable(snapshot.roomId) { mutableStateOf("") }
+    val queueSearchIndex = remember(snapshot.queue) { QueueSearchIndex(snapshot.queue) }
     val filteredQueue =
-        remember(snapshot.queue, queueQuery) {
-            val query = queueQuery.trim()
-            if (query.isEmpty()) emptyList()
-            else
-                snapshot.queue.filter { item ->
-                    val track = item.track
-                    track.displayTitle.contains(query, ignoreCase = true) ||
-                        track.artist?.contains(query, ignoreCase = true) == true ||
-                        track.album?.contains(query, ignoreCase = true) == true
-                }
+        remember(queueSearchIndex, queueQuery) {
+            if (queueQuery.isBlank()) emptyList() else queueSearchIndex.search(queueQuery)
         }
 
     fun openAddMusic() {
@@ -696,10 +690,11 @@ internal fun SharedRoomScreen(
                 else ->
                     items(
                         items = filteredQueue,
-                        key = { item -> "queue:${item.queueItemId.value}" },
+                        key = { match -> "queue:${match.item.queueItemId.value}" },
                         contentType = { "queue-row" },
-                    ) { item ->
-                        val index = queueIndexByLazyKey.getValue("queue:${item.queueItemId.value}")
+                    ) { match ->
+                        val item = match.item
+                        val index = match.originalIndex
                         QueueRow(
                             index = index,
                             lastIndex = snapshot.queue.lastIndex,

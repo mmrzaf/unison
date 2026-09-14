@@ -45,21 +45,6 @@ class TransportCommandTracker(private val maxEntries: Int = 256) {
         return ticket
     }
 
-    fun updateTarget(
-        commandId: String,
-        queueItemId: QueueItemId? = null,
-        requestedPositionMs: Long? = null,
-    ): Route? {
-        val existing = routes[commandId] ?: return null
-        val updated =
-            existing.copy(
-                queueItemId = queueItemId ?: existing.queueItemId,
-                requestedPositionMs = requestedPositionMs ?: existing.requestedPositionMs,
-            )
-        routes[commandId] = updated
-        return updated
-    }
-
     fun route(commandId: String): Route? = routes[commandId]
 
     fun route(commandId: String, ticket: Ticket): Route? =

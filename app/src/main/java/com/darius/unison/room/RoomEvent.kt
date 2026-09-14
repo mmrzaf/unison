@@ -130,13 +130,6 @@ internal sealed interface RoomEvent {
         val completion: CompletableDeferred<Unit>,
     ) : RoomEvent
 
-    data class RepositoryCommandCompleted(
-        val generation: Long,
-        val command: AppCommand,
-        val error: Throwable?,
-        val completion: CompletableDeferred<Unit>,
-    ) : RoomEvent
-
     data class LocalAddressChanged(val address: String?) : RoomEvent
 
     data class HotspotChanged(val value: HotspotInfo?, val address: String?) : RoomEvent
@@ -255,7 +248,6 @@ internal val RoomEvent.provenanceRequirement: RoomEventProvenanceRequirement
             is RoomEvent.PeerDisconnectGraceExpired,
             is RoomEvent.CoordinatorTransportSuperseded,
             is RoomEvent.TracksPrepared,
-            is RoomEvent.RepositoryCommandCompleted,
             is RoomEvent.TransportCommandPhaseObserved,
             is RoomEvent.LocalTrackAvailabilityProbed,
             is RoomEvent.TransportWatchdogExpired,
@@ -281,6 +273,5 @@ internal fun RoomEvent.completionOrNull(): CompletableDeferred<Unit>? =
         is RoomEvent.CanonicalMutationRequested -> completion
         is RoomEvent.TrackAvailabilityObserved -> completion
         is RoomEvent.TracksPrepared -> completion
-        is RoomEvent.RepositoryCommandCompleted -> completion
         else -> null
     }

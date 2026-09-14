@@ -175,7 +175,6 @@ class ReliabilityStressTest {
                 locallyAvailableTrackIds = setOf(descriptor.trackId),
             )
         assertEquals(RoomMediaReadiness.READY, ready[item.queueItemId])
-        assertTrue(RoomMediaReadinessPolicy.canPlay(item.queueItemId, ready))
     }
 
     private fun track(index: Int) = TrackId(index.toString(16).padStart(64, '0'))

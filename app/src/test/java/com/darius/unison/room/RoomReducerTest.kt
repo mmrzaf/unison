@@ -6,7 +6,6 @@ import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.RepeatMode
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -153,20 +152,6 @@ class RoomReducerTest {
                 preparedQueueItemIds = setOf(item.queueItemId),
             )
         assertTrue(result is RoomReducer.Decision.Accepted)
-    }
-
-    @Test
-    fun roomOptionsContainOnlyEnforcedBehavior() {
-        val item = QueueItem.create(track, peer)
-        val requested = RoomOptions(waitAtTrackBoundary = false, preloadCount = 50)
-        val result =
-            RoomReducer.decide(
-                snapshot(listOf(item)),
-                UserCommand.OptionsChange(requestedBy = peer, options = requested),
-                0,
-            ) as RoomReducer.Decision.Accepted
-        assertFalse(result.mutations.single().snapshot.options.waitAtTrackBoundary)
-        assertEquals(3, result.mutations.single().snapshot.options.preloadCount)
     }
 
     @Test
@@ -756,7 +741,7 @@ class RoomReducerTest {
     }
 
     @Test
-    fun roomOptionCannotBypassReadinessForSelectedPlayback() {
+    fun unpreparedSelectedPlaybackIsRejected() {
         val first = QueueItem.create(track, peer)
         val target =
             QueueItem.create(
@@ -765,10 +750,7 @@ class RoomReducerTest {
             )
         val room =
             snapshot(listOf(first, target))
-                .copy(
-                    options = RoomOptions(waitAtTrackBoundary = false),
-                    playback = CanonicalPlaybackState(first.queueItemId, 0, 0, false),
-                )
+                .copy(playback = CanonicalPlaybackState(first.queueItemId, 0, 0, false))
 
         val result =
             RoomReducer.decide(

@@ -8,7 +8,7 @@ This intentionally rewrites Gradle dependency-verification metadata.
 Run it only on a trusted network/resolution path, review every checksum change, and commit the result separately.
 EOF
 
-env -u USE_IRAN_MIRRORS ./gradlew --no-daemon --refresh-dependencies -PuseIranMirrors=false \
+./scripts/gradle.sh --no-daemon --refresh-dependencies \
   --write-verification-metadata sha256 \
   resolveVerificationDependencies
 

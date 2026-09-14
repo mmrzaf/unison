@@ -28,7 +28,7 @@ body:
     id: constraints
     attributes:
       label: Architecture/protocol impact
-      description: If known, say whether this touches the canonical room actor, Protocol 2, database schema 1, playback ownership, transfer/storage, privacy, or Android permissions.
+      description: If known, say whether this touches the canonical room actor, Protocol 1, database schema 1, playback ownership, transfer/storage, privacy, or Android permissions.
 
   - type: textarea
     id: alternatives

@@ -219,7 +219,6 @@ internal fun AppCommand.feedbackMessage(): String? =
         is AppCommand.MoveQueueItem,
         is AppCommand.MoveQueueItemNext,
         AppCommand.ClearPlayed,
-        is AppCommand.UpdateRoomOptions,
         AppCommand.LeaveRoom -> null
 
         is AppCommand.AddTracks ->

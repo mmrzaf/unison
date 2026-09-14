@@ -21,9 +21,12 @@ With the repository-pinned Gradle/Kotlin dependency cache available:
 ./scripts/check-release-quality.sh
 ```
 
-The release-quality gate includes focused Kotlin compilation, reducer/protocol/transfer/playback tests,
-the Milestone-5 hardening suite (`check-hardening-kotlin.sh`), diagnostics checks, and the 100,000-track
-library benchmark.
+The repository-specific release-quality gate runs static/data checks, diagnostic analyzers, the
+100,000-track library browse/search benchmark, and the unique Android network-lifecycle harness. The
+normal Gradle gate then runs the complete JVM unit suite, formatting, lint, APK compilation, and
+Android-test compilation against the real dependencies. The benchmark verifies all four browse sort
+modes, a deep title page, literal substring search, and SQLite query plans; indexed browse paths are not
+allowed to regress to a temporary B-tree sort.
 
 ## High-value stress coverage
 
@@ -53,13 +56,25 @@ player and covers two-item continuation, final-item completion, repeat-one, expl
 playlist mutation near a boundary. It is the regression boundary for callback-order/misattribution risk;
 production listener logic must not be changed merely from a speculative callback order.
 
-Android instrumentation also repeats interrupted/resume/verified-commit behavior on the real Android
-filesystem and exercises Compose/UI integration. These are execution tests, not compile-only fixtures.
-Normal GitHub CI runs the full instrumented suite on API 33; tagged release qualification runs it on
-API 30, 33, and 36 before signing. Contributors can run the same suite on any connected device/emulator:
+Android instrumentation also exercises the integration seams that pure policies cannot prove:
+
+- `PlaylistRepositoryAndroidTest` uses the real Room unique index and verifies long-distance reorder,
+  append/remove compaction, and persistence across database close/reopen;
+- `TrackRepositoryAndroidTest` imports through a real test `ContentProvider`, app-managed filesystem
+  publication, and Room transaction, including unknown/underreported provider sizes, low-space rollback
+  with no published partial state, persisted normalized sort keys, and RECENT ordering after playback;
+- `RoomRuntimeIdentityAndroidTest` sends the real display-name command through `RoomRuntime` and verifies
+  DataStore, runtime identity, and `RoomStore` stay canonical without changing the peer ID;
+- `ManagedFileStoreAndroidStressTest` repeats interrupted/resume/verified-commit behavior on the real
+  Android filesystem;
+- Media3 and Compose tests exercise actual platform/player/UI integration.
+
+These are execution tests, not compile-only fixtures. Normal GitHub CI runs the full instrumented suite
+on API 33; tagged release qualification runs it on API 30, 33, and 36 before signing. Contributors can
+run the same suite on any connected device/emulator:
 
 ```bash
-./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
+./scripts/gradle.sh --no-daemon --stacktrace connectedDebugAndroidTest
 ```
 
 A multi-device lab is still unnecessary for ordinary changes, but Android/Media3/filesystem behavior
@@ -114,11 +129,15 @@ fixture red for the intended reason.
 
 ## Android/build qualification
 
+Repository-owned Gradle commands use `scripts/gradle.sh`. On developer machines it isolates the
+Gradle user home from global init scripts; in GitHub Actions it preserves the runner Gradle home and
+normal cache behavior.
+
 When Android SDK 36 and the pinned Gradle/dependency cache are available:
 
 ```bash
 ./scripts/verify-offline-ready.sh
-./gradlew --offline --no-daemon --stacktrace \
+./scripts/gradle.sh --offline --no-daemon --stacktrace \
   spotlessCheck testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
   :app:compileDebugAndroidTestKotlin
 ```
@@ -126,13 +145,16 @@ When Android SDK 36 and the pinned Gradle/dependency cache are available:
 Compilation is followed by real Android execution:
 
 ```bash
-./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
+./scripts/gradle.sh --no-daemon --stacktrace connectedDebugAndroidTest
 ```
 
 CI uses API 33 as the ordinary instrumented baseline. Tagged prerelease/stable workflows require an
 API 30/33/36 emulator matrix before signing/publication. Physical phones remain the final validation
 layer because emulators still do not reproduce every OEM Wi-Fi, Media3, Bluetooth, foreground-service,
 or power-management behavior.
+
+Candidate-specific pass/fail status belongs in `docs/release-evidence/<version>.md`; this testing guide
+describes the required mechanism and must not be edited to imply a pending candidate has already passed.
 
 Release evidence records the exact tag/commit, GitHub-produced APK checksum/signing fingerprint,
 automated matrix results, physical devices, retained diagnostics, known issues, and final decision.

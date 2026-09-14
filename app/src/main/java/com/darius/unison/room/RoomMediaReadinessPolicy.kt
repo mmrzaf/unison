@@ -31,9 +31,4 @@ object RoomMediaReadinessPolicy {
                 }
             item.queueItemId to readiness
         }
-
-    fun canPlay(
-        queueItemId: QueueItemId,
-        readiness: Map<QueueItemId, RoomMediaReadiness>,
-    ): Boolean = readiness[queueItemId] == RoomMediaReadiness.READY
 }

@@ -84,7 +84,7 @@ protocol code should preserve them or explicitly change the product contract.
 
 ## Security and privacy
 
-37. Protocol 2 is strict: no negotiation/fallback decoder or unknown-field compatibility path.
+37. Protocol 1 is strict: no negotiation/fallback decoder or unknown-field compatibility path.
 38. First admission, reconnect, and file transfer are authenticated for their explicit purpose.
 39. Received content is never trusted by filename/metadata; SHA-256 identity is authoritative.
 40. Diagnostics never persist raw room secrets, PINs, authorization tokens/proofs, content URIs, or

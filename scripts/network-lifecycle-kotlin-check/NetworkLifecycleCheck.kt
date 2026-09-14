@@ -90,7 +90,7 @@ private suspend fun discoveryCancellationStopsClassicResolution() {
     delay(10)
     check(foundCount == 0) { "Late Android 11-13 NSD resolution escaped a cancelled scan" }
     check(nsd.stoppedDiscoveryListeners.size == 1) { "Discovery listener was not stopped" }
-    check(nsd.serviceInfoCallbacks.isEmpty()) { "Legacy discovery registered a modern callback" }
+    check(nsd.serviceInfoCallbacks.isEmpty()) { "API 30-33 discovery registered an API 34+ callback" }
     check(locks.acquireCount == 1 && locks.releaseCount == 1) {
         "Multicast lock lifecycle was unbalanced: acquire=${locks.acquireCount} release=${locks.releaseCount}"
     }
@@ -194,7 +194,7 @@ private suspend fun legacyDiscoveryInfersWifiNetwork() {
     awaitCondition { nsd.resolveListener != null }
     nsd.resolveListener!!.onServiceResolved(service)
     delay(10)
-    val routed = router.createSocket(InetAddress.getByName("192.168.1.10"), "legacy_test")
+    val routed = router.createSocket(InetAddress.getByName("192.168.1.10"), "api30_test")
     check(routed.routeMode == LocalNetworkRouteMode.SYSTEM_DEFAULT) {
         "Android 11 active LAN should use the system-default socket"
     }

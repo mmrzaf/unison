@@ -31,10 +31,6 @@ sealed interface AppCommand {
 
     data class SaveDisplayName(val name: String) : AppCommand
 
-    data class KeepTrack(val trackId: TrackId) : AppCommand
-
-    data class RemoveTemporaryTrack(val trackId: TrackId) : AppCommand
-
     data class Play(override val commandId: String = UUID.randomUUID().toString()) : Transport
 
     data class Pause(override val commandId: String = UUID.randomUUID().toString()) : Transport
@@ -74,8 +70,6 @@ sealed interface AppCommand {
     data object ClearPlayed : AppCommand
 
     data object ClearQueue : AppCommand
-
-    data class UpdateRoomOptions(val options: RoomOptions) : AppCommand
 }
 
 @Serializable
@@ -177,13 +171,6 @@ sealed interface UserCommand {
         override val commandId: String = UUID.randomUUID().toString(),
         override val requestedBy: PeerId,
         val repeatMode: RepeatMode,
-    ) : UserCommand
-
-    @Serializable
-    data class OptionsChange(
-        override val commandId: String = UUID.randomUUID().toString(),
-        override val requestedBy: PeerId,
-        val options: RoomOptions,
     ) : UserCommand
 }
 

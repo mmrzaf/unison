@@ -1,12 +1,9 @@
-# Protocol 2
+# Protocol 1
 
-Protocol 2 is the Unison 1.2 release line's only wire contract. There is no negotiation or fallback to protocol 1,
-no compatibility decoder, and no alternate message shape. Unknown fields, missing required fields,
-invalid enum values, and a protocol value other than `2` are rejected.
-
-Protocol 3 was deliberately **not** introduced for the 1.2 release line: the readiness, transfer-orchestration,
-lifecycle, and diagnostics changes fit Protocol 2 without weakening its semantics. Persistent peer
-data sessions remain a future experiment and are not part of this contract.
+Protocol 1 is the Unison 1.2 release line's only wire contract. There is no negotiation, fallback
+decoder, or alternate message shape. Unknown fields, missing required fields, invalid enum values, and
+any protocol value other than `1` are rejected. Internal refactoring does not create another wire
+version; a future protocol number requires an actual incompatible wire-semantic change.
 
 ## Network boundary
 
@@ -120,7 +117,7 @@ are never logged.
 ## Room end
 
 `LeaveRoom` is an explicit session-ending signal when sent by the coordinator. Participants do not
-elect a replacement coordinator in Protocol 2. Unexpected coordinator loss uses bounded reconnect;
+elect a replacement coordinator in Protocol 1. Unexpected coordinator loss uses bounded reconnect;
 exhausted recovery ends the room locally.
 
 ## Limits
