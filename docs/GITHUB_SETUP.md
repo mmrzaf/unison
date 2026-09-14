@@ -81,6 +81,13 @@ Prepare a small number of genuine, bounded `good first issue` tasks before activ
 contributors. Good candidates are documentation/test/tooling improvements that do not require changing
 the canonical room protocol or actor lifecycle on a first contribution.
 
+
+Before publishing any public release, configure the four signing-material secrets documented in
+[`LOCAL_RELEASE.md`](LOCAL_RELEASE.md) plus `ANDROID_SIGNING_CERT_SHA256`. Generate the fingerprint from
+the final approved key and keep that value stable; the release workflow rejects both a mismatched
+keystore and a mismatched final APK signer. Establish the production signing identity before the first
+public artifact and never reuse a revoked/test key.
+
 ## Release policy
 
 - release publication is tag-triggered only;

@@ -14,9 +14,9 @@ Every installable update must use a strictly higher `versionCode`.
 
 Version tags map directly to releases:
 
-- `1.2.0-beta.6` → `v1.2.0-beta.6` → GitHub prerelease
-- `1.2.0-rc.1` → `v1.2.0-rc.1` → GitHub prerelease
-- `1.2.0` → `v1.2.0` → normal/latest GitHub release
+- `<semver>-beta.<N>` → `v<semver>-beta.<N>` → GitHub prerelease
+- `<semver>-rc.<N>` → `v<semver>-rc.<N>` → GitHub prerelease
+- `<semver>` → `v<semver>` → normal/latest GitHub release
 
 Never retag a published version and never replace published assets. Fix forward with a new version.
 
@@ -31,11 +31,12 @@ For each beta, RC, or stable release:
 5. commit the release source;
 6. create and push the matching tag.
 
-Example:
+Example using the version currently declared in the repository:
 
 ```bash
-git tag v1.2.0-beta.6
-git push origin v1.2.0-beta.6
+VERSION="$(sed -n 's/^appVersionName = "\([^"]*\)"/\1/p' gradle/libs.versions.toml | head -1)"
+git tag "v$VERSION"
+git push origin "v$VERSION"
 ```
 
 Publication is tag-triggered only.
@@ -56,9 +57,13 @@ The release workflow requires:
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
+- `ANDROID_SIGNING_CERT_SHA256` — the public SHA-256 fingerprint of the one approved release certificate
 
 The build/sign job receives signing material without release-write permission. The publish job receives
-release-write permission without signing material.
+release-write permission without signing material. `ANDROID_SIGNING_CERT_SHA256` is not secret; it pins
+the intended certificate identity so accidentally replacing the keystore secret cannot silently change
+who signs Unison. The release verifier also rejects the certificate whose private key was exposed in the
+accidentally shared pre-Beta-7 local archive.
 
 ## Local production-style build
 
@@ -74,6 +79,9 @@ Expected output includes:
 - `app/build/outputs/apk/release/app-release.apk`
 - `app/build/outputs/release-SHA256SUMS.txt`
 
+The local release gate rejects a wrong signing certificate, debug/package/version/SDK metadata drift,
+misalignment, and an oversized APK before reporting success.
+
 A local build is not the published artifact. Human evidence that specifically claims to cover the
 published release must use the exact GitHub-produced APK.
 
@@ -87,7 +95,8 @@ the archive before publication.
 Example:
 
 ```bash
-./scripts/package-source.sh v1.2.0-beta.6 dist
+VERSION="$(sed -n 's/^appVersionName = "\([^"]*\)"/\1/p' gradle/libs.versions.toml | head -1)"
+./scripts/package-source.sh "v$VERSION" dist
 ```
 
 ## Local signing setup
@@ -96,8 +105,10 @@ Example:
 ./scripts/create-release-key.sh
 ```
 
-Back up the release key and passwords securely. Supported updates must continue using the expected
-release signing identity.
+The script records the certificate SHA-256 fingerprint in local `keystore.properties`. Back up the
+release key and passwords securely, and store the fingerprint independently. Configure the same
+fingerprint as the repository secret `ANDROID_SIGNING_CERT_SHA256` before publishing. Every local and
+GitHub production build verifies the final APK against that pinned identity.
 
 ## APK size gate
 

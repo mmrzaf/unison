@@ -26,7 +26,7 @@ Set `ANDROID_HOME` or `ANDROID_SDK_ROOT`, put `adb` on `PATH`, then run:
 ```
 
 Bootstrap is the intentionally network-enabled phase. It prepares the Gradle distribution/cache,
-project dependencies, standalone Kotlin-check dependencies, and Android-test compilation inputs.
+project dependencies, the standalone network-lifecycle check dependencies, and Android-test compilation inputs.
 Afterward:
 
 ```bash
@@ -34,24 +34,6 @@ Afterward:
 ```
 
 should confirm the machine can execute the deterministic offline build path.
-
-## Regional Maven mirrors
-
-Public repository defaults use Google's/Maven Central/Gradle Plugin Portal repositories. Developers
-who need the optional Iran mirror path can opt in locally without changing the repository:
-
-```properties
-# ~/.gradle/gradle.properties
-useIranMirrors=true
-```
-
-or per invocation:
-
-```bash
-./gradlew -PuseIranMirrors=true ...
-```
-
-GitHub Actions intentionally use official repositories.
 
 ## Normal development
 
@@ -63,7 +45,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Do not create tags for ordinary debug builds. Release-style signed APKs are associated with immutable
-prerelease/stable tags such as `v1.2.0-beta.4` or `v1.2.0`.
+prerelease/stable tags such as `v1.2.0-beta.<N>` or `v1.2.0`.
 
 ## Repository checks
 
@@ -93,13 +75,21 @@ This is a local development escape hatch only. GitHub Actions and release public
 Android unit/lint/build checks:
 
 ```bash
-./gradlew --no-daemon --stacktrace   testDebugUnitTest lintDebug lintRelease   assembleDebug assembleRelease   :app:compileDebugAndroidTestKotlin
+./scripts/gradle.sh --no-daemon --stacktrace \
+  testDebugUnitTest lintDebug lintRelease \
+  assembleDebug assembleRelease \
+  :app:compileDebugAndroidTestKotlin
 ```
+
+On developer machines, `scripts/gradle.sh` uses the ignored repository-local `.gradle-user-home/` by
+default. This prevents user-level `~/.gradle/init.d` repository rewrites from changing Unison's trusted
+dependency-resolution path. Set `UNISON_GRADLE_USER_HOME` only when you intentionally want another
+trusted Gradle home. GitHub Actions keeps the runner Gradle home so normal CI caching still applies.
 
 With a device/emulator ready:
 
 ```bash
-./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
+./scripts/gradle.sh --no-daemon --stacktrace connectedDebugAndroidTest
 ```
 
 See [Testing](TESTING.md) for the behavioral and physical-device strategy.
