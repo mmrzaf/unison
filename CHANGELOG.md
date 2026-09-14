@@ -2,8 +2,30 @@
 
 ## Unreleased
 
-Changes after `1.2.0-beta.7` should be recorded here until the next prerelease or stable release is
+Changes after `1.2.0-beta.8` should be recorded here until the next prerelease or stable release is
 cut.
+
+## 1.2.0-beta.8
+
+### Fixed
+
+- Fixed the debug test content provider to use the Android KTX URI parser required by lint.
+- Removed redundant Kotlin assertions/branches that produced compiler warnings without changing behavior.
+- Restored Unison's repository helpers after unrelated documentation/tooling was accidentally copied
+  into the source tree, including the Gradle helper and safe working-tree archive path.
+
+### Release preparation
+
+- Superseded the unpublished Beta 7 candidate with `1.2.0-beta.8` (`versionCode 11`) instead of
+  mutating or reusing the earlier tag.
+- Kept release signing validation limited to the configured expected certificate identity and final APK
+  signer verification.
+- Re-established Beta 8 as the first supported local-data format v1 candidate; earlier development
+  candidates remain unsupported and require a clean install/app-data state.
+- Added source-tree guards for the unrelated project directories/scripts that contaminated the Beta 7
+  working tree, so the same repository mix-up fails fast in future release checks.
+- Made the release-APK metadata self-test version-neutral so routine prerelease bumps do not require
+  editing a hard-coded old candidate fixture.
 
 ## 1.2.0-beta.7
 
@@ -20,17 +42,16 @@ cut.
 
 ### Release preparation
 
-- Established `1.2.0-beta.7` (`versionCode 10`) as the next 1.2 stabilization candidate.
-- Established one clean local-data format v1 with canonical database `unison.db`. Beta 7 is the first
-  supported data baseline, so no legacy migration/reset compatibility layer is shipped.
+- Prepared `1.2.0-beta.7` (`versionCode 10`) as a 1.2 stabilization candidate; it was later
+  superseded before publication by Beta 8.
+- Prepared one clean local-data format v1 with canonical database `unison.db` as the candidate baseline,
+  with no legacy migration/reset compatibility layer.
 - Standardized the current strict wire contract as Protocol 1. There is no legacy wire mode, version
   negotiation, fallback decoder, or parallel protocol implementation.
 - Updated release and physical-qualification guidance to target the current 1.2 candidate without
   weakening the existing API 30/33/36, VPN/LAN, exact-artifact, and physical-device gates.
 - Pinned the expected release signing-certificate SHA-256 identity in local/CI release configuration;
-  release builds now fail both before and after signing if the supplied key or final APK certificate
-  differs from that identity, and the certificate exposed in the earlier local source archive is
-  explicitly revoked by the release gate.
+  release builds verify both the supplied key and final APK certificate against that identity.
 - Unified local and GitHub release-artifact verification around the same signed-APK gate: signature,
   signing identity, zip alignment, package/version/SDK metadata, non-debuggable status, and APK-size
   limit are all checked before publication.

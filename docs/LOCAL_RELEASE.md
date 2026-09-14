@@ -62,8 +62,7 @@ The release workflow requires:
 The build/sign job receives signing material without release-write permission. The publish job receives
 release-write permission without signing material. `ANDROID_SIGNING_CERT_SHA256` is not secret; it pins
 the intended certificate identity so accidentally replacing the keystore secret cannot silently change
-who signs Unison. The release verifier also rejects the certificate whose private key was exposed in the
-accidentally shared pre-Beta-7 local archive.
+who signs Unison.
 
 ## Local production-style build
 
@@ -79,8 +78,8 @@ Expected output includes:
 - `app/build/outputs/apk/release/app-release.apk`
 - `app/build/outputs/release-SHA256SUMS.txt`
 
-The local release gate rejects a wrong signing certificate, debug/package/version/SDK metadata drift,
-misalignment, and an oversized APK before reporting success.
+The local release gate verifies the signing certificate, debug/package/version/SDK metadata, alignment,
+and APK size before reporting success.
 
 A local build is not the published artifact. Human evidence that specifically claims to cover the
 published release must use the exact GitHub-produced APK.

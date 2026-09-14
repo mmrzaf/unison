@@ -76,8 +76,8 @@ For the 1.2 line:
 
 - wire protocol remains Protocol 1;
 - Room database schema remains schema 1 and local-data format remains v1;
-- Beta 7 qualification starts from a clean install/app-data state; earlier development-build data is unsupported.
-- Beta 7 is the first supported local-data v1 baseline; Beta 7-and-later data must survive later 1.2
+- Beta 8 qualification starts from a clean install/app-data state; earlier development-build data is unsupported.
+- Beta 8 is the first supported local-data v1 baseline; Beta 8-and-later data must survive later 1.2
   candidate upgrades unchanged;
 - local transfer policy/access denial must be bounded and visible rather than entering an automatic
   retry storm;
