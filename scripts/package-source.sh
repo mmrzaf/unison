@@ -26,7 +26,7 @@ trap 'rm -f "$TMP"' EXIT
 # git archive fixes the source set to one immutable commit; gzip -n removes gzip timestamp/name data.
 git -C "$ROOT_DIR" archive --format=tar --prefix="unison-${VERSION_NAME}/" "$TAG_COMMIT" \
   | gzip -n -9 > "$TMP"
-python3 "$ROOT_DIR/scripts/check-source-package.py" "$TMP"
+python3 "$ROOT_DIR/scripts/check-source-package.py" "$TMP" --expected-root "unison-${VERSION_NAME}"
 mv -f "$TMP" "$ARCHIVE"
 trap - EXIT
 sha256sum "$ARCHIVE"
