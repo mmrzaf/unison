@@ -21,6 +21,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+internal fun normalizeDisplayName(name: String): String =
+    name.filterNot(Char::isISOControl).trim().take(MAX_DISPLAY_NAME_LENGTH).ifBlank {
+        DEFAULT_DISPLAY_NAME
+    }
+
+private const val MAX_DISPLAY_NAME_LENGTH = 40
+
 private val Context.dataStore by
     preferencesDataStore(
         name = "unison_settings",
@@ -45,7 +52,7 @@ class UnisonSettings(private val context: Context) {
     val identity: Flow<LocalIdentity> = data.map { prefs ->
         LocalIdentity(
             peerId = PeerId(prefs[Keys.peerId] ?: ""),
-            displayName = prefs[Keys.displayName] ?: DEFAULT_DISPLAY_NAME,
+            displayName = normalizeDisplayName(prefs[Keys.displayName] ?: DEFAULT_DISPLAY_NAME),
         )
     }
 
@@ -65,7 +72,7 @@ class UnisonSettings(private val context: Context) {
         if (existing != null)
             return@withLock LocalIdentity(
                 PeerId(existing),
-                prefs[Keys.displayName] ?: DEFAULT_DISPLAY_NAME,
+                normalizeDisplayName(prefs[Keys.displayName] ?: DEFAULT_DISPLAY_NAME),
             )
         createIdentity(prefs[Keys.displayName] ?: DEFAULT_DISPLAY_NAME)
     }
@@ -80,19 +87,23 @@ class UnisonSettings(private val context: Context) {
     }
 
     private suspend fun createIdentity(displayName: String): LocalIdentity {
+        val safeDisplayName = normalizeDisplayName(displayName)
         val id =
             ByteArray(16).also(SecureRandom()::nextBytes).joinToString("") {
                 "%02x".format(Locale.ROOT, it)
             }
-        context.dataStore.edit { it[Keys.peerId] = id }
-        return LocalIdentity(PeerId(id), displayName)
+        context.dataStore.edit {
+            it[Keys.peerId] = id
+            it[Keys.displayName] = safeDisplayName
+        }
+        return LocalIdentity(PeerId(id), safeDisplayName)
     }
 
     private fun isValidPeerId(value: String): Boolean =
         value.length in 16..128 && value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
 
     suspend fun saveDisplayName(name: String) {
-        val safe = name.trim().take(40).ifBlank { DEFAULT_DISPLAY_NAME }
+        val safe = normalizeDisplayName(name)
         context.dataStore.edit {
             it[Keys.displayName] = safe
             it[Keys.onboardingComplete] = true

@@ -5,7 +5,6 @@ import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -35,21 +34,7 @@ class PlaybackReconciliationKeyTest {
     }
 
     @Test
-    fun legacyBoundaryOptionDoesNotChangeTimelineKey() {
-        val base = snapshot()
-        val legacyChanged =
-            base.copy(
-                options = base.options.copy(waitAtTrackBoundary = !base.options.waitAtTrackBoundary)
-            )
-
-        assertEquals(
-            PlaybackReconciliationKey.from(base, emptySet()),
-            PlaybackReconciliationKey.from(legacyChanged, emptySet()),
-        )
-    }
-
-    @Test
-    fun queueReadinessAndPreparationOptionsChangeTimelineKey() {
+    fun queueAndReadinessChangeTimelineKey() {
         val base = snapshot()
         val item = base.queue.first().queueItemId
         assertNotEquals(
@@ -62,15 +47,6 @@ class PlaybackReconciliationKeyTest {
         assertNotEquals(
             PlaybackReconciliationKey.from(base, emptySet()),
             PlaybackReconciliationKey.from(base, setOf(item)),
-        )
-        assertNotEquals(
-            PlaybackReconciliationKey.from(base, emptySet()),
-            PlaybackReconciliationKey.from(
-                base.copy(
-                    options = base.options.copy(preloadCount = base.options.preloadCount + 1)
-                ),
-                emptySet(),
-            ),
         )
     }
 
@@ -97,7 +73,6 @@ class PlaybackReconciliationKeyTest {
             queueRevision = 4,
             queue = listOf(item),
             playback = CanonicalPlaybackState(queueItemId = item.queueItemId, revision = 3),
-            options = RoomOptions(),
         )
     }
 }

@@ -10,8 +10,6 @@ internal class RoomDiagnostics(private val log: DiagnosticLog) {
 
     fun begin(roomId: String, role: String) = log.beginRoom(roomId, role)
 
-    fun updateRole(role: String) = log.updateRoomRole(role)
-
     fun currentSessionId(): String? = log.currentRoomSessionId()
 
     fun debug(eventName: String, vararg attributes: Pair<String, Any?>) {

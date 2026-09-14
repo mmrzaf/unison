@@ -6,7 +6,6 @@ import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.RepeatMode
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
@@ -31,13 +30,12 @@ class PlaybackQueuePolicyTest {
     private val second = QueueItem.create(track('b', "Second"), peer)
     private val third = QueueItem.create(track('c', "Third"), peer)
 
-    private fun snapshot(wait: Boolean = false) =
+    private fun snapshot() =
         RoomSnapshot(
             roomId = "room",
             roomName = "Room",
             term = CoordinatorTerm(1, peer),
             sequence = 1,
-            options = RoomOptions(waitAtTrackBoundary = wait),
             members = listOf(MemberSnapshot(peer, "Peer")),
             queue = listOf(first, second, third),
             playback = CanonicalPlaybackState(first.queueItemId, 0, 1, isPlaying = true),
@@ -66,10 +64,10 @@ class PlaybackQueuePolicyTest {
     }
 
     @Test
-    fun boundaryModeStopsAtFirstUnpreparedFutureItem() {
+    fun unpreparedFutureItemStopsPlayableWindow() {
         val playable =
             PlaybackQueuePolicy.playableItems(
-                snapshot(wait = true),
+                snapshot(),
                 setOf(first.track.trackId, second.track.trackId, third.track.trackId),
                 setOf(first.queueItemId, third.queueItemId),
             )
@@ -188,29 +186,6 @@ class PlaybackQueuePolicyTest {
             )!!
         val change = plan.mutation as ProtocolBody.CurrentItemChanged
         assertEquals(first.queueItemId, change.queueItemId)
-        assertTrue(change.resumePlayback)
-    }
-
-    @Test
-    fun repeatOneCanonicalizesAMiddleTrackPlayerLoop() {
-        val room =
-            snapshot()
-                .copy(
-                    playback = CanonicalPlaybackState(second.queueItemId, 0, 1, true),
-                    repeatMode = RepeatMode.ONE,
-                )
-        val change =
-            PlaybackQueuePolicy.planRepeatTransition(
-                snapshot = room,
-                repeatedQueueItemId = second.queueItemId,
-                positionMs = 25,
-                coordinatorNowNs = 30_000_000,
-            )
-
-        requireNotNull(change)
-        assertEquals(second.queueItemId, change.queueItemId)
-        assertEquals(0, change.positionMs)
-        assertEquals(5_000_000, change.executeAtCoordinatorNs)
         assertTrue(change.resumePlayback)
     }
 

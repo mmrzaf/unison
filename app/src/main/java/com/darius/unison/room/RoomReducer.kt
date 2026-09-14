@@ -6,7 +6,6 @@ import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RepeatMode
-import com.darius.unison.model.RoomOptions
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.UserCommand
@@ -111,7 +110,6 @@ object RoomReducer {
             is UserCommand.QueueShuffle ->
                 shuffleQueue(snapshot, command.shuffleSeed, command.preserveNextQueueItemId)
             is UserCommand.RepeatModeChange -> changeRepeatMode(snapshot, command.repeatMode)
-            is UserCommand.OptionsChange -> changeOptions(snapshot, command.options)
         }
     }
 
@@ -173,8 +171,6 @@ object RoomReducer {
                         queueRevision = sequence,
                     )
 
-                is ProtocolBody.RoomOptionsChanged ->
-                    snapshot.copy(options = body.options.normalized())
                 is ProtocolBody.QueueShuffled -> {
                     val byId = snapshot.queue.associateBy { it.queueItemId }
                     val requested = body.orderedQueueItemIds.toHashSet()
@@ -512,9 +508,6 @@ object RoomReducer {
         return mutation(snapshot, ProtocolBody.QueueShuffled(orderedIds))
     }
 
-    private fun changeOptions(snapshot: RoomSnapshot, options: RoomOptions): Decision =
-        mutation(snapshot, ProtocolBody.RoomOptionsChanged(options.normalized()))
-
     private fun mutation(snapshot: RoomSnapshot, body: ProtocolBody): Decision {
         val sequence = snapshot.sequence + 1
         val updated = applyCanonical(snapshot, sequence, body)
@@ -567,10 +560,6 @@ object RoomReducer {
             is UserCommand.QueueClearPlayed,
             is UserCommand.QueueClear,
             is UserCommand.QueueShuffle,
-            is UserCommand.RepeatModeChange,
-            is UserCommand.OptionsChange -> false
+            is UserCommand.RepeatModeChange -> false
         }
-
-    private fun RoomOptions.normalized() =
-        copy(preloadCount = preloadCount.coerceIn(1, TrackPrefetchPolicy.DEFAULT_UPCOMING_COUNT))
 }

@@ -150,25 +150,4 @@ object PlaybackQueuePolicy {
             )
         }
     }
-
-    fun planRepeatTransition(
-        snapshot: RoomSnapshot,
-        repeatedQueueItemId: QueueItemId,
-        positionMs: Long,
-        coordinatorNowNs: Long,
-    ): ProtocolBody.CurrentItemChanged? {
-        if (
-            snapshot.repeatMode != RepeatMode.ONE ||
-                !snapshot.playback.isPlaying ||
-                snapshot.playback.queueItemId != repeatedQueueItemId
-        ) {
-            return null
-        }
-        return ProtocolBody.CurrentItemChanged(
-            queueItemId = repeatedQueueItemId,
-            positionMs = 0,
-            executeAtCoordinatorNs = coordinatorNowNs - positionMs.coerceAtLeast(0) * 1_000_000L,
-            resumePlayback = true,
-        )
-    }
 }

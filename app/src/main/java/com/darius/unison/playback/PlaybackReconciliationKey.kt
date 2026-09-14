@@ -17,7 +17,6 @@ data class PlaybackReconciliationKey(
     val currentQueueItemId: QueueItemId?,
     val preparedQueueItemIds: Set<QueueItemId>,
     val repeatMode: RepeatMode,
-    val preloadCount: Int,
 ) {
     companion object {
         fun from(
@@ -30,7 +29,6 @@ data class PlaybackReconciliationKey(
                 currentQueueItemId = snapshot.playback.queueItemId,
                 preparedQueueItemIds = preparedQueueItemIds.toSet(),
                 repeatMode = snapshot.repeatMode,
-                preloadCount = snapshot.options.preloadCount,
             )
     }
 }
