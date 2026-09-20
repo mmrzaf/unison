@@ -11,7 +11,6 @@ SENSITIVE_SUFFIXES = (".jks", ".keystore", ".p12", ".pfx", ".pem", ".key", ".bas
 FORBIDDEN_PARTS = {
     ".git",
     ".gradle",
-    ".gradle-user-home",
     ".kotlin",
     "build",
     "dist",
@@ -40,7 +39,6 @@ REQUIRED_SUFFIXES = {
     "gradle/libs.versions.toml",
     "app/build.gradle.kts",
     "scripts/check-source-tree.py",
-    "scripts/gradle.sh",
     "scripts/check-release-signing.py",
     "scripts/check-release-apk-metadata.py",
     "scripts/verify-release-apk.sh",

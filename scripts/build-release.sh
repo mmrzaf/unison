@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 }
 
 ./scripts/check-release-quality.sh
-./scripts/gradle.sh --offline --no-daemon --stacktrace \
+./gradlew --offline --no-daemon --stacktrace \
   spotlessCheck testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
   :app:compileDebugAndroidTestKotlin
 

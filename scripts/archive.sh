@@ -70,7 +70,6 @@ trap 'rm -f "$TMP_ARCHIVE"' EXIT
       -path './.artifacts' -o \
       -path './backup' -o \
       -path './.gradle' -o \
-      -path './.gradle-user-home' -o \
       -path './.kotlin' -o \
       -path './.unison-overlay' -o \
       -path './captures' -o \

@@ -8,7 +8,7 @@ This intentionally rewrites Gradle dependency-verification metadata.
 Run it only on a trusted network/resolution path, review every checksum change, and commit the result separately.
 EOF
 
-./scripts/gradle.sh --no-daemon --refresh-dependencies \
+./gradlew --no-daemon --refresh-dependencies \
   --write-verification-metadata sha256 \
   resolveVerificationDependencies
 

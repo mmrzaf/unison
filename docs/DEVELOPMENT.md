@@ -75,21 +75,16 @@ This is a local development escape hatch only. GitHub Actions and release public
 Android unit/lint/build checks:
 
 ```bash
-./scripts/gradle.sh --no-daemon --stacktrace \
+./gradlew --no-daemon --stacktrace \
   testDebugUnitTest lintDebug lintRelease \
   assembleDebug assembleRelease \
   :app:compileDebugAndroidTestKotlin
 ```
 
-On developer machines, `scripts/gradle.sh` uses the ignored repository-local `.gradle-user-home/` by
-default. This prevents user-level `~/.gradle/init.d` repository rewrites from changing Unison's trusted
-dependency-resolution path. Set `UNISON_GRADLE_USER_HOME` only when you intentionally want another
-trusted Gradle home. GitHub Actions keeps the runner Gradle home so normal CI caching still applies.
-
 With a device/emulator ready:
 
 ```bash
-./scripts/gradle.sh --no-daemon --stacktrace connectedDebugAndroidTest
+./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
 ```
 
 See [Testing](TESTING.md) for the behavioral and physical-device strategy.

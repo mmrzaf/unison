@@ -15,7 +15,7 @@ JAVA_MAJOR="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
 [[ "$JAVA_MAJOR" == "21" ]] || die "Gradle development is qualified with JDK 21; found Java $JAVA_MAJOR"
 
 info "Bootstrapping Gradle, Android dependencies, and standalone Kotlin check dependencies"
-./scripts/gradle.sh --no-daemon help :app:prepareStandaloneKotlinChecks :app:compileDebugAndroidTestKotlin
+./gradlew --no-daemon help :app:prepareStandaloneKotlinChecks :app:compileDebugAndroidTestKotlin
 info "Checking that the workstation can now build offline"
 ./scripts/verify-offline-ready.sh
 info "Development bootstrap complete"

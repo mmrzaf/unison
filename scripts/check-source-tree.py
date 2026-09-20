@@ -293,8 +293,8 @@ def main() -> int:
         for workflow_path in (".github/workflows/verify.yml", ".github/workflows/android.yml",
                               ".github/workflows/release.yml", ".github/workflows/codeql.yml"):
             workflow_text = text(workflow_path)
-            require("./gradlew" not in workflow_text, f"Workflow bypasses trusted Gradle entry point: {workflow_path}")
-            require("./scripts/gradle.sh" in workflow_text, f"Workflow does not use trusted Gradle entry point: {workflow_path}")
+            require("./gradlew" in workflow_text, f"Workflow does not use ./gradlew: {workflow_path}")
+            require("scripts/gradle.sh" not in workflow_text, f"Workflow references removed Gradle wrapper: {workflow_path}")
         action_ref = re.compile(r"uses:\s+[^\s@]+@([0-9a-f]{40})(?:\s|$)")
         for workflow_path in (".github/workflows/verify.yml", ".github/workflows/android.yml",
                               ".github/workflows/release.yml", ".github/workflows/codeql.yml"):
@@ -308,10 +308,8 @@ def main() -> int:
                 "Trusted Gradle repositories are not configured")
         require("myket" not in settings_gradle.lower() and "mirror" not in settings_gradle.lower(),
                 "Repository-defined dependency mirror must not be present")
-        gradle_entrypoint = text("scripts/gradle.sh")
-        common_script = text("scripts/common.sh")
-        require("run_gradle" in gradle_entrypoint and ".gradle-user-home" in common_script,
-                "Local Gradle verification is not isolated from user-level init scripts")
+        require(not (ROOT / "scripts/gradle.sh").exists(),
+                "Removed Gradle wrapper script still present: scripts/gradle.sh")
         require("Apache License" in text("LICENSE"), "Project license is not Apache-2.0 text")
         evidence_path = f"docs/release-evidence/{version_name}.md"
         require((ROOT / evidence_path).is_file(), f"Missing release evidence record for current version: {evidence_path}")

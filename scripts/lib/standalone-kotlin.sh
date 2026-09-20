@@ -7,7 +7,7 @@ prepare_standalone_kotlin() {
 
   if [[ ! -d "$check_lib" ]]; then
     echo "$check_name: preparing repository-pinned Kotlin compiler classpath"
-    ./scripts/gradle.sh --no-daemon --quiet :app:prepareStandaloneKotlinChecks
+    ./gradlew --no-daemon --quiet :app:prepareStandaloneKotlinChecks
   fi
 
   local compiler_jars=()

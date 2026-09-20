@@ -56,11 +56,11 @@ For behavior changes, also run the relevant focused tests plus:
 
 ```bash
 ./scripts/check-release-quality.sh
-./scripts/gradle.sh --no-daemon testDebugUnitTest lintDebug :app:compileDebugAndroidTestKotlin
+./gradlew --no-daemon testDebugUnitTest lintDebug :app:compileDebugAndroidTestKotlin
 ```
 
 Android/framework behavior should be exercised with instrumentation rather than inferred from JVM
-stubs. `./scripts/gradle.sh --no-daemon connectedDebugAndroidTest` is the normal local entry point when an emulator/device is ready.
+stubs. `./gradlew --no-daemon connectedDebugAndroidTest` is the normal local entry point when an emulator/device is ready.
 The release workflow executes instrumentation on API 30, 33, and 36.
 
 Add focused regression coverage for behavior changes. A small test that asserts an invariant is

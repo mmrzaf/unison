@@ -2,5 +2,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ./scripts/check-release-quality.sh
-./scripts/gradle.sh --offline --no-daemon spotlessCheck testDebugUnitTest lintDebug assembleDebug
+./gradlew --offline --no-daemon spotlessCheck testDebugUnitTest lintDebug assembleDebug
 printf 'APK: %s\n' "$PWD/app/build/outputs/apk/debug/app-debug.apk"
