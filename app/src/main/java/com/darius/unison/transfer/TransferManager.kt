@@ -42,6 +42,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -50,6 +51,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class TransferFailure(
@@ -429,10 +431,14 @@ class TransferManager(
                         throw error
                     }
                 } finally {
-                    watchdog?.cancelAndJoin()
-                    activeUploadSockets.remove(uploadOperationId, socket)
-                    notifyActiveTransferCount()
-                    runCatching { socket.close() }
+                    // Cleanup must survive outer cancellation: cancelAndJoin is a suspend call
+                    // that would otherwise throw immediately and leak the socket registration.
+                    withContext(NonCancellable) {
+                        watchdog?.cancelAndJoin()
+                        activeUploadSockets.remove(uploadOperationId, socket)
+                        notifyActiveTransferCount()
+                        runCatching { socket.close() }
+                    }
                 }
             }
         if (!admitted) {
@@ -469,6 +475,7 @@ class TransferManager(
     ) {
         val operationId = UUID.randomUUID().toString()
         val assignmentId = Crypto.fileTransferAuthorizationId(authorizationToken).take(16)
+        val downloadStartedMs = android.os.SystemClock.elapsedRealtime()
         val job =
             scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
                 try {
@@ -551,6 +558,8 @@ class TransferManager(
                     currentCoroutineContext().ensureActive()
                     val staged = error as? TransferStageException
                     val userMessage = staged?.cause?.message ?: error.message ?: "Transfer failed"
+                    val receivedBytes =
+                        fileStore.partialFile(track.trackId).length().coerceAtMost(track.sizeBytes)
                     log.warn(
                         TAG,
                         DiagnosticCategory.TRANSFER,
@@ -562,6 +571,12 @@ class TransferManager(
                                 "track.id" to track.trackId.value.take(12),
                                 "peer.id" to source.peerId.value.take(12),
                                 "transfer.phase" to staged?.stage,
+                                "transfer.bytes_received" to receivedBytes,
+                                "transfer.bytes_remaining" to
+                                    (track.sizeBytes - receivedBytes).coerceAtLeast(0L),
+                                "operation.duration_ms" to
+                                    (android.os.SystemClock.elapsedRealtime() - downloadStartedMs)
+                                        .coerceAtLeast(0L),
                             ),
                         throwable = staged?.cause ?: error,
                     )

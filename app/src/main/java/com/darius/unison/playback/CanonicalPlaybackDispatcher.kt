@@ -21,7 +21,7 @@ class CanonicalPlaybackDispatcher(
     scope: CoroutineScope,
     private val applyExact: suspend (ProtocolBody, RoomSnapshot) -> Unit,
     private val reconcileLatest: suspend (PlaybackReconciliation) -> Unit,
-    private val onFailure: (ProtocolBody?, Throwable) -> Unit,
+    private val onFailure: (ProtocolBody?, Throwable, Timing) -> Unit,
     private val onTiming: (Timing) -> Unit = {},
     private val preparedQueueItemIds: () -> Set<com.darius.unison.model.QueueItemId> = {
         emptySet()
@@ -114,7 +114,14 @@ class CanonicalPlaybackDispatcher(
                 throw cancelled
             } catch (error: Exception) {
                 synchronized(stateLock) { failures++ }
-                onFailure((item as? Work.Exact)?.body, error)
+                val failureTiming =
+                    Timing(
+                        kind = if (item is Work.Exact) WorkKind.EXACT else WorkKind.RECONCILIATION,
+                        mutationType = (item as? Work.Exact)?.body?.let { it::class.simpleName },
+                        submissionToStartNs = submissionToStartNs,
+                        applyDurationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L),
+                    )
+                onFailure((item as? Work.Exact)?.body, error, failureTiming)
             } finally {
                 val applyDurationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L)
                 runCatching {

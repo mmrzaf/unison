@@ -117,7 +117,7 @@ class SerializedEventLoopTest {
                     }
                     processedAfterFailure.complete(Unit)
                 },
-                onFailure = { _, error -> failure.complete(error) },
+                onFailure = { _, error, _ -> failure.complete(error) },
             )
 
         loop.submit(1)
@@ -145,7 +145,7 @@ class SerializedEventLoopTest {
                         processedAfterFailure.complete(Unit)
                     }
                 },
-                onFailure = { _, error -> failure.complete(error) },
+                onFailure = { _, error, _ -> failure.complete(error) },
             )
 
         loop.submit(1)

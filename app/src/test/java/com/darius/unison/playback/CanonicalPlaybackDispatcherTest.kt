@@ -40,7 +40,7 @@ class CanonicalPlaybackDispatcherTest {
                         release.await()
                     }
                 },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))
@@ -73,7 +73,7 @@ class CanonicalPlaybackDispatcherTest {
                 scope = scope,
                 applyExact = { body, _ -> applied += body::class.simpleName.orEmpty() },
                 reconcileLatest = {},
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             val item = QueueItemId("item")
@@ -103,7 +103,7 @@ class CanonicalPlaybackDispatcherTest {
                 scope = scope,
                 applyExact = { _, _ -> calls++ },
                 reconcileLatest = { calls++ },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             dispatcher.submit(ProtocolBody.ClockReady(true), snapshot(1))
@@ -128,7 +128,7 @@ class CanonicalPlaybackDispatcherTest {
                     reconciliationCalls++
                     if (reconciliationCalls == 1) error("broken")
                 },
-                onFailure = { _, error -> failures += error },
+                onFailure = { _, error, _ -> failures += error },
             )
         try {
             dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))
@@ -162,7 +162,7 @@ class CanonicalPlaybackDispatcherTest {
                         release.await()
                     }
                 },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))
@@ -203,7 +203,7 @@ class CanonicalPlaybackDispatcherTest {
                     firstStarted.complete(Unit)
                     releaseFirst.await()
                 },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
                 onTiming = { timing ->
                     if (timing.kind == CanonicalPlaybackDispatcher.WorkKind.EXACT) {
                         exactTiming.complete(timing)
@@ -250,7 +250,7 @@ class CanonicalPlaybackDispatcherTest {
                         releaseFirst.await()
                     }
                 },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))

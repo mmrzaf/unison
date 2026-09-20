@@ -255,7 +255,7 @@ class RoomRuntime(
             scope = scope,
             capacity = ROOM_EVENT_CAPACITY,
             handler = ::processRoomEvent,
-            onFailure = { event, error ->
+            onFailure = { event, error, timing ->
                 val eventName =
                     if (error is CancellationException) {
                         "room.event.unexpected_handler_cancellation"
@@ -266,6 +266,8 @@ class RoomRuntime(
                     eventName,
                     error,
                     "event.type" to event::class.simpleName,
+                    "operation.queue_wait_ms" to timing.submissionToStartNs / 1_000_000L,
+                    "operation.duration_ms" to timing.handlerDurationNs / 1_000_000L,
                 )
                 event.completionOrNull()?.completeExceptionally(error)
             },
@@ -339,11 +341,13 @@ class RoomRuntime(
             applyExact = ::applyExactCanonicalPlayback,
             reconcileLatest = ::reconcileCanonicalPlayback,
             preparedQueueItemIds = { preparedQueueItemIds },
-            onFailure = { body, error ->
+            onFailure = { body, error, timing ->
                 diagnostics.error(
                     "playback.dispatch.failed",
                     error,
                     "mutation.type" to (body?.let { it::class.simpleName } ?: "reconciliation"),
+                    "operation.queue_wait_ms" to timing.submissionToStartNs / 1_000_000L,
+                    "operation.duration_ms" to timing.applyDurationNs / 1_000_000L,
                 )
                 setIssue(
                     RoomIssue(

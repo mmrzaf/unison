@@ -26,7 +26,7 @@ class SerializedEventLoop<E>(
     scope: CoroutineScope,
     capacity: Int,
     private val handler: suspend (E) -> Unit,
-    private val onFailure: (E, Throwable) -> Unit = { _, _ -> },
+    private val onFailure: (E, Throwable, Timing) -> Unit = { _, _, _ -> },
     private val onDropped: (E, CancellationException) -> Unit = { _, _ -> },
     private val onHandled: (E, Long) -> Unit = { _, _ -> },
     private val onTiming: (E, Timing) -> Unit = { _, _ -> },
@@ -58,6 +58,11 @@ class SerializedEventLoop<E>(
                 val event = queued.event
                 val startedNs = System.nanoTime()
                 val submissionToStartNs = (startedNs - queued.submittedNs).coerceAtLeast(0L)
+                fun timingAt(nowNs: Long) =
+                    Timing(
+                        submissionToStartNs = submissionToStartNs,
+                        handlerDurationNs = (nowNs - startedNs).coerceAtLeast(0L),
+                    )
                 try {
                     handler(event)
                 } catch (cancelled: CancellationException) {
@@ -65,9 +70,9 @@ class SerializedEventLoop<E>(
                         runCatching { onDropped(event, cancelled) }
                         throw cancelled
                     }
-                    onFailure(event, cancelled)
+                    onFailure(event, cancelled, timingAt(System.nanoTime()))
                 } catch (error: Throwable) {
-                    onFailure(event, error)
+                    onFailure(event, error, timingAt(System.nanoTime()))
                 } finally {
                     val durationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L)
                     runCatching { onHandled(event, durationNs) }

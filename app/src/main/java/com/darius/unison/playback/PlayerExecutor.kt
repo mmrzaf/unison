@@ -401,6 +401,8 @@ class PlayerExecutor(
         }
         val scheduledAtNs = clock.nowNs()
         val arrivalLateAtScheduleMs = targetLatenessMs(executeAtCoordinatorNs)
+        var failureLateMs: Long? = null
+        var failureExecutorLateMs: Long? = null
         val replacement =
             scope.launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
                 try {
@@ -445,6 +447,8 @@ class PlayerExecutor(
                     val executorLateMs = arrivalLateAtScheduleMs?.let { arrival ->
                         (totalLateMs - arrival).coerceAtLeast(0L)
                     }
+                    failureLateMs = totalLateMs
+                    failureExecutorLateMs = executorLateMs
                     log.info(
                         TAG,
                         DiagnosticCategory.PLAYBACK,
@@ -494,6 +498,10 @@ class PlayerExecutor(
                             mapOf(
                                 "command.type" to name,
                                 "command.id" to commandId?.take(12),
+                                "queue.item_id" to queueItemId.value.take(12),
+                                "playback.late_ms" to failureLateMs,
+                                "playback.arrival_late_ms" to arrivalLateAtScheduleMs,
+                                "playback.executor_late_ms" to failureExecutorLateMs,
                             ),
                         throwable = error,
                     )
