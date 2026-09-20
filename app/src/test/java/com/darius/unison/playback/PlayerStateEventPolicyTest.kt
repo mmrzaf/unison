@@ -89,4 +89,28 @@ class PlayerStateEventPolicyTest {
 
         assertNotEquals(blocked, cleared)
     }
+
+    @Test
+    fun automaticRejoinEligibilityIsActorSignificant() {
+        val blocked =
+            PlayerStateEventPolicy.key(
+                PlayerState(
+                    participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                    inhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+                    outputResumeBlocked = false,
+                    automaticRejoinAllowed = false,
+                )
+            )
+        val eligible =
+            PlayerStateEventPolicy.key(
+                PlayerState(
+                    participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                    inhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+                    outputResumeBlocked = false,
+                    automaticRejoinAllowed = true,
+                )
+            )
+
+        assertNotEquals(blocked, eligible)
+    }
 }

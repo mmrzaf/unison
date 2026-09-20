@@ -75,13 +75,15 @@ class Media3PlayerAdapter(
     private var boundaryEndedPositionMs = 0L
     private var boundaryEndedDurationMs = 0L
     private var playableItemsById: Map<String, LocalPlayableItem> = emptyMap()
-    private var participation = LocalPlaybackParticipation.ACTIVE
-    private var inhibitionReason: LocalPlaybackInhibitionReason? = null
-    /**
-     * Latched until Media3 explicitly reports suppression NONE; never inferred from callback
-     * text/reason gaps.
-     */
-    private var outputResumeBlocked = false
+    private val localOutputState = LocalPlaybackOutputState()
+    private val participation: LocalPlaybackParticipation
+        get() = localOutputState.participation
+    private val inhibitionReason: LocalPlaybackInhibitionReason?
+        get() = localOutputState.inhibitionReason
+    private val outputResumeBlocked: Boolean
+        get() = localOutputState.outputResumeBlocked
+    private val automaticRejoinAllowed: Boolean
+        get() = localOutputState.automaticRejoinAllowed
     private var lastPlaybackSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE
     private var lastNaturalTransitionNs = Long.MIN_VALUE
     private val expectedPlayIntentChanges = ExpectedPlayerIntentTracker()
@@ -145,14 +147,14 @@ class Media3PlayerAdapter(
                 when {
                     !playWhenReady && explicitLocalReason != null -> {
                         expectedPlayIntentChanges.clear()
-                        inhibitOutput(explicitLocalReason, reason, reasonName)
+                        inhibitForLocalInterruption(explicitLocalReason, reason, reasonName)
                     }
 
                     !playWhenReady &&
                         reason == Player.PLAY_WHEN_READY_CHANGE_REASON_SUPPRESSED_TOO_LONG &&
                         suppressionLocalReason != null -> {
                         expectedPlayIntentChanges.clear()
-                        inhibitOutput(suppressionLocalReason, reason, reasonName)
+                        inhibitForPlatformSuppression(suppressionLocalReason, reason, reasonName)
                     }
 
                     !playWhenReady &&
@@ -214,10 +216,10 @@ class Media3PlayerAdapter(
                 )
                 val localReason = playbackSuppressionReason.toLocalSuppressionReason()
                 if (localReason != null) {
-                    // Explicit platform suppression always wins, even if another local interruption
-                    // (for example becoming-noisy) already inhibited output first.
+                    // Platform suppression blocks output immediately. A pre-existing local
+                    // interruption still owns resume policy, so it must not become auto-resumable.
                     expectedPlayIntentChanges.clear()
-                    inhibitOutput(
+                    inhibitForPlatformSuppression(
                         localReason,
                         playbackSuppressionReason,
                         playbackSuppressionReasonName(playbackSuppressionReason),
@@ -227,11 +229,10 @@ class Media3PlayerAdapter(
                     }
                     publish()
                 } else if (playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
-                    val wasBlocked = outputResumeBlocked
-                    outputResumeBlocked = false
-                    if (
-                        wasBlocked || participation == LocalPlaybackParticipation.OUTPUT_INHIBITED
-                    ) {
+                    val before = localOutputState.snapshot()
+                    localOutputState.clearPlatformSuppression()
+                    val after = localOutputState.snapshot()
+                    if (before != after) {
                         log.debug(
                             TAG,
                             DiagnosticCategory.PLAYBACK,
@@ -240,11 +241,12 @@ class Media3PlayerAdapter(
                                 mapOf(
                                     "playback.inhibition_reason" to inhibitionReason?.name,
                                     "playback.resume_blocked" to outputResumeBlocked,
+                                    "playback.automatic_rejoin_allowed" to automaticRejoinAllowed,
                                 ),
                         )
-                        // outputResumeBlocked is actor-significant state. Publishing here
-                        // guarantees
-                        // the pending-rejoin state machine observes the explicit platform clear.
+                        // The suppression latch and automatic-rejoin eligibility are actor-significant
+                        // state. Publish the explicit platform clear even while participation remains
+                        // inhibited so the room coordinator can safely complete a pending rejoin.
                         publish()
                     }
                 }
@@ -680,8 +682,7 @@ class Media3PlayerAdapter(
 
         // Local participation is an output-safety state, not a sync-convergence state. Clear the
         // inhibition only after the player is positioned, immediately before requesting audio.
-        participation = LocalPlaybackParticipation.ACTIVE
-        inhibitionReason = null
+        localOutputState.markRejoined()
         requestPlayInternal("local_rejoin")
         log.info(
             TAG,
@@ -700,27 +701,23 @@ class Media3PlayerAdapter(
 
     override suspend fun resetLocalPlaybackParticipation() = onMain {
         expectedPlayIntentChanges.clear()
-        val previousParticipation = participation
-        val previousReason = inhibitionReason
+        val before = localOutputState.snapshot()
         val activeSuppression = lastPlaybackSuppressionReason.toLocalSuppressionReason()
-        if (outputResumeBlocked || activeSuppression != null) {
-            participation = LocalPlaybackParticipation.OUTPUT_INHIBITED
-            inhibitionReason = activeSuppression ?: inhibitionReason
-        } else {
-            participation = LocalPlaybackParticipation.ACTIVE
-            inhibitionReason = null
-        }
-        if (previousParticipation != participation || previousReason != inhibitionReason) {
+        localOutputState.resetForSessionBoundary(activeSuppression)
+        val after = localOutputState.snapshot()
+        if (before != after) {
             log.debug(
                 TAG,
                 DiagnosticCategory.PLAYBACK,
                 "playback.local_participation.reset",
                 attributes =
                     mapOf(
-                        "playback.participation_from" to previousParticipation.name,
-                        "playback.participation_to" to participation.name,
-                        "playback.inhibition_reason_from" to previousReason?.name,
-                        "playback.inhibition_reason_to" to inhibitionReason?.name,
+                        "playback.participation_from" to before.participation.name,
+                        "playback.participation_to" to after.participation.name,
+                        "playback.inhibition_reason_from" to before.inhibitionReason?.name,
+                        "playback.inhibition_reason_to" to after.inhibitionReason?.name,
+                        "playback.resume_blocked" to after.outputResumeBlocked,
+                        "playback.automatic_rejoin_allowed" to after.automaticRejoinAllowed,
                     ),
             )
             publish()
@@ -847,37 +844,53 @@ class Media3PlayerAdapter(
             else -> PlayerItemTransitionReason.UNKNOWN
         }
 
-    private fun inhibitOutput(
+    private fun inhibitForLocalInterruption(
         reason: LocalPlaybackInhibitionReason,
         media3Reason: Int,
         media3ReasonName: String,
     ) {
-        val changed =
-            participation != LocalPlaybackParticipation.OUTPUT_INHIBITED ||
-                inhibitionReason != reason
-        participation = LocalPlaybackParticipation.OUTPUT_INHIBITED
-        inhibitionReason = reason
+        val before = localOutputState.snapshot()
+        localOutputState.applyLocalInterruption(reason)
+        logOutputInhibitionChange(before, media3Reason, media3ReasonName)
+    }
+
+    private fun inhibitForPlatformSuppression(
+        reason: LocalPlaybackInhibitionReason,
+        media3Reason: Int,
+        media3ReasonName: String,
+    ) {
+        val before = localOutputState.snapshot()
+        localOutputState.applyPlatformSuppression(reason)
+        logOutputInhibitionChange(before, media3Reason, media3ReasonName)
+    }
+
+    private fun logOutputInhibitionChange(
+        before: LocalPlaybackOutputState.Snapshot,
+        media3Reason: Int,
+        media3ReasonName: String,
+    ) {
         if (
-            reason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ||
-                reason == LocalPlaybackInhibitionReason.UNSUITABLE_OUTPUT
+            before.participation == participation &&
+                before.inhibitionReason == inhibitionReason &&
+                before.outputResumeBlocked == outputResumeBlocked &&
+                before.automaticRejoinAllowed == automaticRejoinAllowed
         ) {
-            // Require an explicit suppression-clear callback before local audio can rejoin.
-            outputResumeBlocked = true
+            return
         }
-        if (changed) {
-            log.info(
-                TAG,
-                DiagnosticCategory.PLAYBACK,
-                "playback.output.inhibited",
-                attributes =
-                    mapOf(
-                        "playback.inhibition_reason" to reason.name,
-                        "media3.reason_code" to media3Reason,
-                        "media3.reason_name" to media3ReasonName,
-                        "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
-                    ),
-            )
-        }
+        log.info(
+            TAG,
+            DiagnosticCategory.PLAYBACK,
+            "playback.output.inhibited",
+            attributes =
+                mapOf(
+                    "playback.inhibition_reason" to inhibitionReason?.name,
+                    "playback.resume_blocked" to outputResumeBlocked,
+                    "playback.automatic_rejoin_allowed" to automaticRejoinAllowed,
+                    "media3.reason_code" to media3Reason,
+                    "media3.reason_name" to media3ReasonName,
+                    "queue.item_id" to exoPlayer.currentMediaItem?.mediaId?.take(12),
+                ),
+        )
     }
 
     private fun Int.toLocalInhibitionReason(): LocalPlaybackInhibitionReason? =
@@ -1012,6 +1025,7 @@ class Media3PlayerAdapter(
                 participation = participation,
                 inhibitionReason = inhibitionReason,
                 outputResumeBlocked = outputResumeBlocked,
+                automaticRejoinAllowed = automaticRejoinAllowed,
                 playbackSpeed = exoPlayer.playbackParameters.speed,
                 prepared = exoPlayer.playbackState == Player.STATE_READY,
                 buffering = exoPlayer.playbackState == Player.STATE_BUFFERING,

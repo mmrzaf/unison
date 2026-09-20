@@ -76,6 +76,8 @@ data class PlayerState(
     val inhibitionReason: LocalPlaybackInhibitionReason? = null,
     /** True while Android/Media3 still reports a system suppression that makes resume unsafe. */
     val outputResumeBlocked: Boolean = false,
+    /** True only for a resumable transient interruption in the current room session. */
+    val automaticRejoinAllowed: Boolean = false,
     val playbackSpeed: Float = 1f,
     val prepared: Boolean = false,
     val buffering: Boolean = false,
@@ -126,7 +128,10 @@ interface PlayerPort {
      */
     suspend fun rejoinLivePlayback(queueItemId: QueueItemId, positionMs: Long): Boolean
 
-    /** Clears device-local interruption state at a room/session boundary without starting audio. */
+    /**
+     * Clears session-local interruption/rejoin intent at a room boundary without starting audio.
+     * A platform suppression that is still live remains output-blocking in the new session.
+     */
     suspend fun resetLocalPlaybackParticipation()
 
     suspend fun pause(cause: PlaybackPauseCause)

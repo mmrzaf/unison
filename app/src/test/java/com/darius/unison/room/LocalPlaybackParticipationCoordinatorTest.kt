@@ -85,6 +85,7 @@ class LocalPlaybackParticipationCoordinatorTest {
                     participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
                     inhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
                     outputResumeBlocked = true,
+                    automaticRejoinAllowed = true,
                 )
             )
             harness.coordinator.observe(harness.player.state.value, harness.snapshot)
@@ -147,6 +148,41 @@ class LocalPlaybackParticipationCoordinatorTest {
     }
 
     @Test
+    fun permanentAudioFocusLossRequiresManualRejoin() = runBlocking {
+        val harness = Harness(isLocalCoordinator = true)
+        try {
+            harness.player.update(
+                PlayerState(
+                    queueItemId = harness.liveItem,
+                    positionMs = 80_000L,
+                    prepared = true,
+                    participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                    inhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+                    outputResumeBlocked = false,
+                    automaticRejoinAllowed = false,
+                )
+            )
+            harness.coordinator.observe(harness.player.state.value, harness.snapshot)
+            harness.coordinator.tryPendingRejoin()
+
+            assertEquals(0, harness.executions)
+            assertFalse(harness.player.state.value.playWhenReady)
+
+            harness.coordinator.requestManualRejoin("manual-focus-rejoin")
+            harness.coordinator.tryPendingRejoin()
+
+            assertEquals(1, harness.executions)
+            assertEquals(
+                LocalPlaybackParticipation.ACTIVE,
+                harness.player.state.value.participation,
+            )
+            assertTrue(harness.player.state.value.playWhenReady)
+        } finally {
+            harness.close()
+        }
+    }
+
+    @Test
     fun becomingNoisyNeverCreatesAutomaticResume() = runBlocking {
         val harness = Harness(isLocalCoordinator = true)
         try {
@@ -186,6 +222,7 @@ class LocalPlaybackParticipationCoordinatorTest {
                     participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
                     inhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
                     outputResumeBlocked = false,
+                    automaticRejoinAllowed = true,
                 )
             )
             harness.coordinator.observe(harness.player.state.value, harness.snapshot)
@@ -195,6 +232,7 @@ class LocalPlaybackParticipationCoordinatorTest {
                         participation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
                         inhibitionReason = LocalPlaybackInhibitionReason.BECOMING_NOISY,
                         outputResumeBlocked = false,
+                        automaticRejoinAllowed = false,
                     )
                 )
                 harness.coordinator.observe(harness.player.state.value, harness.snapshot)
@@ -413,6 +451,7 @@ class LocalPlaybackParticipationCoordinatorTest {
                     participation = LocalPlaybackParticipation.ACTIVE,
                     inhibitionReason = null,
                     outputResumeBlocked = false,
+                    automaticRejoinAllowed = false,
                 )
             return true
         }
@@ -423,6 +462,7 @@ class LocalPlaybackParticipationCoordinatorTest {
                     participation = LocalPlaybackParticipation.ACTIVE,
                     inhibitionReason = null,
                     outputResumeBlocked = false,
+                    automaticRejoinAllowed = false,
                 )
         }
 
