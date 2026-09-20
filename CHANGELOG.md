@@ -2,8 +2,41 @@
 
 ## Unreleased
 
-Changes after `1.2.0-beta.8` should be recorded here until the next prerelease or stable release is
+Changes after `1.2.0-beta.9` should be recorded here until the next prerelease or stable release is
 cut.
+
+## 1.2.0-beta.9
+
+### Fixed
+
+- Fixed automatic live-playback rejoin triggering on permanent audio-focus loss, becoming-noisy, and
+  unsuitable-output interruptions. Only a transient audio-focus suppression is eligible for automatic
+  rejoin now; every other local interruption requires an explicit user rejoin and survives overlapping
+  transient suppressions instead of being overwritten by them.
+- Fixed stale output-suppression state leaking across room sessions. Session boundaries drop
+  resume intent while a still-active platform suppression remains output-blocking in the new session.
+- Fixed the log analyzer missing a stuck automatic rejoin when suppression already cleared on a
+  `play_when_ready` event instead of a dedicated suppression-changed event.
+- Preserved the pending network-permission room action (create/join/offline) across rotation and
+  process death instead of dropping it.
+
+### Changed
+
+- Separated queue-wait time from handler/apply duration in slow-event diagnostics for the serialized
+  room event loop, canonical playback dispatcher, and control ingress, so a slow network/actor
+  delivery is not misdiagnosed as slow handling. The slow room-event threshold moved from 16ms to
+  100ms to cut noise.
+- Enriched transfer watchdog/failure diagnostics with bytes written/received, bytes remaining,
+  last-progress age, and operation durations; watchdog-induced socket closes are debug-level instead
+  of error-level.
+
+### Release preparation
+
+- Superseded the unpublished Beta 8 candidate with `1.2.0-beta.9` (`versionCode 12`) instead of
+  mutating or reusing the earlier tag.
+- Re-established Beta 9 as the first supported local-data format v1 candidate; earlier development
+  candidates remain unsupported and require a clean install/app-data state.
+- Kept Protocol 1, Room schema 1, `targetSdk 33`, and the release signing identity pin unchanged.
 
 ## 1.2.0-beta.8
 
