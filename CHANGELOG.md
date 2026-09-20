@@ -2,8 +2,54 @@
 
 ## Unreleased
 
-Changes after `1.2.0-beta.9` should be recorded here until the next prerelease or stable release is
+Changes after `1.2.0-beta.10` should be recorded here until the next prerelease or stable release is
 cut.
+
+## 1.2.0-beta.10
+
+### Fixed
+
+- Fixed automatic live-playback rejoin triggering on permanent audio-focus loss, becoming-noisy, and
+  unsuitable-output interruptions. Only a transient audio-focus suppression is eligible for automatic
+  rejoin now; every other local interruption requires an explicit user rejoin and survives overlapping
+  transient suppressions instead of being overwritten by them.
+- Fixed stale output-suppression state leaking across room sessions. Session boundaries drop
+  resume intent while a still-active platform suppression remains output-blocking in the new session.
+- Fixed the log analyzer missing a stuck automatic rejoin when suppression already cleared on a
+  `play_when_ready` event instead of a dedicated suppression-changed event.
+- Preserved the pending network-permission room action (create/join/offline) across rotation and
+  process death instead of dropping it.
+- Fixed the room playback control showing a permanent, disabled "Recovering your audio…" spinner after
+  a permanent audio-focus loss (for example another app taking exclusive playback). Automatic rejoin is
+  never attempted for that interruption, so the control now offers an explicit, tappable rejoin instead
+  of a state that could never resolve.
+- Fixed upload watchdog failure classification: any I/O failure that follows the watchdog force-closing
+  a stalled upload socket is now treated as expected fallout of that close, not only a
+  `SocketException`. Cancellation still propagates unchanged.
+
+### Changed
+
+- Separated queue-wait time from handler/apply duration in slow-event diagnostics for the serialized
+  room event loop, canonical playback dispatcher, and control ingress, so a slow network/actor
+  delivery is not misdiagnosed as slow handling. The slow room-event threshold moved from 16ms to
+  100ms to cut noise.
+- Enriched transfer watchdog/failure diagnostics with bytes written/received, bytes remaining,
+  last-progress age, and operation durations; watchdog-induced socket closes are debug-level instead
+  of error-level.
+
+### Release preparation
+
+- Prepared `1.2.0-beta.10` (`versionCode 13`).
+- Re-established Beta 10 as the first supported local-data format v1 candidate; earlier development
+  candidates remain unsupported and require a clean install/app-data state.
+- Kept Protocol 1, Room schema 1, `targetSdk 33`, and the release signing identity pin unchanged.
+- Fixed the release workflow's Android SDK setup: removed the redundant SDK setup action, which
+  requested a package the SDK repository no longer provides, and now run the runner's own `sdkmanager`
+  directly for the pinned platform and build-tools install.
+- Removed the Dependabot configuration and its required-files release check.
+- Made the diagnostics redaction test independent of random timestamp digits so it cannot fail release
+  verification by chance.
+- Removed an unused parameter from the player event interpreter.
 
 ## 1.2.0-beta.9
 
