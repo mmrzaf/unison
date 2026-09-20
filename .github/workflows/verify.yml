@@ -43,14 +43,14 @@ jobs:
         run: ./scripts/check-tooling.sh
 
       - name: Prepare pinned network-lifecycle Kotlin check
-        run: ./scripts/gradle.sh --no-daemon :app:prepareStandaloneKotlinChecks
+        run: ./gradlew --no-daemon :app:prepareStandaloneKotlinChecks
 
       - name: Verify repository
         run: ./scripts/check-release-quality.sh
 
       - name: Formatting, unit tests, lint, and APK compilation
         run: >-
-          ./scripts/gradle.sh --no-daemon --stacktrace
+          ./gradlew --no-daemon --stacktrace
           spotlessCheck testDebugUnitTest lintDebug lintRelease
           assembleDebug assembleRelease
           :app:compileDebugAndroidTestKotlin

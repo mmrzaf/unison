@@ -74,7 +74,7 @@ on API 33; tagged release qualification runs it on API 30, 33, and 36 before sig
 run the same suite on any connected device/emulator:
 
 ```bash
-./scripts/gradle.sh --no-daemon --stacktrace connectedDebugAndroidTest
+./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
 ```
 
 A multi-device lab is still unnecessary for ordinary changes, but Android/Media3/filesystem behavior
@@ -129,15 +129,14 @@ fixture red for the intended reason.
 
 ## Android/build qualification
 
-Repository-owned Gradle commands use `scripts/gradle.sh`. On developer machines it isolates the
-Gradle user home from global init scripts; in GitHub Actions it preserves the runner Gradle home and
-normal cache behavior.
+Gradle commands run through the standard `./gradlew` wrapper against the developer or CI
+Gradle home and normal cache behavior.
 
 When Android SDK 36 and the pinned Gradle/dependency cache are available:
 
 ```bash
 ./scripts/verify-offline-ready.sh
-./scripts/gradle.sh --offline --no-daemon --stacktrace \
+./gradlew --offline --no-daemon --stacktrace \
   spotlessCheck testDebugUnitTest lintDebug lintRelease assembleDebug assembleRelease \
   :app:compileDebugAndroidTestKotlin
 ```
@@ -145,7 +144,7 @@ When Android SDK 36 and the pinned Gradle/dependency cache are available:
 Compilation is followed by real Android execution:
 
 ```bash
-./scripts/gradle.sh --no-daemon --stacktrace connectedDebugAndroidTest
+./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
 ```
 
 CI uses API 33 as the ordinary instrumented baseline. Tagged prerelease/stable workflows require an

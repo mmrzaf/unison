@@ -117,7 +117,7 @@ class SerializedEventLoopTest {
                     }
                     processedAfterFailure.complete(Unit)
                 },
-                onFailure = { _, error -> failure.complete(error) },
+                onFailure = { _, error, _ -> failure.complete(error) },
             )
 
         loop.submit(1)
@@ -145,7 +145,7 @@ class SerializedEventLoopTest {
                         processedAfterFailure.complete(Unit)
                     }
                 },
-                onFailure = { _, error -> failure.complete(error) },
+                onFailure = { _, error, _ -> failure.complete(error) },
             )
 
         loop.submit(1)
@@ -156,6 +156,38 @@ class SerializedEventLoopTest {
         withTimeout(1_000) { processedAfterFailure.await() }
         assertTrue(loop.isActive)
         assertTrue(loop.closeAndJoin())
+    }
+
+    @Test
+    fun reportsSubmissionToStartDelaySeparatelyFromHandlerDuration() = runBlocking {
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val secondTiming = CompletableDeferred<SerializedEventLoop.Timing>()
+        val loop =
+            SerializedEventLoop<Int>(
+                scope = this,
+                capacity = 2,
+                handler = { value ->
+                    if (value == 1) {
+                        firstStarted.complete(Unit)
+                        releaseFirst.await()
+                    }
+                },
+                onTiming = { value, timing ->
+                    if (value == 2) secondTiming.complete(timing)
+                },
+            )
+
+        loop.submit(1)
+        withTimeout(1_000) { firstStarted.await() }
+        loop.submit(2)
+        delay(20)
+        releaseFirst.complete(Unit)
+
+        val timing = withTimeout(1_000) { secondTiming.await() }
+        assertTrue(timing.submissionToStartNs > 0L)
+        assertTrue(timing.handlerDurationNs >= 0L)
+        loop.close()
     }
 
     @Test

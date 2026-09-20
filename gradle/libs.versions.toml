@@ -1,6 +1,6 @@
 [versions]
-appVersionName = "1.2.0-beta.8"
-appVersionCode = "11"
+appVersionName = "1.2.0-beta.9"
+appVersionCode = "12"
 agp = "8.13.2"
 kotlin = "2.3.21"
 compileSdk = "36"

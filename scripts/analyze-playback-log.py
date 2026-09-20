@@ -57,6 +57,13 @@ class PlaybackLogSummary:
     max_abs_filtered_drift_ms: int
     hard_seek_events: int
     diagnostic_dropped_events: int
+    slow_dispatch_events: int
+    max_dispatch_queue_wait_ms: int
+    max_dispatch_duration_ms: int
+    slow_room_event_queue_events: int
+    max_room_event_queue_wait_ms: int
+    slow_ingress_dispatch_events: int
+    max_ingress_dispatch_duration_ms: int
     natural_end_events: int
     boundary_events: int
     boundary_duplicate_observations: int
@@ -133,6 +140,14 @@ def attrs(event: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def media3_reports_no_suppression(values: dict[str, Any]) -> bool:
+    return (
+        values.get("media3.playback_suppression_reason") == 0
+        or values.get("media3.playback_suppression_name") == "NONE"
+        or values.get("media3.playback_suppression_to") == 0
+    )
+
+
 def max_events_in_window(events: list[datetime], seconds: float) -> int:
     window: deque[datetime] = deque()
     maximum = 0
@@ -190,6 +205,13 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
     max_abs_filtered_drift_ms = 0
     hard_seek_events = 0
     diagnostic_dropped_events = 0
+    slow_dispatch_events = 0
+    max_dispatch_queue_wait_ms = 0
+    max_dispatch_duration_ms = 0
+    slow_room_event_queue_events = 0
+    max_room_event_queue_wait_ms = 0
+    slow_ingress_dispatch_events = 0
+    max_ingress_dispatch_duration_ms = 0
 
     natural_end_events = 0
     boundary_events = 0
@@ -271,6 +293,30 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
         if name == "playback.seek.applied":
             seeks += 1
 
+        # Slow queue-wait/dispatch observations are triage context, not stability
+        # failures: the 100ms thresholds are intentionally sensitive, so a healthy
+        # soak with an occasional slow dispatch must stay green.
+        if name == "playback.dispatch.slow":
+            slow_dispatch_events += 1
+            queue_wait = values.get("operation.queue_wait_ms")
+            if isinstance(queue_wait, (int, float)):
+                max_dispatch_queue_wait_ms = max(max_dispatch_queue_wait_ms, int(queue_wait))
+            duration = values.get("operation.duration_ms")
+            if isinstance(duration, (int, float)):
+                max_dispatch_duration_ms = max(max_dispatch_duration_ms, int(duration))
+        if name == "room.event.queue_slow":
+            slow_room_event_queue_events += 1
+            queue_wait = values.get("operation.queue_wait_ms")
+            if isinstance(queue_wait, (int, float)):
+                max_room_event_queue_wait_ms = max(max_room_event_queue_wait_ms, int(queue_wait))
+        if name == "network.control_ingress.slow":
+            slow_ingress_dispatch_events += 1
+            duration = values.get("operation.duration_ms")
+            if isinstance(duration, (int, float)):
+                max_ingress_dispatch_duration_ms = max(
+                    max_ingress_dispatch_duration_ms, int(duration)
+                )
+
         if name == "playback.command.executing":
             late = values.get("playback.late_ms")
             if isinstance(late, (int, float)):
@@ -351,13 +397,7 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
                 name == "playback.output.suppression_cleared"
                 and values.get("playback.inhibition_reason") in {None, "AUDIO_FOCUS"}
             )
-            or (
-                name == "playback.media3.suppression.changed"
-                and (
-                    values.get("media3.playback_suppression_name") == "NONE"
-                    or values.get("media3.playback_suppression_to") == 0
-                )
-            )
+            or media3_reports_no_suppression(values)
         ):
             if auto_rejoin_recoverable_since is None:
                 auto_rejoin_recoverable_since = timestamp
@@ -475,6 +515,13 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
         max_abs_filtered_drift_ms=max_abs_filtered_drift_ms,
         hard_seek_events=hard_seek_events,
         diagnostic_dropped_events=diagnostic_dropped_events,
+        slow_dispatch_events=slow_dispatch_events,
+        max_dispatch_queue_wait_ms=max_dispatch_queue_wait_ms,
+        max_dispatch_duration_ms=max_dispatch_duration_ms,
+        slow_room_event_queue_events=slow_room_event_queue_events,
+        max_room_event_queue_wait_ms=max_room_event_queue_wait_ms,
+        slow_ingress_dispatch_events=slow_ingress_dispatch_events,
+        max_ingress_dispatch_duration_ms=max_ingress_dispatch_duration_ms,
         natural_end_events=natural_end_events,
         boundary_events=boundary_events,
         boundary_duplicate_observations=boundary_duplicate_observations,
@@ -621,6 +668,59 @@ def self_test() -> None:
         ]
     )
     assert rejoin_failure.stuck_auto_rejoins == 1 and not rejoin_failure.stable, rejoin_failure
+
+    stale_latch_failure = analyze(
+        [
+            event("2026-01-01T10:00:00Z", "playback.rejoin.pending", category="room", **{"playback.rejoin_reason": "AUTO_AUDIO_FOCUS"}),
+            event("2026-01-01T10:00:01Z", "playback.rejoin.waiting", category="room", **{"playback.rejoin_reason": "AUTO_AUDIO_FOCUS", "reason": "platform_suppression"}),
+            event(
+                "2026-01-01T10:00:02Z",
+                "playback.media3.play_when_ready.changed",
+                **{
+                    "playback.participation": "OUTPUT_INHIBITED",
+                    "media3.playback_suppression_reason": 0,
+                },
+            ),
+            event("2026-01-01T10:00:20Z", "sync.sample", category="sync"),
+        ]
+    )
+    assert stale_latch_failure.stuck_auto_rejoins == 1 and not stale_latch_failure.stable, stale_latch_failure
+
+    slow_spike = analyze(
+        [
+            event("2026-01-01T10:00:00Z", "sync.sample", category="sync"),
+            event(
+                "2026-01-01T10:00:01Z",
+                "playback.dispatch.slow",
+                **{
+                    "playback.dispatch_kind": "RECONCILIATION",
+                    "operation.queue_wait_ms": 142,
+                    "operation.duration_ms": 3,
+                },
+            ),
+            event(
+                "2026-01-01T10:00:02Z",
+                "room.event.queue_slow",
+                category="room",
+                **{"event.type": "NetworkEnvelopeReceived", "operation.queue_wait_ms": 210},
+            ),
+            event(
+                "2026-01-01T10:00:03Z",
+                "network.control_ingress.slow",
+                category="network",
+                **{"mutation.type": "SeekScheduled", "operation.duration_ms": 133},
+            ),
+            event("2026-01-01T10:00:20Z", "sync.sample", category="sync"),
+        ]
+    )
+    assert slow_spike.slow_dispatch_events == 1, slow_spike
+    assert slow_spike.max_dispatch_queue_wait_ms == 142, slow_spike
+    assert slow_spike.max_dispatch_duration_ms == 3, slow_spike
+    assert slow_spike.slow_room_event_queue_events == 1, slow_spike
+    assert slow_spike.max_room_event_queue_wait_ms == 210, slow_spike
+    assert slow_spike.slow_ingress_dispatch_events == 1, slow_spike
+    assert slow_spike.max_ingress_dispatch_duration_ms == 133, slow_spike
+    assert slow_spike.stable, slow_spike
 
     malformed = analyze(["not-json\n"])
     assert malformed.invalid_lines == 1 and not malformed.stable, malformed

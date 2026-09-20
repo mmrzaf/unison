@@ -123,7 +123,7 @@ class RoomPlaybackUiPolicyTest {
     }
 
     @Test
-    fun audioFocusInterruptionShowsRecoveringWhileNoisyRouteRequiresExplicitRejoin() {
+    fun resumableAudioFocusInterruptionShowsRecoveringWhileNoisyRouteRequiresExplicitRejoin() {
         val recovering =
             RoomPlaybackUiPolicy.controls(
                 hasCurrentItem = true,
@@ -131,6 +131,7 @@ class RoomPlaybackUiPolicyTest {
                 canonicalIsPlaying = true,
                 localParticipation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
                 localInhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+                localAutomaticRejoinAllowed = true,
             )
         val rejoin =
             RoomPlaybackUiPolicy.controls(
@@ -145,6 +146,26 @@ class RoomPlaybackUiPolicyTest {
         assertFalse(recovering.primaryActionEnabled)
         assertEquals(RoomPlaybackUiPolicy.PrimaryControl.REJOIN, rejoin.primaryControl)
         assertTrue(rejoin.primaryActionEnabled)
+    }
+
+    @Test
+    fun permanentAudioFocusLossOffersManualRejoinInsteadOfStuckRecovering() {
+        // A permanent AUDIO_FOCUS loss (for example another app taking exclusive playback) never
+        // creates automatic resume intent, so the user must always be offered an explicit,
+        // tappable way back in -- never a perpetual "recovering" spinner that nothing will ever
+        // resolve automatically.
+        val controls =
+            RoomPlaybackUiPolicy.controls(
+                hasCurrentItem = true,
+                hasSeekableDuration = true,
+                canonicalIsPlaying = true,
+                localParticipation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                localInhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+                localAutomaticRejoinAllowed = false,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.PrimaryControl.REJOIN, controls.primaryControl)
+        assertTrue(controls.primaryActionEnabled)
     }
 
     @Test
@@ -444,6 +465,46 @@ class RoomPlaybackUiPolicyTest {
             )
 
         assertEquals(RoomPlaybackUiPolicy.TransitionKind.RECOVERING, presentation?.kind)
+    }
+
+    @Test
+    fun permanentAudioFocusLossShowsNoRecoveringBanner() {
+        val peer = PeerId("peer-123456789012")
+        val snapshot =
+            RoomSnapshot(
+                roomId = "room",
+                roomName = "Room",
+                term = CoordinatorTerm(1, peer),
+                sequence = 0,
+                members = listOf(MemberSnapshot(peer, "Phone")),
+                playback = CanonicalPlaybackState(isPlaying = true),
+            )
+
+        val recovering =
+            RoomPlaybackUiPolicy.transition(
+                snapshot = snapshot,
+                lifecycle = RoomLifecycleState.CONNECTED,
+                status = null,
+                transfers = emptyMap(),
+                localParticipation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                localInhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+                localAutomaticRejoinAllowed = true,
+            )
+        val stuck =
+            RoomPlaybackUiPolicy.transition(
+                snapshot = snapshot,
+                lifecycle = RoomLifecycleState.CONNECTED,
+                status = null,
+                transfers = emptyMap(),
+                localParticipation = LocalPlaybackParticipation.OUTPUT_INHIBITED,
+                localInhibitionReason = LocalPlaybackInhibitionReason.AUDIO_FOCUS,
+                localAutomaticRejoinAllowed = false,
+            )
+
+        assertEquals(RoomPlaybackUiPolicy.TransitionKind.RECOVERING, recovering?.kind)
+        // A permanent loss must never claim to be automatically "Recovering" -- that message
+        // would never resolve on its own and would hide the fact that a manual rejoin is needed.
+        assertNull(stuck)
     }
 
     @Test

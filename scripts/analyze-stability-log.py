@@ -98,6 +98,7 @@ def analyze(events, malformed=0):
     socket_route_failures_by_reason = Counter()
     socket_route_attempts = 0
     socket_route_failures = 0
+    stalled_uploads = 0
     teardown_violations = []
     unavailable_rejection_keys = set()
 
@@ -133,6 +134,8 @@ def analyze(events, malformed=0):
             # transfer.download.failure_detail event is diagnostic context for the same failed
             # attempt and must not double-count the phase.
             failures_by_phase[str(attr(event, "transfer.phase", "UNKNOWN"))] += 1
+        if name == "transfer.upload.stalled":
+            stalled_uploads += 1
         elif name == "transfer.retry.scheduled":
             route = (track, attr(event, "transfer.destination_peer_id"))
             retries_by_route[route] += 1
@@ -215,6 +218,8 @@ def analyze(events, malformed=0):
     if retry_storm_routes:
         detail = ", ".join(f"{track}->{dest}:{count}" for (track, dest), count in sorted(retry_storm_routes.items()))
         violations.append(f"transfer retry storm ({detail})")
+    if stalled_uploads:
+        violations.append(f"{stalled_uploads} uploads stalled past the watchdog idle timeout")
     if counts["room.event.unexpected_handler_cancellation"]:
         violations.append(
             f"{counts['room.event.unexpected_handler_cancellation']} unexpected room actor handler cancellations"
@@ -239,6 +244,7 @@ def analyze(events, malformed=0):
         "socket_route_failures": socket_route_failures,
         "socket_route_failures_by_reason": dict(sorted(socket_route_failures_by_reason.items())),
         "transfer_route_suspensions": counts["transfer.route.suspended"],
+        "transfer_uploads_stalled": stalled_uploads,
         "transfer_route_retry_requests": counts["transfer.route.retry_requested"],
         "unavailable_playback_rejections": len(unavailable_rejection_keys),
         "max_playback_late_ms": max_total_late_ms,
@@ -357,6 +363,24 @@ def self_test():
     assert result["failures_by_phase"] == {"HANDSHAKE": 1}, result
     assert any("unexpected room actor handler cancellations" in value for value in result["violations"]), result
     assert len(result["violations"]) >= 8, result
+
+    stalled = analyze(
+        [
+            {"eventName": "transfer.download.route_start", "attributes": {"track.id": "a", "transfer.operation_id": "op1"}},
+            {
+                "eventName": "transfer.upload.stalled",
+                "attributes": {
+                    "transfer.operation_id": "op1",
+                    "track.id": "a",
+                    "transfer.bytes_remaining": 1024,
+                    "operation.duration_ms": 31250,
+                },
+            },
+            {"eventName": "room.session.ended", "attributes": {"coroutine.remaining_jobs": 0, "transfer.active_count": 0}},
+        ]
+    )
+    assert stalled["transfer_uploads_stalled"] == 1, stalled
+    assert any("stalled past the watchdog idle timeout" in value for value in stalled["violations"]), stalled
     print("STABILITY_LOG_ANALYZER_SELF_TEST_OK")
 
 

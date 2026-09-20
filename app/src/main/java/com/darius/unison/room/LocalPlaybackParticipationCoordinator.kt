@@ -20,11 +20,13 @@ internal enum class LocalRejoinReason {
  * Owns device-local participation in room playback.
  *
  * Canonical room transport never changes because one phone temporarily loses audio output. A
- * transient audio-focus interruption creates an automatic pending rejoin; explicit Play/Rejoin
- * creates a manual pending rejoin. The intent survives temporary clock/media unavailability and is
- * completed exactly once when platform suppression, clock and media prerequisites converge.
+ * resumable transient audio-focus suppression creates an automatic pending rejoin; explicit
+ * Play/Rejoin creates a manual pending rejoin. The intent survives temporary clock/media
+ * unavailability and is completed exactly once when platform suppression, clock and media
+ * prerequisites converge.
  *
- * Becoming-noisy and unsuitable-output interruptions never create automatic resume intent.
+ * Permanent audio-focus loss, becoming-noisy, and unsuitable-output interruptions never create
+ * automatic resume intent.
  */
 internal class LocalPlaybackParticipationCoordinator(
     private val player: PlayerPort,
@@ -71,6 +73,7 @@ internal class LocalPlaybackParticipationCoordinator(
                 "playback.participation_to" to value.participation.name,
                 "playback.inhibition_reason" to value.inhibitionReason?.name,
                 "playback.resume_blocked" to value.outputResumeBlocked,
+                "playback.automatic_rejoin_allowed" to value.automaticRejoinAllowed,
             )
             snapshot?.let {
                 if (isCoordinator()) onCoordinatorCohortChanged()
@@ -80,8 +83,8 @@ internal class LocalPlaybackParticipationCoordinator(
 
         when {
             value.participation == LocalPlaybackParticipation.ACTIVE -> clearPendingRejoin("active")
-            value.inhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
-                ensureAutomaticAudioFocusRejoin()
+            value.inhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS &&
+                value.automaticRejoinAllowed -> ensureAutomaticAudioFocusRejoin()
             else -> cancelAutomaticRejoin("non_auto_inhibition")
         }
     }
@@ -210,7 +213,9 @@ internal class LocalPlaybackParticipationCoordinator(
             if (beforeExecution.outputResumeBlocked || !isAttemptCurrent(pending)) return
             if (
                 pending.reason == LocalRejoinReason.AUTO_AUDIO_FOCUS &&
-                    beforeExecution.inhibitionReason != LocalPlaybackInhibitionReason.AUDIO_FOCUS
+                    (beforeExecution.inhibitionReason !=
+                        LocalPlaybackInhibitionReason.AUDIO_FOCUS ||
+                        !beforeExecution.automaticRejoinAllowed)
             )
                 return
 
@@ -259,7 +264,8 @@ internal class LocalPlaybackParticipationCoordinator(
         if (
             before.participation != after.participation ||
                 before.inhibitionReason != after.inhibitionReason ||
-                before.outputResumeBlocked != after.outputResumeBlocked
+                before.outputResumeBlocked != after.outputResumeBlocked ||
+                before.automaticRejoinAllowed != after.automaticRejoinAllowed
         ) {
             diagnostics.debug(
                 "playback.participation.session_reset",
@@ -268,6 +274,7 @@ internal class LocalPlaybackParticipationCoordinator(
                 "playback.inhibition_reason_from" to before.inhibitionReason?.name,
                 "playback.inhibition_reason_to" to after.inhibitionReason?.name,
                 "playback.resume_blocked" to after.outputResumeBlocked,
+                "playback.automatic_rejoin_allowed" to after.automaticRejoinAllowed,
             )
         }
     }

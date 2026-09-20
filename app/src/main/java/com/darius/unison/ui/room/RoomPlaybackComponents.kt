@@ -194,10 +194,11 @@ internal fun RoomSeekSlider(
     }
 
     val livePosition = playbackPositionMs.coerceIn(0, durationMs).toFloat()
+    val submitted = submittedPositionMs
     val displayedPosition =
         when {
             dragging -> dragPreview
-            submittedPositionMs != null -> submittedPositionMs!!.toFloat()
+            submitted != null -> submitted.toFloat()
             else -> livePosition
         }
     val progress = (displayedPosition / durationMs.toFloat()).coerceIn(0f, 1f)

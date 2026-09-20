@@ -40,7 +40,7 @@ class CanonicalPlaybackDispatcherTest {
                         release.await()
                     }
                 },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))
@@ -73,7 +73,7 @@ class CanonicalPlaybackDispatcherTest {
                 scope = scope,
                 applyExact = { body, _ -> applied += body::class.simpleName.orEmpty() },
                 reconcileLatest = {},
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             val item = QueueItemId("item")
@@ -103,7 +103,7 @@ class CanonicalPlaybackDispatcherTest {
                 scope = scope,
                 applyExact = { _, _ -> calls++ },
                 reconcileLatest = { calls++ },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             dispatcher.submit(ProtocolBody.ClockReady(true), snapshot(1))
@@ -128,7 +128,7 @@ class CanonicalPlaybackDispatcherTest {
                     reconciliationCalls++
                     if (reconciliationCalls == 1) error("broken")
                 },
-                onFailure = { _, error -> failures += error },
+                onFailure = { _, error, _ -> failures += error },
             )
         try {
             dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))
@@ -162,7 +162,7 @@ class CanonicalPlaybackDispatcherTest {
                         release.await()
                     }
                 },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))
@@ -190,6 +190,50 @@ class CanonicalPlaybackDispatcherTest {
     }
 
     @Test
+    fun timingSeparatesQueueWaitFromApplyDuration() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirst = CompletableDeferred<Unit>()
+        val exactTiming = CompletableDeferred<CanonicalPlaybackDispatcher.Timing>()
+        val dispatcher =
+            CanonicalPlaybackDispatcher(
+                scope = scope,
+                applyExact = { _, _ -> Unit },
+                reconcileLatest = {
+                    firstStarted.complete(Unit)
+                    releaseFirst.await()
+                },
+                onFailure = { _, error, _ -> throw error },
+                onTiming = { timing ->
+                    if (timing.kind == CanonicalPlaybackDispatcher.WorkKind.EXACT) {
+                        exactTiming.complete(timing)
+                    }
+                },
+            )
+        try {
+            dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))
+            withTimeout(2_000) { firstStarted.await() }
+
+            dispatcher.submit(
+                ProtocolBody.PauseScheduled(QueueItemId("item"), 0, 0, "pause"),
+                snapshot(2),
+            )
+            delay(20)
+            releaseFirst.complete(Unit)
+
+            val timing = withTimeout(2_000) { exactTiming.await() }
+            assertEquals(CanonicalPlaybackDispatcher.WorkKind.EXACT, timing.kind)
+            assertEquals("PauseScheduled", timing.mutationType)
+            assertTrue(timing.submissionToStartNs > 0L)
+            assertTrue(timing.applyDurationNs >= 0L)
+        } finally {
+            releaseFirst.complete(Unit)
+            dispatcher.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun reconciliationCannotCrossExactTransportBarrier() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val firstStarted = CompletableDeferred<Unit>()
@@ -206,7 +250,7 @@ class CanonicalPlaybackDispatcherTest {
                         releaseFirst.await()
                     }
                 },
-                onFailure = { _, error -> throw error },
+                onFailure = { _, error, _ -> throw error },
             )
         try {
             dispatcher.submit(ProtocolBody.QueueItemsAdded(emptyList()), snapshot(1))

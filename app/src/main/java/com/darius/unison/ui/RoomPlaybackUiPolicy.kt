@@ -75,6 +75,8 @@ internal object RoomPlaybackUiPolicy {
         canonicalIsPlaying: Boolean,
         localParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
         localInhibitionReason: LocalPlaybackInhibitionReason? = null,
+        /** True only for a resumable transient interruption in the current room session. */
+        localAutomaticRejoinAllowed: Boolean = false,
         currentQueueItemId: QueueItemId? = null,
         currentReadiness: RoomMediaReadiness = RoomMediaReadiness.READY,
         currentTransfer: TransferProgress? = null,
@@ -119,8 +121,8 @@ internal object RoomPlaybackUiPolicy {
                 !hasCurrentItem -> PrimaryControl.NONE
                 manualRejoinPending -> PrimaryControl.RECOVERING
                 outputInhibited &&
-                    localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS ->
-                    PrimaryControl.RECOVERING
+                    localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS &&
+                    localAutomaticRejoinAllowed -> PrimaryControl.RECOVERING
                 outputInhibited -> PrimaryControl.REJOIN
                 currentPreparationBlocked || transferFailed -> PrimaryControl.PREPARE
                 waitingForSuccessor -> PrimaryControl.WAITING_FOR_NEXT
@@ -166,6 +168,8 @@ internal object RoomPlaybackUiPolicy {
         issue: RoomIssue? = null,
         localParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
         localInhibitionReason: LocalPlaybackInhibitionReason? = null,
+        /** True only for a resumable transient interruption in the current room session. */
+        localAutomaticRejoinAllowed: Boolean = false,
     ): TransitionPresentation? {
         if (lifecycle == RoomLifecycleState.RECONNECTING) {
             return TransitionPresentation(
@@ -234,7 +238,10 @@ internal object RoomPlaybackUiPolicy {
                     message = "Rejoining playback…",
                 )
             }
-            if (localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS) {
+            if (
+                localInhibitionReason == LocalPlaybackInhibitionReason.AUDIO_FOCUS &&
+                    localAutomaticRejoinAllowed
+            ) {
                 return TransitionPresentation(
                     kind = TransitionKind.RECOVERING,
                     message = "Recovering your audio…",

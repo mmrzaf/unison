@@ -55,6 +55,12 @@ CASES = (
         playback_marker="automatic audio-focus rejoin",
     ),
     Case(
+        "bad-auto-rejoin-stale-suppression-latch.ndjson",
+        False,
+        True,
+        playback_marker="automatic audio-focus rejoin",
+    ),
+    Case(
         "bad-unlocked-clock-projection.ndjson",
         False,
         True,
@@ -93,6 +99,18 @@ CASES = (
             "socket route attempts=1 failures=1 suspensions=1 retry_requests=0",
             'socket route failures by reason={"POLICY_BLOCKED": 1}',
         ),
+    ),
+    Case(
+        "good-slow-dispatch-spike.ndjson",
+        True,
+        True,
+        playback_marker="slow_dispatch_events",
+    ),
+    Case(
+        "bad-upload-stalled.ndjson",
+        True,
+        False,
+        stability_markers=("stalled past the watchdog idle timeout",),
     ),
     Case(
         "bad-transfer-preconnect-retry-storm.ndjson",

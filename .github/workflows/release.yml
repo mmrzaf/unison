@@ -60,7 +60,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: ./scripts/gradle.sh --no-daemon --stacktrace connectedDebugAndroidTest
+          script: ./gradlew --no-daemon --stacktrace connectedDebugAndroidTest
 
   build_signed:
     name: Build and verify signed APK
@@ -161,7 +161,7 @@ jobs:
           chmod 600 keystore.properties
 
       - name: Build signed release APK
-        run: ./scripts/gradle.sh --no-daemon --stacktrace assembleRelease
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
 
       - name: Verify and package release artifacts
         shell: bash

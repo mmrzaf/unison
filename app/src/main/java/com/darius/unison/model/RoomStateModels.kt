@@ -51,6 +51,8 @@ data class RoomPlaybackTelemetry(
     val localIsPlaying: Boolean = false,
     val localPlaybackParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
     val localPlaybackInhibitionReason: LocalPlaybackInhibitionReason? = null,
+    /** True only for a resumable transient interruption in the current room session. */
+    val localAutomaticRejoinAllowed: Boolean = false,
     val localSeekRevision: Long = 0,
     val localDriftMs: Long? = null,
 )
@@ -86,6 +88,7 @@ fun RoomUiState.toPlaybackTelemetry(): RoomPlaybackTelemetry =
         localIsPlaying = localIsPlaying,
         localPlaybackParticipation = localPlaybackParticipation,
         localPlaybackInhibitionReason = localPlaybackInhibitionReason,
+        localAutomaticRejoinAllowed = localAutomaticRejoinAllowed,
         localSeekRevision = localSeekRevision,
         localDriftMs = localDriftMs,
     )
@@ -114,6 +117,7 @@ fun RoomStructureState.toUiState(
         localIsPlaying = playback.localIsPlaying,
         localPlaybackParticipation = playback.localPlaybackParticipation,
         localPlaybackInhibitionReason = playback.localPlaybackInhibitionReason,
+        localAutomaticRejoinAllowed = playback.localAutomaticRejoinAllowed,
         localSeekRevision = playback.localSeekRevision,
         localDriftMs = playback.localDriftMs,
         roomAddress = roomAddress,

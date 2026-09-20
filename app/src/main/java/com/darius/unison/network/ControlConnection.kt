@@ -81,10 +81,31 @@ class ControlConnection(
         }
         scope.launch(Dispatchers.IO) {
             try {
-                while (isActive && !socket.isClosed) onEnvelope(
-                    this@ControlConnection,
-                    codec.read(socket.getInputStream()),
-                )
+                while (isActive && !socket.isClosed) {
+                    val envelope = codec.read(socket.getInputStream())
+                    val dispatchStartedNs = System.nanoTime()
+                    try {
+                        onEnvelope(this@ControlConnection, envelope)
+                    } finally {
+                        val dispatchDurationNs =
+                            (System.nanoTime() - dispatchStartedNs).coerceAtLeast(0L)
+                        if (dispatchDurationNs >= SLOW_INGRESS_DISPATCH_NS) {
+                            log.warn(
+                                TAG,
+                                DiagnosticCategory.NETWORK,
+                                "network.control_ingress.slow",
+                                attributes =
+                                    mapOf(
+                                        "peer.id" to peerId.value.take(12),
+                                        "mutation.type" to envelope.body::class.simpleName,
+                                        "message.id" to envelope.messageId.take(12),
+                                        "room.sequence" to envelope.sequence,
+                                        "operation.duration_ms" to dispatchDurationNs / 1_000_000L,
+                                    ),
+                            )
+                        }
+                    }
+                }
             } catch (cancelled: CancellationException) {
                 close(cancelled)
                 throw cancelled
@@ -237,5 +258,6 @@ class ControlConnection(
         private const val GUARANTEED_SEND_TIMEOUT_MS = 2_000L
         private const val TRANSFER_SEND_TIMEOUT_MS = 1_000L
         private const val CLOSE_JOIN_TIMEOUT_MS = 2_000L
+        private const val SLOW_INGRESS_DISPATCH_NS = 100_000_000L
     }
 }
