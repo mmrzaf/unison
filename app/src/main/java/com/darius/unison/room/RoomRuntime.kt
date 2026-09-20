@@ -813,7 +813,7 @@ class RoomRuntime(
         value.error?.let { error ->
             container.roomStore.updateStructure { it.copy(errorMessage = error) }
         }
-        when (val action = playerEventInterpreter.observe(value, isCoordinator(), clock.nowNs())) {
+        when (val action = playerEventInterpreter.observe(value, isCoordinator())) {
             PlayerEventInterpreter.Action.None -> Unit
             is PlayerEventInterpreter.Action.PlaybackEnded ->
                 recordNaturalPlaybackEnded(action.queueItemId, action.positionMs, action.durationMs)

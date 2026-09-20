@@ -18,7 +18,7 @@ class PlayerEventInterpreterTest {
                 itemTransitionReason = PlayerItemTransitionReason.SEEK,
             )
 
-        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 0))
+        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true))
     }
 
     @Test
@@ -38,11 +38,11 @@ class PlayerEventInterpreterTest {
 
         assertEquals(
             PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
-            interpreter.observe(state, coordinator = true, nowNs = 0),
+            interpreter.observe(state, coordinator = true),
         )
         assertEquals(
             PlayerEventInterpreter.Action.None,
-            interpreter.observe(state, coordinator = true, nowNs = 1),
+            interpreter.observe(state, coordinator = true),
         )
     }
 
@@ -59,9 +59,9 @@ class PlayerEventInterpreterTest {
 
         assertEquals(
             PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
-            interpreter.observe(state, true, 0),
+            interpreter.observe(state, true),
         )
-        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 1))
+        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true))
     }
 
     @Test
@@ -79,7 +79,7 @@ class PlayerEventInterpreterTest {
 
         assertEquals(
             PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
-            interpreter.observe(finalState, true, 0),
+            interpreter.observe(finalState, true),
         )
         val explicitBoundary =
             finalState.copy(
@@ -90,7 +90,7 @@ class PlayerEventInterpreterTest {
             )
         assertEquals(
             PlayerEventInterpreter.Action.None,
-            interpreter.observe(explicitBoundary, true, 1),
+            interpreter.observe(explicitBoundary, true),
         )
     }
 
@@ -108,13 +108,13 @@ class PlayerEventInterpreterTest {
             )
         assertEquals(
             PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
-            interpreter.observe(firstEnd, true, 0),
+            interpreter.observe(firstEnd, true),
         )
 
         val replayEnd = firstEnd.copy(seekRevision = 2)
         assertEquals(
             PlayerEventInterpreter.Action.PlaybackEnded(ended, 10_000, 10_000),
-            interpreter.observe(replayEnd, true, 1),
+            interpreter.observe(replayEnd, true),
         )
     }
 
@@ -130,9 +130,9 @@ class PlayerEventInterpreterTest {
                 boundaryEndedDurationMs = 10_000,
             )
 
-        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, false, 0))
+        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, false))
         // Promotion to coordinator later must not replay a boundary already observed as
         // participant.
-        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true, 1))
+        assertEquals(PlayerEventInterpreter.Action.None, interpreter.observe(state, true))
     }
 }

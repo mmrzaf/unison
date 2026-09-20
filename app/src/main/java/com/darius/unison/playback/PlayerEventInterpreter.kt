@@ -26,8 +26,7 @@ class PlayerEventInterpreter {
     private var lastHandledBoundaryRevision = 0L
     private var lastHandledEndCycle: EndCycleKey? = null
 
-    fun observe(state: PlayerState, coordinator: Boolean, nowNs: Long): Action {
-        @Suppress("UNUSED_VARIABLE") val observedAtNs = nowNs
+    fun observe(state: PlayerState, coordinator: Boolean): Action {
         if (!coordinator) {
             lastHandledBoundaryRevision =
                 maxOf(lastHandledBoundaryRevision, state.itemBoundaryRevision)
