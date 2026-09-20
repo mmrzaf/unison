@@ -1,6 +1,7 @@
 package com.darius.unison.ui
 
 import android.content.pm.PackageManager
+import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -71,6 +73,72 @@ private sealed interface PendingNetworkPermissionAction {
         override val deniedMessage = "Nearby Wi-Fi access is needed to create an offline network"
     }
 }
+
+private val PendingNetworkPermissionActionSaver =
+    Saver<PendingNetworkPermissionAction?, Bundle>(
+        save = { action ->
+            Bundle().apply {
+                when (action) {
+                    null -> putString("kind", "none")
+                    is PendingNetworkPermissionAction.CreateRoom -> {
+                        putString("kind", "create_room")
+                        putString("name", action.name)
+                    }
+                    is PendingNetworkPermissionAction.JoinRoom -> {
+                        putString("kind", "join_room")
+                        putString("pin", action.pin)
+                        putString("service_name", action.room.serviceName)
+                        putString("room_id", action.room.roomId)
+                        putString("room_name", action.room.roomName)
+                        putString("host_address", action.room.hostAddress)
+                        putInt("port", action.room.port)
+                        putInt("protocol_version", action.room.protocolVersion)
+                        putLong("term", action.room.term)
+                    }
+                    PendingNetworkPermissionAction.CreateOfflineNetwork ->
+                        putString("kind", "create_offline_network")
+                }
+            }
+        },
+        restore = { saved ->
+            when (saved.getString("kind")) {
+                "create_room" -> PendingNetworkPermissionAction.CreateRoom(saved.getString("name"))
+                "join_room" -> {
+                    val serviceName = saved.getString("service_name")
+                    val roomId = saved.getString("room_id")
+                    val roomName = saved.getString("room_name")
+                    val hostAddress = saved.getString("host_address")
+                    val pin = saved.getString("pin")
+                    if (
+                        serviceName == null ||
+                            roomId == null ||
+                            roomName == null ||
+                            hostAddress == null ||
+                            pin == null
+                    ) {
+                        null
+                    } else {
+                        PendingNetworkPermissionAction.JoinRoom(
+                            room =
+                                DiscoveredRoom(
+                                    serviceName = serviceName,
+                                    roomId = roomId,
+                                    roomName = roomName,
+                                    hostAddress = hostAddress,
+                                    port = saved.getInt("port"),
+                                    protocolVersion = saved.getInt("protocol_version"),
+                                    term = saved.getLong("term"),
+                                ),
+                            pin = pin,
+                        )
+                    }
+                }
+                "create_offline_network" ->
+                    PendingNetworkPermissionAction.CreateOfflineNetwork
+                else -> null
+            }
+        },
+    )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,9 +177,10 @@ fun UnisonApp(viewModel: MainViewModel) {
         exportLauncher.launch("${name.safeFileName()}.m3u8")
     }
 
-    var pendingNetworkPermissionAction by remember {
-        mutableStateOf<PendingNetworkPermissionAction?>(null)
-    }
+    var pendingNetworkPermissionAction by
+        rememberSaveable(stateSaver = PendingNetworkPermissionActionSaver) {
+            mutableStateOf<PendingNetworkPermissionAction?>(null)
+        }
 
     fun executeNetworkAction(action: PendingNetworkPermissionAction) {
         when (action) {
