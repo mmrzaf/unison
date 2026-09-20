@@ -133,6 +133,14 @@ def attrs(event: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def media3_reports_no_suppression(values: dict[str, Any]) -> bool:
+    return (
+        values.get("media3.playback_suppression_reason") == 0
+        or values.get("media3.playback_suppression_name") == "NONE"
+        or values.get("media3.playback_suppression_to") == 0
+    )
+
+
 def max_events_in_window(events: list[datetime], seconds: float) -> int:
     window: deque[datetime] = deque()
     maximum = 0
@@ -351,13 +359,7 @@ def analyze(lines: Iterable[str]) -> PlaybackLogSummary:
                 name == "playback.output.suppression_cleared"
                 and values.get("playback.inhibition_reason") in {None, "AUDIO_FOCUS"}
             )
-            or (
-                name == "playback.media3.suppression.changed"
-                and (
-                    values.get("media3.playback_suppression_name") == "NONE"
-                    or values.get("media3.playback_suppression_to") == 0
-                )
-            )
+            or media3_reports_no_suppression(values)
         ):
             if auto_rejoin_recoverable_since is None:
                 auto_rejoin_recoverable_since = timestamp
@@ -621,6 +623,23 @@ def self_test() -> None:
         ]
     )
     assert rejoin_failure.stuck_auto_rejoins == 1 and not rejoin_failure.stable, rejoin_failure
+
+    stale_latch_failure = analyze(
+        [
+            event("2026-01-01T10:00:00Z", "playback.rejoin.pending", category="room", **{"playback.rejoin_reason": "AUTO_AUDIO_FOCUS"}),
+            event("2026-01-01T10:00:01Z", "playback.rejoin.waiting", category="room", **{"playback.rejoin_reason": "AUTO_AUDIO_FOCUS", "reason": "platform_suppression"}),
+            event(
+                "2026-01-01T10:00:02Z",
+                "playback.media3.play_when_ready.changed",
+                **{
+                    "playback.participation": "OUTPUT_INHIBITED",
+                    "media3.playback_suppression_reason": 0,
+                },
+            ),
+            event("2026-01-01T10:00:20Z", "sync.sample", category="sync"),
+        ]
+    )
+    assert stale_latch_failure.stuck_auto_rejoins == 1 and not stale_latch_failure.stable, stale_latch_failure
 
     malformed = analyze(["not-json\n"])
     assert malformed.invalid_lines == 1 and not malformed.stable, malformed

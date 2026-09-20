@@ -55,6 +55,12 @@ CASES = (
         playback_marker="automatic audio-focus rejoin",
     ),
     Case(
+        "bad-auto-rejoin-stale-suppression-latch.ndjson",
+        False,
+        True,
+        playback_marker="automatic audio-focus rejoin",
+    ),
+    Case(
         "bad-unlocked-clock-projection.ndjson",
         False,
         True,
