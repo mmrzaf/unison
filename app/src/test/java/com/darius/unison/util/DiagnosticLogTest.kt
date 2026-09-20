@@ -43,7 +43,9 @@ class DiagnosticLogTest {
         assertEquals("<redacted>", event.attributes["auth.password"])
         assertEquals(2, event.attributes["retry.count"])
         assertFalse(raw.contains("raw-room-id"))
-        assertFalse(raw.contains("1234"))
+        // Not a bare "1234": timestamps and monotonic nanoseconds are random digits that can match.
+        assertEquals("pin=<redacted> failed", event.body)
+        assertFalse(raw.contains("pin=1234"))
         assertFalse(raw.contains("hunter2"))
         assertFalse(raw.contains("token=abc"))
         assertTrue(raw.contains("<redacted>"))
