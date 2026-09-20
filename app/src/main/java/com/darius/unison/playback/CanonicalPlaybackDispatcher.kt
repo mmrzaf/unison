@@ -22,6 +22,7 @@ class CanonicalPlaybackDispatcher(
     private val applyExact: suspend (ProtocolBody, RoomSnapshot) -> Unit,
     private val reconcileLatest: suspend (PlaybackReconciliation) -> Unit,
     private val onFailure: (ProtocolBody?, Throwable) -> Unit,
+    private val onTiming: (Timing) -> Unit = {},
     private val preparedQueueItemIds: () -> Set<com.darius.unison.model.QueueItemId> = {
         emptySet()
     },
@@ -38,6 +39,18 @@ class CanonicalPlaybackDispatcher(
         val failures: Long,
     )
 
+    enum class WorkKind {
+        EXACT,
+        RECONCILIATION,
+    }
+
+    data class Timing(
+        val kind: WorkKind,
+        val mutationType: String?,
+        val submissionToStartNs: Long,
+        val applyDurationNs: Long,
+    )
+
     data class PlaybackReconciliation(
         val snapshot: RoomSnapshot,
         val key: PlaybackReconciliationKey,
@@ -51,9 +64,18 @@ class CanonicalPlaybackDispatcher(
     }
 
     private sealed interface Work {
-        data class Exact(val body: ProtocolBody, val snapshot: RoomSnapshot) : Work
+        val submittedNs: Long
 
-        data class Reconcile(val batchId: Long) : Work
+        data class Exact(
+            val body: ProtocolBody,
+            val snapshot: RoomSnapshot,
+            override val submittedNs: Long,
+        ) : Work
+
+        data class Reconcile(
+            val batchId: Long,
+            override val submittedNs: Long,
+        ) : Work
     }
 
     private data class PendingReconciliation(
@@ -78,6 +100,8 @@ class CanonicalPlaybackDispatcher(
     private var failures = 0L
     private val worker: Job = scope.launch {
         for (item in work) {
+            val startedNs = System.nanoTime()
+            val submissionToStartNs = (startedNs - item.submittedNs).coerceAtLeast(0L)
             try {
                 when (item) {
                     is Work.Exact -> {
@@ -91,6 +115,20 @@ class CanonicalPlaybackDispatcher(
             } catch (error: Exception) {
                 synchronized(stateLock) { failures++ }
                 onFailure((item as? Work.Exact)?.body, error)
+            } finally {
+                val applyDurationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L)
+                runCatching {
+                    onTiming(
+                        Timing(
+                            kind =
+                                if (item is Work.Exact) WorkKind.EXACT
+                                else WorkKind.RECONCILIATION,
+                            mutationType = (item as? Work.Exact)?.body?.let { it::class.simpleName },
+                            submissionToStartNs = submissionToStartNs,
+                            applyDurationNs = applyDurationNs,
+                        )
+                    )
+                }
             }
         }
     }
@@ -106,7 +144,7 @@ class CanonicalPlaybackDispatcher(
                     // a token already queued ahead of the exact command.
                     openReconciliationBatchId = null
                 }
-                work.send(Work.Exact(body, snapshot))
+                work.send(Work.Exact(body, snapshot, System.nanoTime()))
             }
             is Classification.Reconcile ->
                 requestReconciliationLocked(snapshot, classification.trigger)
@@ -145,7 +183,7 @@ class CanonicalPlaybackDispatcher(
                     true
                 }
             }
-        if (shouldQueue) work.send(Work.Reconcile(batchId))
+        if (shouldQueue) work.send(Work.Reconcile(batchId, System.nanoTime()))
     }
 
     private suspend fun applyPendingReconciliation(batchId: Long) {

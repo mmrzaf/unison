@@ -278,7 +278,29 @@ class RoomRuntime(
                         "room.event.slow",
                         null,
                         "event.type" to event::class.simpleName,
+                        "mutation.type" to
+                            (event as? RoomEvent.NetworkEnvelopeReceived)
+                                ?.envelope
+                                ?.body
+                                ?.let { it::class.simpleName },
                         "operation.duration_ms" to durationNs / 1_000_000L,
+                    )
+                }
+            },
+            onTiming = { event, timing ->
+                if (timing.submissionToStartNs >= SLOW_ROOM_EVENT_QUEUE_NS) {
+                    diagnostics.warn(
+                        "room.event.queue_slow",
+                        null,
+                        "event.type" to event::class.simpleName,
+                        "mutation.type" to
+                            (event as? RoomEvent.NetworkEnvelopeReceived)
+                                ?.envelope
+                                ?.body
+                                ?.let { it::class.simpleName },
+                        "operation.queue_wait_ms" to
+                            timing.submissionToStartNs / 1_000_000L,
+                        "operation.duration_ms" to timing.handlerDurationNs / 1_000_000L,
                     )
                 }
             },
@@ -334,6 +356,22 @@ class RoomRuntime(
                         deduplicationKey = "canonical-playback-work",
                     )
                 )
+            },
+            onTiming = { timing ->
+                if (
+                    timing.submissionToStartNs >= SLOW_PLAYBACK_DISPATCH_NS ||
+                        timing.applyDurationNs >= SLOW_PLAYBACK_DISPATCH_NS
+                ) {
+                    diagnostics.warn(
+                        "playback.dispatch.slow",
+                        null,
+                        "playback.dispatch_kind" to timing.kind.name,
+                        "mutation.type" to timing.mutationType,
+                        "operation.queue_wait_ms" to
+                            timing.submissionToStartNs / 1_000_000L,
+                        "operation.duration_ms" to timing.applyDurationNs / 1_000_000L,
+                    )
+                }
             },
         )
 
@@ -5786,7 +5824,9 @@ class RoomRuntime(
         private const val IDENTITY_COLLISION_REASON = "Cannot join yourself"
         private const val MAX_ROOM_MEMBERS = 8
         private const val ROOM_EVENT_CAPACITY = 256
-        private const val SLOW_ROOM_EVENT_NS = 16_000_000L
+        private const val SLOW_ROOM_EVENT_NS = 100_000_000L
+        private const val SLOW_ROOM_EVENT_QUEUE_NS = 100_000_000L
+        private const val SLOW_PLAYBACK_DISPATCH_NS = 100_000_000L
         private const val SESSION_SHUTDOWN_TIMEOUT_MS = 2_500L
         private const val HEARTBEAT_INTERVAL_MS = 5_000L
         private const val CLOCK_SYNC_WARMUP_INTERVAL_MS = 250L

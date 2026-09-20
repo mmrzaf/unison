@@ -29,22 +29,35 @@ class SerializedEventLoop<E>(
     private val onFailure: (E, Throwable) -> Unit = { _, _ -> },
     private val onDropped: (E, CancellationException) -> Unit = { _, _ -> },
     private val onHandled: (E, Long) -> Unit = { _, _ -> },
+    private val onTiming: (E, Timing) -> Unit = { _, _ -> },
 ) : AutoCloseable {
+    data class Timing(
+        val submissionToStartNs: Long,
+        val handlerDurationNs: Long,
+    )
+
+    private data class Queued<E>(
+        val event: E,
+        val submittedNs: Long,
+    )
+
     private class LoopContext(val owner: Any) : AbstractCoroutineContextElement(Key) {
         companion object Key : CoroutineContext.Key<LoopContext>
     }
 
     private val events =
-        Channel<E>(
+        Channel<Queued<E>>(
             capacity = capacity,
-            onUndeliveredElement = { event ->
-                runCatching { onDropped(event, CancellationException(CLOSED_MESSAGE)) }
+            onUndeliveredElement = { queued ->
+                runCatching { onDropped(queued.event, CancellationException(CLOSED_MESSAGE)) }
             },
         )
     private val job: Job =
         scope.launch(LoopContext(this@SerializedEventLoop)) {
-            for (event in events) {
+            for (queued in events) {
+                val event = queued.event
                 val startedNs = System.nanoTime()
+                val submissionToStartNs = (startedNs - queued.submittedNs).coerceAtLeast(0L)
                 try {
                     handler(event)
                 } catch (cancelled: CancellationException) {
@@ -58,15 +71,24 @@ class SerializedEventLoop<E>(
                 } finally {
                     val durationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L)
                     runCatching { onHandled(event, durationNs) }
+                    runCatching {
+                        onTiming(
+                            event,
+                            Timing(
+                                submissionToStartNs = submissionToStartNs,
+                                handlerDurationNs = durationNs,
+                            ),
+                        )
+                    }
                 }
             }
         }
 
     suspend fun submit(event: E) {
-        events.send(event)
+        events.send(Queued(event, System.nanoTime()))
     }
 
-    fun trySubmit(event: E): Boolean = events.trySend(event).isSuccess
+    fun trySubmit(event: E): Boolean = events.trySend(Queued(event, System.nanoTime())).isSuccess
 
     suspend fun isCurrentContext(): Boolean = currentCoroutineContext()[LoopContext]?.owner === this
 
