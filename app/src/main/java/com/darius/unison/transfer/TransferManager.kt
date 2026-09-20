@@ -32,9 +32,11 @@ import com.darius.unison.util.DiagnosticLog
 import java.io.FileInputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.SocketException
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -146,6 +148,8 @@ class TransferManager(
                         ),
                 )
                 val lastProgressMs = AtomicLong(0L)
+                val uploadedBytes = AtomicLong(0L)
+                val uploadTimedOut = AtomicBoolean(false)
                 var watchdog: kotlinx.coroutines.Job? = null
                 try {
                     if (request.roomId != hello.roomId) {
@@ -315,15 +319,19 @@ class TransferManager(
                                 baseNonce,
                                 associatedData,
                             )
-                            lastProgressMs.set(android.os.SystemClock.elapsedRealtime())
+                            val uploadBytes = file.length() - request.offset
+                            val uploadStartedMs = android.os.SystemClock.elapsedRealtime()
+                            lastProgressMs.set(uploadStartedMs)
                             watchdog =
                                 scope.launch(Dispatchers.IO) {
                                     while (isActive && !socket.isClosed) {
                                         delay(UPLOAD_WATCHDOG_INTERVAL_MS)
-                                        if (
-                                            android.os.SystemClock.elapsedRealtime() -
-                                                lastProgressMs.get() > UPLOAD_IDLE_TIMEOUT_MS
-                                        ) {
+                                        val nowMs = android.os.SystemClock.elapsedRealtime()
+                                        val idleMs = nowMs - lastProgressMs.get()
+                                        if (idleMs > UPLOAD_IDLE_TIMEOUT_MS) {
+                                            uploadTimedOut.set(true)
+                                            val written =
+                                                uploadedBytes.get().coerceAtMost(uploadBytes)
                                             log.warn(
                                                 TAG,
                                                 DiagnosticCategory.TRANSFER,
@@ -337,6 +345,15 @@ class TransferManager(
                                                         "track.id" to
                                                             request.trackId.value.take(12),
                                                         "peer.id" to hello.peerId.value.take(12),
+                                                        "transfer.bytes" to uploadBytes,
+                                                        "transfer.bytes_written" to written,
+                                                        "transfer.bytes_remaining" to
+                                                            (uploadBytes - written)
+                                                                .coerceAtLeast(0L),
+                                                        "transfer.last_progress_age_ms" to idleMs,
+                                                        "operation.duration_ms" to
+                                                            (nowMs - uploadStartedMs)
+                                                                .coerceAtLeast(0L),
                                                     ),
                                             )
                                             runCatching { socket.close() }
@@ -352,11 +369,12 @@ class TransferManager(
                                         FileWireCodec.writeEncryptedBody(
                                             input = input,
                                             output = socket.getOutputStream(),
-                                            byteCount = file.length() - request.offset,
+                                            byteCount = uploadBytes,
                                             key = sessionKey,
                                             baseNonce = baseNonce,
                                             associatedData = associatedData,
-                                        ) {
+                                        ) { totalWritten ->
+                                            uploadedBytes.set(totalWritten)
                                             lastProgressMs.set(
                                                 android.os.SystemClock.elapsedRealtime()
                                             )
@@ -375,7 +393,11 @@ class TransferManager(
                                         "track.id" to request.trackId.value.take(12),
                                         "peer.id" to hello.peerId.value.take(12),
                                         "transfer.offset" to request.offset,
-                                        "transfer.bytes" to (file.length() - request.offset),
+                                        "transfer.bytes" to uploadBytes,
+                                        "operation.duration_ms" to
+                                            (android.os.SystemClock.elapsedRealtime() -
+                                                    uploadStartedMs)
+                                                .coerceAtLeast(0L),
                                     ),
                             )
                         } finally {
@@ -385,6 +407,25 @@ class TransferManager(
                         sessionKey.fill(0)
                         associatedData.fill(0)
                         baseNonce.fill(0)
+                    }
+                } catch (error: Exception) {
+                    if (uploadTimedOut.get() && error is SocketException) {
+                        log.debug(
+                            TAG,
+                            DiagnosticCategory.TRANSFER,
+                            "transfer.upload.watchdog_closed_socket",
+                            attributes =
+                                mapOf(
+                                    "transfer.operation_id" to uploadOperationId,
+                                    "transfer.assignment_id" to
+                                        request.authorizationId.take(16),
+                                    "track.id" to request.trackId.value.take(12),
+                                    "peer.id" to hello.peerId.value.take(12),
+                                    "transfer.bytes_written" to uploadedBytes.get(),
+                                ),
+                        )
+                    } else {
+                        throw error
                     }
                 } finally {
                     watchdog?.cancelAndJoin()
@@ -569,6 +610,7 @@ class TransferManager(
         operationId: String,
         assignmentId: String,
     ) {
+        val downloadStartedMs = android.os.SystemClock.elapsedRealtime()
         var phase = "VALIDATE"
         val transferAttemptAttributes: Map<String, Any?> =
             mapOf(
@@ -841,6 +883,9 @@ class TransferManager(
                                 "track.id" to track.trackId.value.take(12),
                                 "peer.id" to source.peerId.value.take(12),
                                 "transfer.bytes" to track.sizeBytes,
+                                "operation.duration_ms" to
+                                    (android.os.SystemClock.elapsedRealtime() - downloadStartedMs)
+                                        .coerceAtLeast(0L),
                             ),
                 )
                 onCompleted(track)
@@ -852,6 +897,8 @@ class TransferManager(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
+            val receivedBytes =
+                fileStore.partialFile(track.trackId).length().coerceAtMost(track.sizeBytes)
             log.debug(
                 TAG,
                 DiagnosticCategory.TRANSFER,
@@ -862,6 +909,12 @@ class TransferManager(
                             "track.id" to track.trackId.value.take(12),
                             "peer.id" to source.peerId.value.take(12),
                             "transfer.phase" to phase,
+                            "transfer.bytes_received" to receivedBytes,
+                            "transfer.bytes_remaining" to
+                                (track.sizeBytes - receivedBytes).coerceAtLeast(0L),
+                            "operation.duration_ms" to
+                                (android.os.SystemClock.elapsedRealtime() - downloadStartedMs)
+                                    .coerceAtLeast(0L),
                         ),
                 throwable = error,
             )
