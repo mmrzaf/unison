@@ -78,12 +78,16 @@ class Media3PlayerAdapter(
     private val localOutputState = LocalPlaybackOutputState()
     private val participation: LocalPlaybackParticipation
         get() = localOutputState.participation
+
     private val inhibitionReason: LocalPlaybackInhibitionReason?
         get() = localOutputState.inhibitionReason
+
     private val outputResumeBlocked: Boolean
         get() = localOutputState.outputResumeBlocked
+
     private val automaticRejoinAllowed: Boolean
         get() = localOutputState.automaticRejoinAllowed
+
     private var lastPlaybackSuppressionReason = Player.PLAYBACK_SUPPRESSION_REASON_NONE
     private var lastNaturalTransitionNs = Long.MIN_VALUE
     private val expectedPlayIntentChanges = ExpectedPlayerIntentTracker()
@@ -244,8 +248,10 @@ class Media3PlayerAdapter(
                                     "playback.automatic_rejoin_allowed" to automaticRejoinAllowed,
                                 ),
                         )
-                        // The suppression latch and automatic-rejoin eligibility are actor-significant
-                        // state. Publish the explicit platform clear even while participation remains
+                        // The suppression latch and automatic-rejoin eligibility are
+                        // actor-significant
+                        // state. Publish the explicit platform clear even while participation
+                        // remains
                         // inhibited so the room coordinator can safely complete a pending rejoin.
                         publish()
                     }

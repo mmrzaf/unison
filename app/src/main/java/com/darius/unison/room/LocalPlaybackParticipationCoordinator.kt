@@ -213,7 +213,8 @@ internal class LocalPlaybackParticipationCoordinator(
             if (beforeExecution.outputResumeBlocked || !isAttemptCurrent(pending)) return
             if (
                 pending.reason == LocalRejoinReason.AUTO_AUDIO_FOCUS &&
-                    (beforeExecution.inhibitionReason != LocalPlaybackInhibitionReason.AUDIO_FOCUS ||
+                    (beforeExecution.inhibitionReason !=
+                        LocalPlaybackInhibitionReason.AUDIO_FOCUS ||
                         !beforeExecution.automaticRejoinAllowed)
             )
                 return

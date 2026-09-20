@@ -100,8 +100,7 @@ class ControlConnection(
                                         "mutation.type" to envelope.body::class.simpleName,
                                         "message.id" to envelope.messageId.take(12),
                                         "room.sequence" to envelope.sequence,
-                                        "operation.duration_ms" to
-                                            dispatchDurationNs / 1_000_000L,
+                                        "operation.duration_ms" to dispatchDurationNs / 1_000_000L,
                                     ),
                             )
                         }

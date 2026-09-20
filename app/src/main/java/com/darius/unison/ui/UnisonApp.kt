@@ -133,8 +133,7 @@ private val PendingNetworkPermissionActionSaver =
                         )
                     }
                 }
-                "create_offline_network" ->
-                    PendingNetworkPermissionAction.CreateOfflineNetwork
+                "create_offline_network" -> PendingNetworkPermissionAction.CreateOfflineNetwork
                 else -> null
             }
         },

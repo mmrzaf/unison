@@ -279,10 +279,9 @@ class RoomRuntime(
                         null,
                         "event.type" to event::class.simpleName,
                         "mutation.type" to
-                            (event as? RoomEvent.NetworkEnvelopeReceived)
-                                ?.envelope
-                                ?.body
-                                ?.let { it::class.simpleName },
+                            (event as? RoomEvent.NetworkEnvelopeReceived)?.envelope?.body?.let {
+                                it::class.simpleName
+                            },
                         "operation.duration_ms" to durationNs / 1_000_000L,
                     )
                 }
@@ -294,12 +293,10 @@ class RoomRuntime(
                         null,
                         "event.type" to event::class.simpleName,
                         "mutation.type" to
-                            (event as? RoomEvent.NetworkEnvelopeReceived)
-                                ?.envelope
-                                ?.body
-                                ?.let { it::class.simpleName },
-                        "operation.queue_wait_ms" to
-                            timing.submissionToStartNs / 1_000_000L,
+                            (event as? RoomEvent.NetworkEnvelopeReceived)?.envelope?.body?.let {
+                                it::class.simpleName
+                            },
+                        "operation.queue_wait_ms" to timing.submissionToStartNs / 1_000_000L,
                         "operation.duration_ms" to timing.handlerDurationNs / 1_000_000L,
                     )
                 }
@@ -367,8 +364,7 @@ class RoomRuntime(
                         null,
                         "playback.dispatch_kind" to timing.kind.name,
                         "mutation.type" to timing.mutationType,
-                        "operation.queue_wait_ms" to
-                            timing.submissionToStartNs / 1_000_000L,
+                        "operation.queue_wait_ms" to timing.submissionToStartNs / 1_000_000L,
                         "operation.duration_ms" to timing.applyDurationNs / 1_000_000L,
                     )
                 }

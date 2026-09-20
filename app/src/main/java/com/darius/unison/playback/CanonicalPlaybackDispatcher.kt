@@ -121,9 +121,9 @@ class CanonicalPlaybackDispatcher(
                     onTiming(
                         Timing(
                             kind =
-                                if (item is Work.Exact) WorkKind.EXACT
-                                else WorkKind.RECONCILIATION,
-                            mutationType = (item as? Work.Exact)?.body?.let { it::class.simpleName },
+                                if (item is Work.Exact) WorkKind.EXACT else WorkKind.RECONCILIATION,
+                            mutationType =
+                                (item as? Work.Exact)?.body?.let { it::class.simpleName },
                             submissionToStartNs = submissionToStartNs,
                             applyDurationNs = applyDurationNs,
                         )

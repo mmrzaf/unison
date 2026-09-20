@@ -348,12 +348,14 @@ class TransferManager(
                                                         "transfer.bytes" to uploadBytes,
                                                         "transfer.bytes_written" to written,
                                                         "transfer.bytes_remaining" to
-                                                            (uploadBytes - written)
-                                                                .coerceAtLeast(0L),
+                                                            (uploadBytes - written).coerceAtLeast(
+                                                                0L
+                                                            ),
                                                         "transfer.last_progress_age_ms" to idleMs,
                                                         "operation.duration_ms" to
-                                                            (nowMs - uploadStartedMs)
-                                                                .coerceAtLeast(0L),
+                                                            (nowMs - uploadStartedMs).coerceAtLeast(
+                                                                0L
+                                                            ),
                                                     ),
                                             )
                                             runCatching { socket.close() }
@@ -417,8 +419,7 @@ class TransferManager(
                             attributes =
                                 mapOf(
                                     "transfer.operation_id" to uploadOperationId,
-                                    "transfer.assignment_id" to
-                                        request.authorizationId.take(16),
+                                    "transfer.assignment_id" to request.authorizationId.take(16),
                                     "track.id" to request.trackId.value.take(12),
                                     "peer.id" to hello.peerId.value.take(12),
                                     "transfer.bytes_written" to uploadedBytes.get(),

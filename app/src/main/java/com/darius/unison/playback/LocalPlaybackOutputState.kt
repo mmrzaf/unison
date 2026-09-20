@@ -98,9 +98,8 @@ internal class LocalPlaybackOutputState {
     }
 
     /**
-     * Session-local resume intent never crosses a room boundary. A suppression that is still
-     * active remains output-unsafe, but it does not carry automatic-resume intent into the new
-     * room.
+     * Session-local resume intent never crosses a room boundary. A suppression that is still active
+     * remains output-unsafe, but it does not carry automatic-resume intent into the new room.
      */
     fun resetForSessionBoundary(activeSuppression: LocalPlaybackInhibitionReason?) {
         manualResumeReason = null

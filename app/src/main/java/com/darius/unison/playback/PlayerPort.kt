@@ -129,8 +129,8 @@ interface PlayerPort {
     suspend fun rejoinLivePlayback(queueItemId: QueueItemId, positionMs: Long): Boolean
 
     /**
-     * Clears session-local interruption/rejoin intent at a room boundary without starting audio.
-     * A platform suppression that is still live remains output-blocking in the new session.
+     * Clears session-local interruption/rejoin intent at a room boundary without starting audio. A
+     * platform suppression that is still live remains output-blocking in the new session.
      */
     suspend fun resetLocalPlaybackParticipation()
 
