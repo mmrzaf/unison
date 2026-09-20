@@ -73,7 +73,6 @@ def main() -> int:
             ".github/workflows/verify.yml",
             ".github/workflows/release.yml",
             ".github/workflows/codeql.yml",
-            ".github/dependabot.yml",
             ".github/SECURITY.md",
             ".github/ISSUE_TEMPLATE/bug.yml",
             ".github/ISSUE_TEMPLATE/feature.yml",
