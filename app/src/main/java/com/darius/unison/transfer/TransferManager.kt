@@ -30,9 +30,9 @@ import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import java.io.FileInputStream
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.net.SocketException
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -413,7 +413,7 @@ class TransferManager(
                         baseNonce.fill(0)
                     }
                 } catch (error: Exception) {
-                    if (uploadTimedOut.get() && error is SocketException) {
+                    if (isWatchdogInducedCloseFailure(uploadTimedOut.get(), error)) {
                         log.debug(
                             TAG,
                             DiagnosticCategory.TRANSFER,
@@ -1115,5 +1115,18 @@ class TransferManager(
         private const val MIN_FREE_SPACE_BYTES = 32L * 1024L * 1024L
         private const val UPLOAD_WATCHDOG_INTERVAL_MS = 5_000L
         private const val UPLOAD_IDLE_TIMEOUT_MS = 30_000L
+
+        /**
+         * Once the watchdog marks an upload as timed out and force-closes the socket, any
+         * subsequent I/O failure on that same upload is expected fallout from that close, not a
+         * distinct failure. The concrete exception type varies by platform (SocketException, or a
+         * more generic IOException wrapping "Broken pipe"/"Socket closed"), so match the whole
+         * IOException family rather than one subtype. CancellationException is never an
+         * IOException, so real cancellation still propagates unclassified.
+         */
+        internal fun isWatchdogInducedCloseFailure(
+            uploadTimedOut: Boolean,
+            error: Throwable,
+        ): Boolean = uploadTimedOut && error is IOException
     }
 }
