@@ -855,6 +855,7 @@ class RoomRuntime(
                         localIsPlaying = value.playWhenReady,
                         localPlaybackParticipation = value.participation,
                         localPlaybackInhibitionReason = value.inhibitionReason,
+                        localAutomaticRejoinAllowed = value.automaticRejoinAllowed,
                         localSeekRevision = value.seekRevision,
                     )
                 }

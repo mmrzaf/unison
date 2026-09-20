@@ -113,6 +113,7 @@ internal fun SharedRoomScreen(
             snapshot.playback.isPlaying,
             room.localPlaybackParticipation,
             room.localPlaybackInhibitionReason,
+            room.localAutomaticRejoinAllowed,
             currentReadiness,
             currentTransfer,
             room.pendingSuccessorQueueItemId,
@@ -126,6 +127,7 @@ internal fun SharedRoomScreen(
                 canonicalIsPlaying = snapshot.playback.isPlaying,
                 localParticipation = room.localPlaybackParticipation,
                 localInhibitionReason = room.localPlaybackInhibitionReason,
+                localAutomaticRejoinAllowed = room.localAutomaticRejoinAllowed,
                 currentQueueItemId = nowPlaying?.queueItemId,
                 currentReadiness = currentReadiness,
                 currentTransfer = currentTransfer,
@@ -242,6 +244,7 @@ internal fun SharedRoomScreen(
             room.issue,
             room.localPlaybackParticipation,
             room.localPlaybackInhibitionReason,
+            room.localAutomaticRejoinAllowed,
         ) {
             RoomPlaybackUiPolicy.transition(
                 snapshot = snapshot,
@@ -252,6 +255,7 @@ internal fun SharedRoomScreen(
                 issue = room.issue,
                 localParticipation = room.localPlaybackParticipation,
                 localInhibitionReason = room.localPlaybackInhibitionReason,
+                localAutomaticRejoinAllowed = room.localAutomaticRejoinAllowed,
             )
         }
     val currentIndex =

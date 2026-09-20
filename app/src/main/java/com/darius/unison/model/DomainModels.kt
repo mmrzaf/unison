@@ -308,6 +308,8 @@ data class RoomUiState(
     val localIsPlaying: Boolean = false,
     val localPlaybackParticipation: LocalPlaybackParticipation = LocalPlaybackParticipation.ACTIVE,
     val localPlaybackInhibitionReason: LocalPlaybackInhibitionReason? = null,
+    /** True only for a resumable transient interruption in the current room session. */
+    val localAutomaticRejoinAllowed: Boolean = false,
     val localSeekRevision: Long = 0,
     val localDriftMs: Long? = null,
     val transportStatus: TransportCommandStatus? = null,
