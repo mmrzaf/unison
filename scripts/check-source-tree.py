@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
-"""Repository-level release invariants for the current Unison source tree/package."""
+"""Repository-level release invariants that are properties of the tree, not of code behavior.
+
+Behavioral correctness belongs in executable tests. This gate only covers what tests cannot see:
+secrets and signing hygiene, pinned build/SDK/protocol/schema contracts, release-workflow security
+properties, the Android manifest's exposure surface, and the local-first dependency policy.
+"""
 from __future__ import annotations
 
 from pathlib import Path
 import json
 import re
-import sys
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def fail(message: str) -> None:
-    raise AssertionError(message)
+ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+WORKFLOWS = (
+    ".github/workflows/verify.yml",
+    ".github/workflows/android.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/codeql.yml",
+    ".github/workflows/refresh-dependency-verification.yml",
+)
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
-        fail(message)
+        raise AssertionError(message)
 
 
 def text(path: str) -> str:
@@ -28,7 +37,7 @@ def text(path: str) -> str:
 
 
 def repository_files() -> list[str]:
-    """Return source inventory in either a Git checkout or an exported source package."""
+    """Return the source inventory in either a Git checkout or an exported source package."""
     try:
         inside = subprocess.check_output(
             ["git", "rev-parse", "--is-inside-work-tree"],
@@ -49,15 +58,11 @@ def repository_files() -> list[str]:
         ".git", ".gradle", ".kotlin", ".idea", ".vscode", "build", "dist",
         "captures", "keystore", "signing", "__pycache__",
     }
-    files: list[str] = []
-    for path in ROOT.rglob("*"):
-        if not path.is_file():
-            continue
-        relative = path.relative_to(ROOT)
-        if excluded_parts.intersection(relative.parts):
-            continue
-        files.append(relative.as_posix())
-    return sorted(files)
+    return sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in ROOT.rglob("*")
+        if path.is_file() and not excluded_parts.intersection(path.relative_to(ROOT).parts)
+    )
 
 
 def version_value(versions: str, key: str) -> str:
@@ -66,632 +71,223 @@ def version_value(versions: str, key: str) -> str:
     return match.group(1)
 
 
+def check_secrets() -> None:
+    gitignore = text(".gitignore")
+    for generated_path in (".gradle/", ".kotlin/", "build/", "local.properties"):
+        require(generated_path in gitignore, f"Generated path is not ignored: {generated_path}")
+    for secret_path in ("keystore/", "keystore.properties"):
+        require(secret_path in gitignore, f"Signing material is not ignored: {secret_path}")
+
+    sensitive_suffixes = (".jks", ".keystore", ".p12", ".pfx", ".pem", ".key", ".base64")
+    private_key_markers = (
+        "-----BEGIN " + "PRIVATE KEY-----",
+        "-----BEGIN " + "ENCRYPTED PRIVATE KEY-----",
+    )
+    for tracked in repository_files():
+        lower = tracked.lower()
+        require(tracked not in {"keystore.properties", "local.properties"}, f"Sensitive/local file is tracked: {tracked}")
+        require(not lower.startswith(("keystore/", "signing/")), f"Signing directory is tracked: {tracked}")
+        require(not lower.endswith(sensitive_suffixes), f"Sensitive key/archive is tracked: {tracked}")
+        value = ROOT / tracked
+        if value.is_file() and value.stat().st_size <= 2_000_000:
+            content = value.read_text(errors="ignore")
+            require(not any(marker in content for marker in private_key_markers), f"Private key material is tracked: {tracked}")
+
+
+def check_versions() -> str:
+    versions = text("gradle/libs.versions.toml")
+    version_name = version_value(versions, "appVersionName")
+    version_code = version_value(versions, "appVersionCode")
+    require(re.fullmatch(r"1\.2\.[0-9]+(-(beta|rc)\.[1-9][0-9]*)?", version_name) is not None,
+            f"Unexpected 1.2 release-line version: {version_name}")
+    require(version_code.isdigit(), f"versionCode is not numeric: {version_code}")
+    require(version_value(versions, "compileSdk") == "36", "compileSdk changed unexpectedly")
+    require(version_value(versions, "minSdk") == "30", "minSdk changed unexpectedly")
+    require(version_value(versions, "targetSdk") == "33", "targetSdk changed unexpectedly (see ADR-006)")
+    require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version_value(versions, "buildTools")) is not None,
+            "buildTools must be pinned to an exact version")
+    require("libs.versions.buildTools.get()" in text("app/build.gradle.kts"),
+            "Gradle does not use the pinned build-tools version")
+    require(re.search(r"firebase|play-services|billingclient", text("app/build.gradle.kts") + versions, re.IGNORECASE) is None,
+            "Hosted/store runtime dependency found")
+
+    settings_gradle = text("settings.gradle.kts")
+    require("google()" in settings_gradle and "mavenCentral()" in settings_gradle and "gradlePluginPortal()" in settings_gradle,
+            "Trusted Gradle repositories are not configured")
+    require("mirror" not in settings_gradle.lower(), "Repository-defined dependency mirror must not be present")
+    return version_name
+
+
+def check_release_records(version_name: str) -> None:
+    readme = text("README.md")
+    changelog = text("CHANGELOG.md")
+    require(version_name not in readme, "README must remain version-independent")
+    require(f"## {version_name}\n" in changelog, f"Changelog has no section for {version_name}")
+
+    versions = text("gradle/libs.versions.toml")
+    evidence = text(f"docs/release-evidence/{version_name}.md")
+    require(f"- Version: `{version_name}`" in evidence, "Release evidence version drifted")
+    require(f"- Tag: `v{version_name}`" in evidence, "Release evidence tag drifted")
+    require(f"- versionCode: `{version_value(versions, 'appVersionCode')}`" in evidence, "Release evidence versionCode drifted")
+    require(re.search(r"^Status: \*\*(IN PROGRESS|QUALIFIED)\*\*$", evidence, re.MULTILINE) is not None,
+            "Release evidence status must be IN PROGRESS or QUALIFIED")
+
+
+def check_workflows() -> None:
+    release_ci = text(".github/workflows/release.yml")
+    verify_ci = text(".github/workflows/verify.yml")
+    android_ci = text(".github/workflows/android.yml")
+    require("connectedDebugAndroidTest" in android_ci and "api-level: 33" in android_ci,
+            "Normal CI does not execute Android instrumentation on API 33")
+    require("api: [30, 33, 36]" in release_ci and "connectedDebugAndroidTest" in release_ci,
+            "Release CI does not execute the required API 30/33/36 instrumentation matrix")
+    require("workflow_dispatch" not in release_ci, "Release publication must be tag-triggered only")
+    require("--clobber" not in release_ci, "Release assets must not be replaceable with --clobber")
+    require("app-debug.apk" not in release_ci and "Unison-debug" not in release_ci, "Debug APK must not be a public release asset")
+    for gate in ("ANDROID_SIGNING_CERT_SHA256", "check-release-signing.py", "verify-release-apk.sh"):
+        require(gate in release_ci, f"Release workflow is missing signing gate: {gate}")
+    require("Remove release signing material" in release_ci and "if: always()" in release_ci,
+            "Release workflow does not clean signing material after use")
+    require("persist-credentials: false" in verify_ci, "Reusable verification workflow lacks hardened checkout")
+    require("spotlessCheck" in verify_ci, "CI does not enforce formatting")
+
+    action_ref = re.compile(r"uses:\s+[^\s@]+@([0-9a-f]{40})(?:\s|$)")
+    for workflow_path in WORKFLOWS:
+        workflow = text(workflow_path)
+        if "./gradlew" in workflow:
+            require("scripts/build-tools-version.sh" in workflow,
+                    f"Workflow builds without installing the pinned build tools: {workflow_path}")
+        for line in workflow.splitlines():
+            if "uses:" in line and "uses: ./" not in line:
+                require(action_ref.search(line) is not None, f"Unpinned GitHub Action in {workflow_path}: {line.strip()}")
+
+
+def check_contracts() -> None:
+    protocol = text("app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt")
+    protocol_json = text("app/src/main/java/com/darius/unison/protocol/ProtocolJson.kt")
+    require("const val PROTOCOL_VERSION = 1" in protocol, "Wire protocol is not 1")
+    require("ignoreUnknownKeys = false" in protocol_json, "Unknown protocol keys are accepted")
+    require("explicitNulls = true" in protocol_json, "Protocol nullability is not explicit")
+
+    database = text("app/src/main/java/com/darius/unison/storage/Database.kt")
+    require("version = 1" in database, "Database is not schema 1")
+    schemas = sorted((ROOT / "app/schemas/com.darius.unison.storage.UnisonDatabase").glob("*.json"))
+    require([path.name for path in schemas] == ["1.json"], "Exactly schema 1 must be checked in")
+    require(json.loads(schemas[0].read_text())["database"]["version"] == 1, "Exported schema version is not 1")
+
+    production = "\n".join(path.read_text(errors="ignore") for path in (ROOT / "app/src/main/java").rglob("*.kt"))
+    require(re.search(r"Migration\s*\(", production) is None and "addMigrations" not in production,
+            "Database migration code exists; schema 1 is the only data format")
+    require("fallbackToDestructiveMigration" not in production, "Destructive migration fallback exists")
+    require(re.search(r"\bTODO\b|\bFIXME\b|\bHACK\b", production) is None, "Production TODO/FIXME/HACK remains")
+    require(re.search(r"https?://", production) is None, "Hard-coded remote endpoint found")
+
+    proguard_rules = text("app/proguard-rules.pro")
+    for diagnostic_type in (
+        "com.darius.unison.model.AppCommand$*",
+        "com.darius.unison.model.UserCommand$*",
+        "com.darius.unison.protocol.ProtocolBody$*",
+        "com.darius.unison.room.RoomEvent$*",
+        "com.darius.unison.playback.PlaybackFailure$*",
+    ):
+        require(f"-keepnames class {diagnostic_type}" in proguard_rules,
+                f"R8 may obfuscate structured diagnostic type names: {diagnostic_type}")
+
+
+def check_manifest() -> None:
+    manifest = ET.parse(ROOT / "app/src/main/AndroidManifest.xml").getroot()
+    application = manifest.find("application")
+    require(application is not None, "Application manifest node is missing")
+    require(application.get(ANDROID_NS + "allowBackup") == "false", "Android backup must remain disabled")
+    require(application.get(ANDROID_NS + "usesCleartextTraffic") == "false", "Cleartext traffic must remain disabled")
+
+    permissions = {node.get(ANDROID_NS + "name"): node for node in manifest.findall("uses-permission")}
+    nearby = permissions.get("android.permission.NEARBY_WIFI_DEVICES")
+    require(nearby is not None and nearby.get(ANDROID_NS + "usesPermissionFlags") == "neverForLocation",
+            "Nearby Wi-Fi permission must remain neverForLocation")
+    for permission in ("android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION"):
+        node = permissions.get(permission)
+        require(node is not None and node.get(ANDROID_NS + "maxSdkVersion") == "32",
+                f"Pre-API-33 hotspot location permission must stop at API 32: {permission}")
+
+    namespaces = {"android": "http://schemas.android.com/apk/res/android"}
+    service = application.find("service[@android:name='.playback.UnisonRoomService']", namespaces)
+    require(service is not None, "UnisonRoomService manifest declaration is missing")
+    require({"mediaPlayback", "connectedDevice"}.issubset(set((service.get(ANDROID_NS + "foregroundServiceType") or "").split("|"))),
+            "Room service must declare mediaPlayback and connectedDevice foreground-service types")
+    exported = {
+        (component_type, node.get(ANDROID_NS + "name"))
+        for component_type in ("activity", "activity-alias", "service", "receiver", "provider")
+        for node in application.findall(component_type)
+        if node.get(ANDROID_NS + "exported") == "true"
+    }
+    require(exported == {("activity", ".ui.MainActivity"), ("service", ".playback.UnisonRoomService")},
+            f"Unexpected exported Android component: {sorted(exported)}")
+    require("if (!controller.isTrusted) return MediaSession.ConnectionResult.reject()"
+            in text("app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt"),
+            "Exported media session no longer rejects untrusted controllers")
+
+    provider = application.find("provider[@android:name='androidx.core.content.FileProvider']", namespaces)
+    require(provider is not None and provider.get(ANDROID_NS + "exported") == "false"
+            and provider.get(ANDROID_NS + "grantUriPermissions") == "true",
+            "Diagnostic FileProvider exposure changed")
+    cache_paths = ET.parse(ROOT / "app/src/main/res/xml/diagnostic_file_paths.xml").getroot().findall("cache-path")
+    require(len(cache_paths) == 1 and cache_paths[0].get("path") == "diagnostics/",
+            "Diagnostic FileProvider path is broader than the diagnostics cache directory")
+    base_config = ET.parse(ROOT / "app/src/main/res/xml/network_security_config.xml").getroot().find("base-config")
+    require(base_config is not None and base_config.get("cleartextTrafficPermitted") == "false",
+            "Network security config permits cleartext traffic")
+
+
+CORE_PACKAGES = ("model", "protocol", "util", "room", "sync")
+
+
+def check_core_purity() -> None:
+    """The JVM room core must not depend on Android, loopers, or the wall clock."""
+    for package in CORE_PACKAGES:
+        root = ROOT / "app/src/main/java/com/darius/unison" / package
+        for path in sorted(root.rglob("*.kt")):
+            content = path.read_text(errors="ignore")
+            name = path.relative_to(ROOT).as_posix()
+            require("import android." not in content and "import androidx." not in content,
+                    f"Core file imports an Android API: {name}")
+            require("Dispatchers." not in content,
+                    f"Core file hard-codes a coroutine dispatcher: {name}")
+            require("System.nanoTime" not in content and "System.currentTimeMillis" not in content,
+                    f"Core file reads the wall clock directly: {name}")
+
+
+ROOM_LOCK_PATTERN = re.compile(r"\bsynchronized\s*\(|@Synchronized|ConcurrentHashMap|ReentrantLock|\bMutex\(")
+# Genuine thread boundaries inside the room package (ADR-007): everything else is actor-owned.
+ROOM_LOCK_ALLOWLIST = {"AdmissionGuard.kt", "QueuePreparationFence.kt", "SessionJobRegistry.kt"}
+
+
+def check_actor_ownership() -> None:
+    """Room state is owned by the actor: no new lock or concurrent map may hide a race there."""
+    root = ROOT / "app/src/main/java/com/darius/unison/room"
+    for path in sorted(root.rglob("*.kt")):
+        if path.name in ROOM_LOCK_ALLOWLIST:
+            continue
+        require(ROOM_LOCK_PATTERN.search(path.read_text(errors="ignore")) is None,
+                f"Room file adds a lock or concurrent map instead of routing through the actor: "
+                f"{path.relative_to(ROOT).as_posix()}")
+
+
 def main() -> int:
     try:
-        for path in (
-            ".github/workflows/android.yml",
-            ".github/workflows/verify.yml",
-            ".github/workflows/release.yml",
-            ".github/workflows/codeql.yml",
-            ".github/SECURITY.md",
-            ".github/ISSUE_TEMPLATE/bug.yml",
-            ".github/ISSUE_TEMPLATE/feature.yml",
-            ".github/ISSUE_TEMPLATE/config.yml",
-            ".github/PULL_REQUEST_TEMPLATE.md",
-            "LICENSE",
-            "CODE_OF_CONDUCT.md",
-            "SUPPORT.md",
-            "THIRD_PARTY_NOTICES.md",
-            "app/build.gradle.kts",
-            "app/src/main/AndroidManifest.xml",
-            "app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt",
-            "app/src/main/java/com/darius/unison/protocol/ProtocolJson.kt",
-            "app/src/main/java/com/darius/unison/protocol/Srp6aCore.kt",
-            "app/src/test/java/com/darius/unison/protocol/Srp6aCoreRfc5054Test.kt",
-            "app/src/test/java/com/darius/unison/network/ControlConnectionPriorityTest.kt",
-            "app/src/test/java/com/darius/unison/network/LocalNetworkRoutePolicyTest.kt",
-            "app/src/test/java/com/darius/unison/transfer/LocalNetworkTransferFailurePolicyTest.kt",
-            "app/src/test/java/com/darius/unison/room/RoomLifecycleSeamRegressionTest.kt",
-            "app/src/main/java/com/darius/unison/storage/Database.kt",
-            "app/src/main/java/com/darius/unison/ui/UnisonApp.kt",
-            "app/src/main/java/com/darius/unison/ui/AboutUnisonDialog.kt",
-            "app/src/test/java/com/darius/unison/ui/PermissionControllerTest.kt",
-            "gradle/libs.versions.toml",
-            "gradle/wrapper/gradle-wrapper.jar",
-            "scripts/build-debug.sh",
-            "scripts/build-release.sh",
-            "scripts/check-release-quality.sh",
-            "scripts/check-release-signing.py",
-            "scripts/check-release-apk-metadata.py",
-            "scripts/verify-release-apk.sh",
-            "docs/SRP_REVIEW_1.2.md",
-            "scripts/archive.sh",
-            "scripts/package-source.sh",
-            "scripts/check-source-package.py",
-            "scripts/extract-release-notes.py",
-            "scripts/bootstrap-dev.sh",
-            "scripts/refresh-dependency-verification.sh",
-            "scripts/check-dependency-verification.py",
-            "scripts/check-tooling.sh",
-            "CONTRIBUTING.md",
-            "docs/DEVELOPMENT.md",
-            "docs/GITHUB_SETUP.md",
-            "docs/ROADMAP.md",
-            "docs/release-evidence/README.md",
-            "docs/release-evidence/TEMPLATE.md",
-            "docs/decisions/README.md",
-            "docs/INVARIANTS.md",
-        ):
-            require((ROOT / path).exists(), f"Missing required file: {path}")
-
-        for path in (
-            "app/src/main/java/com/darius/unison/ui/room/RoomScreens.kt",
-            "app/src/main/java/com/darius/unison/ui/library/LibraryScreen.kt",
-            "app/src/main/java/com/darius/unison/room/RoomPersistenceManager.kt",
-            "app/src/main/java/com/darius/unison/ui/room/RoomCodeComponents.kt",
-            ".github/lint-ci.xml",
-            "app/lint.xml",
-            "docs/IMPLEMENTATION_STATUS.md",
-            "docs/VALIDATION.md",
-            "docs/RELEASE_READINESS_1.0.0.md",
-            "docs/unison-technical-specification.md",
-        ):
-            require(not (ROOT / path).exists(), f"Temporary or obsolete path remains: {path}")
-
-        gitignore = text(".gitignore")
-        for generated_path in (".gradle/", ".kotlin/", "build/", "local.properties", ".unison-overlay/"):
-            require(generated_path in gitignore, f"Generated path is not ignored: {generated_path}")
-        for secret_path in ("keystore/", "keystore.properties"):
-            require(secret_path in gitignore, f"Signing material is not ignored: {secret_path}")
-        archive = text("scripts/archive.sh")
-        common_script = text("scripts/common.sh")
-        agents_script = text("scripts/AGENTS.md")
-        for marker in ("WAIO_", "waiotech", "dashboard/", "server/"):
-            require(marker not in archive, f"Unrelated project marker remains in archive helper: {marker}")
-            require(marker not in common_script, f"Unrelated project marker remains in common helper: {marker}")
-            require(marker not in agents_script, f"Unrelated project marker remains in scripts guidance: {marker}")
-        for excluded in ("./local.properties", "./keystore.properties", "./keystore"):
-            require(excluded in archive, f"Source archive does not exclude sensitive path: {excluded}")
-        require("Refusing to create archive" in archive, "Source archive lacks fail-closed secret scan")
-
-        tracked_files = repository_files()
-        sensitive_suffixes = (".jks", ".keystore", ".p12", ".pfx", ".pem", ".key", ".base64")
-        for tracked in tracked_files:
-            lower = tracked.lower()
-            require(tracked not in {"keystore.properties", "local.properties"}, f"Sensitive/local file is tracked: {tracked}")
-            require(not lower.startswith(("keystore/", "signing/")), f"Signing directory is tracked: {tracked}")
-            require(not lower.endswith(sensitive_suffixes), f"Sensitive key/archive is tracked: {tracked}")
-            if tracked != "keystore.properties.example":
-                value = (ROOT / tracked)
-                if value.is_file() and value.stat().st_size <= 2_000_000:
-                    content = value.read_text(errors="ignore")
-                    private_key_marker = "-----BEGIN " + "PRIVATE KEY-----"
-                    encrypted_private_key_marker = "-----BEGIN " + "ENCRYPTED PRIVATE KEY-----"
-                    require(private_key_marker not in content and encrypted_private_key_marker not in content, f"Private key material is tracked: {tracked}")
-        for path in (
-            "docs/000-index.md",
-            "docs/00-governance",
-            "docs/10-product",
-            "docs/20-engineering",
-            "docs/30-experience",
-            "docs/40-business",
-            "docs/70-reference",
-            "docs/90-generated",
-            "docs/pdf",
-            "scripts/CLAUDE.md",
-            "scripts/dashboard-screenshots.sh",
-            "scripts/dev.sh",
-            "scripts/docs.py",
-            "scripts/images.sh",
-            "scripts/generate-api.sh",
-            "scripts/generate-action-contracts.py",
-            "scripts/generate-ai-context.py",
-            "scripts/generate-kotlin-android-api.py",
-            "scripts/generate-permission-contract.py",
-            "scripts/generate-reference-data-contract.py",
-            "scripts/generate-typescript-api.mjs",
-            "scripts/generate_typescript_api.py",
-            "scripts/reference-plant.sh",
-            "scripts/typescript-api-http-client.ts",
-            "scripts/validate-commissioning-workbook-contract.py",
-            "scripts/verify-dashboard-operability.py",
-            "scripts/verify-generated-contracts.sh",
-            "scripts/verify-persian-copy.py",
-            "scripts/verify-real-ui.sh",
-            "scripts/verify-release.sh",
-        ):
-            require(not (ROOT / path).exists(), f"Unrelated obsolete project path remains: {path}")
-
-        versions = text("gradle/libs.versions.toml")
-        version_name = version_value(versions, "appVersionName")
-        version_code = version_value(versions, "appVersionCode")
-        require(re.fullmatch(r"1\.2\.0(?:-(?:beta|rc)\.[1-9][0-9]*)?", version_name) is not None,
-                f"Unexpected 1.2 release-line version: {version_name}")
-        require(version_code.isdigit() and int(version_code) >= 5, "1.2 beta/stable versionCode must be >= 5")
-
-        readme = text("README.md")
-        changelog = text("CHANGELOG.md")
-        roadmap = text("docs/ROADMAP.md")
-        local_release = text("docs/LOCAL_RELEASE.md")
-        physical_qualification = text("docs/PHYSICAL_DEVICE_QUALIFICATION.md")
-        security_doc = text("docs/SECURITY.md")
-        srp_review = text("docs/SRP_REVIEW_1.2.md")
-        bug_template = text(".github/ISSUE_TEMPLATE/bug.yml")
-        release_evidence_path = f"docs/release-evidence/{version_name}.md"
-        release_evidence = text(release_evidence_path)
-        require("GitHub Releases" in readme, "README does not point users to GitHub Releases")
-        require("Wire protocol: **1 only**" in readme, "README wire protocol fact drifted")
-        require("Local data format: **1 only**" in readme, "README local-data contract drifted")
-        require(version_name not in readme, "README must remain version-independent")
-        require(f"## {version_name}\n" in changelog, f"Changelog has no section for {version_name}")
-        require(version_name in roadmap, "Roadmap does not identify the current candidate")
-        require(f"- Version: `{version_name}`" in release_evidence, "Release evidence version drifted")
-        require(f"- Tag: `v{version_name}`" in release_evidence, "Release evidence tag drifted")
-        require(f"- versionCode: `{version_code}`" in release_evidence, "Release evidence versionCode drifted")
-        require("Status: **IN PROGRESS**" in release_evidence, "Current candidate evidence must remain explicitly in progress until qualified")
-        for evidence_path in (ROOT / "docs/release-evidence").glob("*.md"):
-            if evidence_path.name in {"README.md", "TEMPLATE.md", f"{version_name}.md"}:
-                continue
-            historical = evidence_path.read_text(errors="ignore")
-            require("Status: **IN PROGRESS**" not in historical,
-                    f"Historical release evidence still looks active: {evidence_path.name}")
-        require(version_name not in local_release, "Durable local-release instructions are pinned to the current candidate")
-        require(version_name not in bug_template, "Bug template is pinned to the current prerelease")
-        require(physical_qualification.count("## Evidence to retain") == 1, "Physical qualification evidence checklist is duplicated")
-        require("Publication is tag-triggered only" in local_release, "Local release guide is stale")
-        require("ANDROID_SIGNING_CERT_SHA256" in local_release, "Release signing identity pin is undocumented")
-        require("bounded recovery" in physical_qualification and "zombie room UI" in physical_qualification, "Coordinator-loss qualification is stale")
-        require("Room actions → Room logs" not in physical_qualification, "Diagnostics naming is stale")
-        require("Srp6aCoreRfc5054Test" in srp_review and "BigInteger.modPow" in srp_review, "SRP 1.2 review is incomplete")
-        require("SRP_REVIEW_1.2.md" in security_doc, "Security model does not link the SRP 1.2 review")
-        require("room A" in physical_qualification, "Cross-room admission qualification is missing")
-
-        proguard_rules = text("app/proguard-rules.pro")
-        for diagnostic_type in (
-            "com.darius.unison.model.AppCommand$*",
-            "com.darius.unison.model.UserCommand$*",
-            "com.darius.unison.protocol.ProtocolBody$*",
-            "com.darius.unison.room.RoomEvent$*",
-            "com.darius.unison.playback.PlaybackFailure$*",
-        ):
-            require(
-                f"-keepnames class {diagnostic_type}" in proguard_rules,
-                f"R8 may obfuscate structured diagnostic type names: {diagnostic_type}",
-            )
-
-        app_build = text("app/build.gradle.kts")
-        require('testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"' in app_build,
-                "AndroidJUnitRunner is not configured explicitly")
-        require("androidx.test.runner" in app_build and "androidx.test.ext.junit" in app_build,
-                "Explicit Android instrumentation dependencies are missing")
-
-        android_ci = text(".github/workflows/android.yml")
-        release_ci = text(".github/workflows/release.yml")
-        verify_ci = text(".github/workflows/verify.yml")
-        require("connectedDebugAndroidTest" in android_ci and "api-level: 33" in android_ci,
-                "Normal CI does not execute Android instrumentation on API 33")
-        require("api: [30, 33, 36]" in release_ci and "connectedDebugAndroidTest" in release_ci,
-                "Release CI does not execute the required API 30/33/36 instrumentation matrix")
-        require("workflow_dispatch" not in release_ci, "Release publication must be tag-triggered only")
-        require("--clobber" not in release_ci, "Release assets must not be replaceable with --clobber")
-        require("--prerelease" in release_ci and "--latest" in release_ci,
-                "Release workflow does not distinguish prerelease and stable versions")
-        require("app-debug.apk" not in release_ci and "Unison-debug" not in release_ci,
-                "Debug APK must not be a public release asset")
-        require("ANDROID_SIGNING_CERT_SHA256" in release_ci,
-                "Release workflow does not require the pinned signing certificate identity")
-        require("check-release-signing.py" in release_ci,
-                "Release workflow does not verify the configured keystore identity")
-        require("verify-release-apk.sh" in release_ci,
-                "Release workflow bypasses the shared signed-APK verification gate")
-        require("Remove release signing material" in release_ci and "if: always()" in release_ci,
-                "Release workflow does not clean signing material after use")
-        require("persist-credentials: false" in verify_ci and "actions/checkout@" in verify_ci,
-                "Reusable verification workflow lacks hardened checkout configuration")
-        require("spotlessCheck" in verify_ci, "CI does not enforce the configured formatting baseline")
-        for workflow_path in (".github/workflows/verify.yml", ".github/workflows/android.yml",
-                              ".github/workflows/release.yml", ".github/workflows/codeql.yml"):
-            workflow_text = text(workflow_path)
-            require("./gradlew" in workflow_text, f"Workflow does not use ./gradlew: {workflow_path}")
-            require("scripts/gradle.sh" not in workflow_text, f"Workflow references removed Gradle wrapper: {workflow_path}")
-        action_ref = re.compile(r"uses:\s+[^\s@]+@([0-9a-f]{40})(?:\s|$)")
-        for workflow_path in (".github/workflows/verify.yml", ".github/workflows/android.yml",
-                              ".github/workflows/release.yml", ".github/workflows/codeql.yml"):
-            workflow_text = text(workflow_path)
-            for line in workflow_text.splitlines():
-                if "uses:" in line and not "uses: ./" in line:
-                    require(action_ref.search(line) is not None, f"Unpinned GitHub Action in {workflow_path}: {line.strip()}")
-
-        settings_gradle = text("settings.gradle.kts")
-        require("google()" in settings_gradle and "mavenCentral()" in settings_gradle and "gradlePluginPortal()" in settings_gradle,
-                "Trusted Gradle repositories are not configured")
-        require("myket" not in settings_gradle.lower() and "mirror" not in settings_gradle.lower(),
-                "Repository-defined dependency mirror must not be present")
-        require(not (ROOT / "scripts/gradle.sh").exists(),
-                "Removed Gradle wrapper script still present: scripts/gradle.sh")
-        require("Apache License" in text("LICENSE"), "Project license is not Apache-2.0 text")
-        evidence_path = f"docs/release-evidence/{version_name}.md"
-        require((ROOT / evidence_path).is_file(), f"Missing release evidence record for current version: {evidence_path}")
-
-        require(re.search(r'compileSdk\s*=\s*"36"', versions) is not None, "compileSdk changed unexpectedly")
-        require(re.search(r'minSdk\s*=\s*"30"', versions) is not None, "minSdk changed unexpectedly")
-        require(re.search(r'targetSdk\s*=\s*"33"', versions) is not None, "targetSdk changed unexpectedly")
-
-        protocol = text("app/src/main/java/com/darius/unison/protocol/ProtocolModels.kt")
-        protocol_json = text("app/src/main/java/com/darius/unison/protocol/ProtocolJson.kt")
-        require("const val PROTOCOL_VERSION = 1" in protocol, "Wire protocol is not 1")
-        protocol_doc = text("docs/PROTOCOL.md")
-        require("Unison 1.2 release line's only wire contract" in protocol_doc, "Protocol documentation is stale")
-        require("protocol value other than `1` are rejected" in protocol_doc, "Protocol documentation has the wrong strict version")
-        require("a future protocol number requires an actual incompatible wire-semantic change" in protocol_doc, "Protocol versioning rule is undocumented")
-        for marker in (
-            "PinClientHello",
-            "ReconnectClientHello",
-            "FileClientHello",
-            "data class FileRequest",
-            "data class FileResponseHeader",
-        ):
-            require(marker in protocol, f"Explicit protocol message missing: {marker}")
-        for marker in ("protocolVersions", "acceptedVersion", "reconnectRequested", "fileRequest"):
-            require(marker not in protocol, f"Compatibility handshake field remains: {marker}")
-        require("ignoreUnknownKeys = false" in protocol_json, "Unknown protocol keys are accepted")
-        require("explicitNulls = true" in protocol_json, "Protocol nullability is not explicit")
-        require("QueuePreparedSetChanged" not in protocol, "Canonical prepared-set mutation returned")
-        require("PlaybackReadinessChanged" in protocol, "Runtime readiness projection is missing")
-        srp_core = text("app/src/main/java/com/darius/unison/protocol/Srp6aCore.kt")
-        srp_vector_test = text("app/src/test/java/com/darius/unison/protocol/Srp6aCoreRfc5054Test.kt")
-        priority_test = text("app/src/test/java/com/darius/unison/network/ControlConnectionPriorityTest.kt")
-        lifecycle_seam_test = text("app/src/test/java/com/darius/unison/room/RoomLifecycleSeamRegressionTest.kt")
-        require("BigInteger.modPow" in srp_core, "SRP arithmetic core no longer documents JVM modular exponentiation")
-        require("RFC 5054 Appendix B" in srp_vector_test, "Published SRP conformance vector test is missing")
-        require("repeat(2_000)" in priority_test, "Control priority no-starvation stress coverage is missing")
-        require("obsoleteRoomAdmissionAndSupersededSocketAreRejectedAtConsumeTime" in lifecycle_seam_test, "Lifecycle seam regression coverage is missing")
-
-        domain = text("app/src/main/java/com/darius/unison/model/DomainModels.kt")
-        member_snapshot = domain.split("data class MemberSnapshot(", 1)[1].split(")", 1)[0]
-        room_snapshot = domain.split("data class RoomSnapshot(", 1)[1].split(") {", 1)[0]
-        for transient_field in ("endpoint", "connected", "currentTrackState"):
-            require(transient_field not in member_snapshot, f"Transient member field returned to canonical state: {transient_field}")
-        require("preparedQueueItemIds" not in room_snapshot, "Playback readiness returned to canonical RoomSnapshot")
-
-        database = text("app/src/main/java/com/darius/unison/storage/Database.kt")
-        require("version = 1" in database, "Database is not schema 1")
-        require('UNISON_DATABASE_NAME = "unison.db"' in database, "1.2 v1 database name drifted")
-        require(not (ROOT / "app/src/main/java/com/darius/unison/storage/LocalDataBaseline.kt").exists(),
-                "Obsolete local-data reset wiring remains")
-        require(not (ROOT / "app/src/main/java/com/darius/unison/storage/LocalDataBaselineResetter.kt").exists(),
-                "Obsolete local-data reset implementation remains")
-        require("room_snapshots" not in database, "Obsolete room snapshot table remains")
-        require("RoomSnapshotEntity" not in database, "Obsolete room snapshot entity remains")
-        production = "\n".join(
-            path.read_text(errors="ignore")
-            for path in (ROOT / "app/src/main/java").rglob("*.kt")
-        )
-        require(re.search(r"Migration\s*\(", production) is None, "Database migration remains in fresh schema")
-        require("addMigrations" not in production, "Database migration registration remains")
-        require("fallbackToDestructiveMigration" not in production, "Destructive migration compatibility remains")
-
-        # Cross-component correctness belongs in executable integration tests, not source-text
-        # pattern matching. Keep the release gate focused on ensuring those regression suites exist.
-        for regression_test in (
-            "app/src/androidTest/java/com/darius/unison/library/PlaylistRepositoryAndroidTest.kt",
-            "app/src/androidTest/java/com/darius/unison/library/TrackRepositoryAndroidTest.kt",
-            "app/src/androidTest/java/com/darius/unison/room/RoomRuntimeIdentityAndroidTest.kt",
-        ):
-            require((ROOT / regression_test).is_file(), f"Missing integration regression test: {regression_test}")
-
-        schema_dir = ROOT / "app/schemas/com.darius.unison.storage.UnisonDatabase"
-        schemas = sorted(schema_dir.glob("*.json"))
-        require([path.name for path in schemas] == ["1.json"], "Exactly schema 1 must be checked in")
-        schema = json.loads(schemas[0].read_text())["database"]
-        require(schema["version"] == 1, "Exported schema version is not 1")
-        tables = {entity["tableName"] for entity in schema["entities"]}
-        require(tables == {"tracks", "track_sources", "playlists", "playlist_entries"}, f"Unexpected schema tables: {sorted(tables)}")
-
-        room_service = text("app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt")
-        require("TRANSPORT_COMMAND_WORKERS" not in room_service, "Concurrent transport worker pool was reintroduced")
-        require(room_service.count("transportFlow.collect") == 1, "Transport must have exactly one service ingress collector")
-
-        player_executor = text("app/src/main/java/com/darius/unison/playback/PlayerExecutor.kt")
-        media3_adapter = text("app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt")
-        room_runtime = text("app/src/main/java/com/darius/unison/room/RoomRuntime.kt")
-        require("room.event.unexpected_handler_cancellation" in room_runtime, "Unexpected actor-handler cancellation diagnostic is missing")
-        require("room.event.stale_session" in room_runtime, "Stale session diagnostic is missing")
-        room_event = text("app/src/main/java/com/darius/unison/room/RoomEvent.kt")
-        require("mutationMutex" in player_executor, "PlayerExecutor lost its single Media3 mutation boundary")
-        require("setPauseAtEndOfMediaItems(true)" in media3_adapter, "Media3 may auto-run across canonical item boundaries")
-        for obsolete in (
-            "PlayerMutationCoordinator",
-            "ScheduledPlaybackController",
-            "PlayerTransitionCircuitBreaker",
-            "PlayerItemTransitionPolicy",
-        ):
-            require(obsolete not in production, f"Obsolete playback authority remains: {obsolete}")
-        require("PlaybackSyncTick" not in room_event, "Local playback synchronization was routed back through the room actor")
-        require('"scheduler_delay"' not in room_runtime, "Actor scheduling delay is still treated as a playback discontinuity")
-        require("NaturalAdvance" not in production and "NaturalRepeat" not in production, "Media3 automatic transitions still author canonical progression")
-        require("beginCoordinatorRecovery" not in room_runtime and "ELECTION_DELAY_MS" not in room_runtime, "Automatic coordinator election returned")
-        require("reconcileTransportFromCanonical" not in room_runtime, "Transport watchdog became a second playback repair authority")
-        require("preparedQueueItemIds = preparedQueueItemIds" in room_runtime, "Runtime readiness is not passed into playback policy")
-        transfer_coordinator = text("app/src/main/java/com/darius/unison/room/TransferCoordinator.kt")
-        transfer_capacity = text("app/src/main/java/com/darius/unison/transfer/TransferCapacityPolicy.kt")
-        transfer_manager = text("app/src/main/java/com/darius/unison/transfer/TransferManager.kt")
-        peer_health = text("app/src/main/java/com/darius/unison/room/PeerPlaybackHealthRegistry.kt")
-        require("TransferPriority" in protocol and "neededByCoordinatorNs" in protocol, "Transfer demand lost playback priority/deadline")
-        for field in ("TransferFailureStage", "TransferFailureCode", "TransferFailureBlame", "retryable"):
-            require(field in protocol, f"Typed transfer failure field is missing: {field}")
-        require("PENDING_TRACK_PREPARATION_TIMEOUT" not in room_runtime, "Arbitrary playback preparation timeout returned")
-        require("preemptionCandidate" not in transfer_coordinator, "Blind active-transfer preemption returned")
-        track_prefetch = text("app/src/main/java/com/darius/unison/room/TrackPrefetchPolicy.kt")
-        require("desiredPrefetchTrackIds" not in room_runtime, "Duplicated prefetch desired-set state returned")
-        require("obsoleteTracks" not in track_prefetch and "prioritizedDesiredItems" not in track_prefetch, "Dead 1.1 prefetch helper API remains")
-        require(
-            all(marker in transfer_capacity for marker in (
-                "maxInboundPerDestination",
-                "maxOutboundPerSource",
-                "maxPerSourceDestinationPair",
-            )),
-            "Shared transfer capacity policy is incomplete",
-        )
-        require(
-            "canAdmit" in transfer_coordinator and "activeSourceCount" in transfer_coordinator,
-            "Coordinator transfer admission does not enforce source/destination capacity",
-        )
-        require(
-            "capacityPolicy.maxOutboundPerSource" in transfer_manager
-            and "capacityPolicy.maxInboundPerDestination" in transfer_manager
-            and "capacityPolicy.maxPerSourceDestinationPair" in transfer_manager,
-            "Transport guards drifted from the shared transfer capacity policy",
-        )
-        require("transfer.download.duplicate_ignored" in transfer_manager, "Duplicate download assignment guard is missing")
-        require("currentCoroutineContext().ensureActive()" in transfer_manager, "Cancellation can be misclassified as transfer failure")
-        local_transfer_failure_policy = text("app/src/main/java/com/darius/unison/transfer/LocalNetworkTransferFailurePolicy.kt")
-        require(
-            "POLICY_BLOCKED" in local_transfer_failure_policy
-            and "TransferFailureBlame.DESTINATION" in local_transfer_failure_policy
-            and "retryable = false" in local_transfer_failure_policy,
-            "Deterministic local route-policy failures can regress into retry storms",
-        )
-        require(
-            "LocalNetworkTransferFailurePolicy::classify" in transfer_manager,
-            "TransferManager bypasses typed local route-failure classification",
-        )
-        require(
-            "TransferPeerRouteKey" in transfer_coordinator
-            and "MAX_CONSECUTIVE_ROUTE_FAILURES" in transfer_coordinator
-            and "suspended" in transfer_coordinator,
-            "Transfer connectivity health is not pair-scoped and circuit-broken",
-        )
-        require(
-            '"transfer.route.suspended"' in room_runtime
-            and '"transfer.route.retry_requested"' in room_runtime,
-            "Bounded route suspension/manual preparation retry diagnostics are missing",
-        )
-        require("CATCHING_UP" in peer_health and "contentReady" in peer_health, "Content-aware playback admission is missing")
-        require("isClockReady" in peer_health and "wasClockReady" in room_runtime, "Clock acquisition is conflated with playback admission")
-        require(
-            "preparedQueueItemIds = preparedQueueItemIds" in room_runtime,
-            "Coordinator reducer no longer receives runtime playback readiness",
-        )
-        require(
-            "is ProtocolBody.QueueItemPreparationRequested -> applyCanonicalEnvelope" not in room_runtime,
-            "Ephemeral preparation request returned to canonical history",
-        )
-        readiness_policy = text("app/src/main/java/com/darius/unison/room/RoomMediaReadinessPolicy.kt")
-        transport_target_policy = text("app/src/main/java/com/darius/unison/room/TransportTargetPolicy.kt")
-        commands = text("app/src/main/java/com/darius/unison/model/Commands.kt")
-        require("enum class RoomMediaReadiness" in domain, "Room media readiness model is missing")
-        require("NEEDS_PREPARATION" in readiness_policy and "PREPARING" in readiness_policy and "READY" in readiness_policy, "Room media readiness states drifted")
-        require("locallyAvailableTrackIds" in readiness_policy, "READY no longer requires verified local availability")
-        require("data class PrepareQueueItem" in commands, "Explicit Prepare command is missing")
-        require(
-            "Prepare this song before playing it" in transport_target_policy,
-            "Arbitrary unready selection no longer requires explicit preparation",
-        )
-        require(
-            "waitForPreparationQueueItemId" in transport_target_policy and
-            "PendingSuccessor" in room_runtime and
-            "PendingSuccessorReason.USER_NEXT" in room_runtime,
-            "Sequential Next no longer converges through one pending successor",
-        )
-        media3_adapter = text("app/src/main/java/com/darius/unison/playback/Media3PlayerAdapter.kt")
-        player_state_event_policy = text("app/src/main/java/com/darius/unison/playback/PlayerStateEventPolicy.kt")
-        require(
-            "PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM" in media3_adapter and
-            "recordNaturalBoundary" in media3_adapter and
-            "itemBoundaryRevision = state.itemBoundaryRevision" in player_state_event_policy,
-            "Natural Media3 boundaries are no longer guaranteed to reach the room actor",
-        )
-        require("PendingTrackTransition" not in production, "Generic deferred prepare-then-play machinery returned")
-        require("pendingTarget" not in transport_target_policy, "Deferred navigation target returned to target policy")
-        require("playback.execution.waiting_for_media" in room_runtime, "Local execution no longer gates unavailable media")
-        require("playbackExecutable" in text("app/src/main/java/com/darius/unison/room/PlaybackConvergencePolicy.kt"), "Coordinator convergence no longer gates unavailable media")
-        room_service = text("app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt")
-        player_executor = text("app/src/main/java/com/darius/unison/playback/PlayerExecutor.kt")
-        room_issue = text("app/src/main/java/com/darius/unison/model/RoomIssue.kt")
-        reconnect_policy = text("app/src/main/java/com/darius/unison/room/RoomReconnectPolicy.kt")
-        home_screen = text("app/src/main/java/com/darius/unison/ui/home/HomeScreen.kt")
-        room_session_actions = text("app/src/main/java/com/darius/unison/ui/RoomSessionActions.kt")
-        require("ROOM_ENDED" in room_issue and "setRoomEnded(" in room_runtime, "Terminal room-ended semantics are missing")
-        require("runtime.handle(AppCommand.LeaveRoom)" in room_service, "Removing the app task no longer exits the live room")
-        on_task_removed = re.search(r"override fun onTaskRemoved\([^)]*\) \{(?P<body>.*?)\n    \}", room_service, re.DOTALL)
-        require(on_task_removed is not None, "Room service task-removal handler is missing")
-        require("scheduleStopWhenIdle()" not in on_task_removed.group("body"), "Task removal reverted to background room survival")
-        require("LOCAL_NETWORK_GRACE_MS" in reconnect_policy and "PEER_DISCONNECT_GRACE_MS" in reconnect_policy, "Bounded room/peer recovery windows are missing")
-        require("LOCAL_NETWORK_GRACE_MS = NETWORK_GRACE_MS" in reconnect_policy, "Coordinator network recovery became shorter than participant network recovery")
-        require("ENDPOINT_REDISCOVERY_MS" in reconnect_policy and "rediscoverCoordinatorRoom" in room_runtime, "Bounded coordinator endpoint rediscovery is missing")
-        require("RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE" in room_runtime, "Missing typed local-network precondition failure")
-        require("PersistentRoomIssueCard(" in home_screen and "RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE" in home_screen, "Out-of-room room failures can become invisible again")
-        require("state.lifecycle == RoomLifecycleState.FAILED" in room_session_actions and "lifecycle = RoomLifecycleState.IDLE" in room_session_actions, "Dismissing a lobby failure can leave Home stuck in FAILED state")
-        require("PlaybackPauseCause.CONNECTION_INTERRUPTION" in room_runtime, "Connectivity loss no longer pauses local playback truthfully")
-        require("room.peer.removed_after_disconnect" in room_runtime, "Disconnected peers no longer converge out of canonical membership")
-        require('setRoomEnded("The room network is unavailable")' in room_runtime, "Coordinator local-network loss no longer ends after bounded recovery")
-        require("minOf(" in player_executor and "CLOCK_RECHECK_INTERVAL_MS" in player_executor, "Scheduled playback can oversleep against a stale clock mapping")
-        require(
-            "retentionRefreshJob" not in room_runtime and "TEMPORARY_RETENTION_REFRESH_INTERVAL_MS" not in room_runtime,
-            "Periodic temporary-track database churn returned",
-        )
-        require(
-            "previousQueueRevision == null || previousQueueRevision != snapshot.queueRevision" in room_runtime,
-            "Room queue leases are recomputed for non-queue mutations",
-        )
-        require("FileInputStream(file)" in transfer_manager and ".channel.position(request.offset)" in transfer_manager, "Resume upload does not seek directly to its offset")
-        require("skipFully" not in transfer_manager, "Linear resume skipping returned")
-        require('contains("offset"' not in transfer_manager, "Transfer behavior depends on English offset text")
-        require("message.lowercase()" not in transfer_manager, "Transfer failure classification depends on user-facing text")
-        require("FileResponseStatus.NOT_FOUND" in transfer_manager, "Typed source-unavailable response is missing")
-        require(
-            '"transfer.download.route_start"' in transfer_manager
-            and "transferAttemptAttributes + route.diagnosticAttributes()" in transfer_manager,
-            "Pre-connect transfer attempt identity/diagnostics are missing",
-        )
-        require("127.0.0.1" not in room_runtime, "Room peer endpoint must never synthesize loopback")
-        require("transferRetryJobs" not in room_runtime, "Per-route transfer retry jobs returned")
-        local_network_router = text("app/src/main/java/com/darius/unison/network/AndroidLocalNetworkRouter.kt")
-        local_route_policy = text("app/src/main/java/com/darius/unison/network/LocalNetworkRoutePolicy.kt")
-        require("LocalNetworkRoutePolicy.choose" in local_network_router, "Outbound LAN routing bypasses the testable route policy")
-        require('"network.socket.route_attempt"' in local_network_router, "Pre-socket LAN route diagnostics are missing")
-        require("activeNetworkIsVpn" in local_route_policy and "SYSTEM_DEFAULT" in local_route_policy, "VPN-aware system-default LAN routing is missing")
-        require("LocalNetworkRouteException" in local_network_router, "Typed local socket-provision failures are missing")
-        stability_analyzer = text("scripts/analyze-stability-log.py")
-        analyzer_fixtures = text("scripts/check-log-analyzer-fixtures.py")
-        require(
-            '"transfer.download.route_start"' in stability_analyzer
-            and '"transfer.download.failure_detail"' in stability_analyzer
-            and '"network.socket.route_attempt"' in stability_analyzer,
-            "Stability analyzer no longer counts pre-connect transfer/socket route attempts",
-        )
-        require(
-            "good-transfer-policy-blocked-bounded.ndjson" in analyzer_fixtures
-            and "bad-transfer-preconnect-retry-storm.ndjson" in analyzer_fixtures,
-            "Transfer diagnostics regression fixtures are missing",
-        )
-        require(
-            "VPN/LAN matrix" in physical_qualification
-            and "at most five consecutive failures" in physical_qualification,
-            "VPN/circuit-breaker physical qualification is missing",
-        )
-
-        manifest_path = ROOT / "app/src/main/AndroidManifest.xml"
-        manifest = ET.parse(manifest_path).getroot()
-        android = "{http://schemas.android.com/apk/res/android}"
-        application = manifest.find("application")
-        require(application is not None, "Application manifest node is missing")
-        require(application.get(android + "allowBackup") == "false", "Android backup must remain disabled")
-        require(application.get(android + "usesCleartextTraffic") == "false", "Cleartext traffic must remain disabled")
-
-        permissions = {node.get(android + "name"): node for node in manifest.findall("uses-permission")}
-        for permission in (
-            "android.permission.FOREGROUND_SERVICE",
-            "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-            "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
-            "android.permission.CHANGE_NETWORK_STATE",
-            "android.permission.NEARBY_WIFI_DEVICES",
-        ):
-            require(permission in permissions, f"Required Android permission missing: {permission}")
-        require(
-            permissions["android.permission.NEARBY_WIFI_DEVICES"].get(android + "usesPermissionFlags") == "neverForLocation",
-            "Nearby Wi-Fi permission must remain neverForLocation",
-        )
-        for permission in (
-            "android.permission.ACCESS_FINE_LOCATION",
-            "android.permission.ACCESS_COARSE_LOCATION",
-        ):
-            require(
-                permissions.get(permission) is not None
-                and permissions[permission].get(android + "maxSdkVersion") == "32",
-                f"Pre-API-33 hotspot location permission must stop at API 32: {permission}",
-            )
-        require(
-            "android.permission.ACCESS_LOCAL_NETWORK" not in permissions,
-            "Future local-network permission must not be added while targetSdk remains 33",
-        )
-        service = application.find("service[@android:name='.playback.UnisonRoomService']", {"android": "http://schemas.android.com/apk/res/android"})
-        require(service is not None, "UnisonRoomService manifest declaration is missing")
-        service_types = set((service.get(android + "foregroundServiceType") or "").split("|"))
-        require(
-            {"mediaPlayback", "connectedDevice"}.issubset(service_types),
-            "Room service must declare mediaPlayback and connectedDevice foreground-service types",
-        )
-        exported_components = set()
-        for component_type in ("activity", "activity-alias", "service", "receiver", "provider"):
-            for node in application.findall(component_type):
-                if node.get(android + "exported") == "true":
-                    exported_components.add((component_type, node.get(android + "name")))
-        require(
-            exported_components
-            == {
-                ("activity", ".ui.MainActivity"),
-                ("service", ".playback.UnisonRoomService"),
-            },
-            f"Unexpected exported Android component: {sorted(exported_components)}",
-        )
-        service_source = text("app/src/main/java/com/darius/unison/playback/UnisonRoomService.kt")
-        require(
-            "if (!controller.isTrusted) return MediaSession.ConnectionResult.reject()" in service_source,
-            "Exported media session no longer rejects untrusted controllers",
-        )
-        diagnostic_provider = application.find(
-            "provider[@android:name='androidx.core.content.FileProvider']",
-            {"android": "http://schemas.android.com/apk/res/android"},
-        )
-        require(
-            diagnostic_provider is not None
-            and diagnostic_provider.get(android + "exported") == "false"
-            and diagnostic_provider.get(android + "grantUriPermissions") == "true",
-            "Diagnostic FileProvider exposure changed",
-        )
-        diagnostic_paths = ET.parse(ROOT / "app/src/main/res/xml/diagnostic_file_paths.xml").getroot()
-        cache_paths = diagnostic_paths.findall("cache-path")
-        require(
-            len(cache_paths) == 1
-            and cache_paths[0].get("name") == "diagnostics"
-            and cache_paths[0].get("path") == "diagnostics/",
-            "Diagnostic FileProvider path is broader than the diagnostics cache directory",
-        )
-        network_security = ET.parse(ROOT / "app/src/main/res/xml/network_security_config.xml").getroot()
-        base_config = network_security.find("base-config")
-        require(
-            base_config is not None and base_config.get("cleartextTrafficPermitted") == "false",
-            "Network security config permits cleartext traffic",
-        )
-
-        about = text("app/src/main/java/com/darius/unison/ui/AboutUnisonDialog.kt")
-        require("BuildConfig.VERSION_NAME" in about, "About surface does not expose the app version")
-        require("PROTOCOL_VERSION" in about, "About surface does not expose the protocol version")
-        strings = text("app/src/main/res/values/strings.xml")
-        require("https://github.com/mmrzaf/unison" in strings, "Source repository link is missing")
-        qualification = text("docs/PHYSICAL_DEVICE_QUALIFICATION.md")
-        for api in ("API 30", "API 33", "API 36"):
-            require(api in qualification, f"Physical qualification matrix is missing {api}")
-
-        signing_check = text("scripts/check-release-signing.py")
-        apk_check = text("scripts/verify-release-apk.sh")
-        apk_metadata_check = text("scripts/check-release-apk-metadata.py")
-        require("multiple distinct signer" in signing_check, "Release signer check does not detect signer ambiguity")
-        require("application-debuggable" in apk_metadata_check, "Release APK metadata check does not reject debuggable APKs")
-        for required_gate in ("apksigner", "zipalign", "aapt2", "check-release-signing.py", "analyze-apk-size.py"):
-            require(required_gate in apk_check, f"Shared release APK verification is missing {required_gate}")
-
-        all_text = "\n".join(
-            path.read_text(errors="ignore")
-            for path in ROOT.rglob("*")
-            if path.is_file()
-            and path.resolve() != Path(__file__).resolve()
-            and not {".git", ".idea", "build", ".gradle", ".kotlin"}.intersection(path.parts)
-            and path.suffix.lower() in {".kt", ".kts", ".md", ".toml", ".xml", ".sh", ".py", ".yml", ".yaml", ".properties"}
-        )
-        require(re.search(r"\bProtocol(?:[-_ ]+)2\b|wire protocol(?:[-_ ]+)2\b", all_text, re.IGNORECASE) is None, "Obsolete Protocol 2 documentation remains")
-        require("unison-v2.db" not in all_text, "Obsolete v2 database naming remains")
-        require(re.search(r"\bTODO\b|\bFIXME\b|\bHACK\b", production) is None, "Production TODO/FIXME/HACK remains")
-        require(re.search(r"https?://", production) is None, "Hard-coded remote endpoint found")
-        require(re.search(r"firebase|play-services|billingclient", text("app/build.gradle.kts") + versions, re.IGNORECASE) is None, "Hosted/store runtime dependency found")
-
-        print("SOURCE_TREE_OK")
-        return 0
+        check_secrets()
+        version_name = check_versions()
+        check_release_records(version_name)
+        check_workflows()
+        check_contracts()
+        check_manifest()
+        check_core_purity()
+        check_actor_ownership()
     except AssertionError as error:
         print(str(error), file=sys.stderr)
         return 1
+    print("SOURCE_TREE_OK")
+    return 0
 
 
 if __name__ == "__main__":

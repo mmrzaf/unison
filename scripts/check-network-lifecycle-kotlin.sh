@@ -17,10 +17,12 @@ run_standalone_kotlinc \
   scripts/network-lifecycle-kotlin-check/stubs/com/darius/unison/protocol/Protocol.kt \
   scripts/network-lifecycle-kotlin-check/stubs/com/darius/unison/util/DiagnosticLog.kt \
   scripts/network-lifecycle-kotlin-check/stubs/com/darius/unison/network/Stubs.kt \
+  app/src/main/java/com/darius/unison/room/port/NetworkPorts.kt \
   app/src/main/java/com/darius/unison/network/NetworkAddressPolicy.kt \
   app/src/main/java/com/darius/unison/network/LocalNetworkSocketProvider.kt \
   app/src/main/java/com/darius/unison/network/LocalNetworkRoutePolicy.kt \
   app/src/main/java/com/darius/unison/network/AndroidLocalNetworkRouter.kt \
+  app/src/main/java/com/darius/unison/network/SerialResolveQueue.kt \
   app/src/main/java/com/darius/unison/network/NsdRoomDiscovery.kt \
   app/src/main/java/com/darius/unison/network/LocalHotspotController.kt \
   scripts/network-lifecycle-kotlin-check/NetworkLifecycleCheck.kt \
