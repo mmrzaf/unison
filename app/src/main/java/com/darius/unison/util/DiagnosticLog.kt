@@ -320,7 +320,8 @@ class DiagnosticLog(
             else -> DiagnosticSanitizer.sanitizeAttribute(value.toString())
         }
 
-    private fun flushPending() {
+    /** Blocks until every event queued so far is persisted and visible in [snapshot]. */
+    internal fun flushPending() {
         try {
             writer
                 .submit {

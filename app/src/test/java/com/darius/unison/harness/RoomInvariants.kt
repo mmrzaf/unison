@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 /** Invariants every simulated device must satisfy, independent of the scenario. */
 object RoomInvariants {
     fun failedEvents(device: SimDevice) =
-        device.log.snapshot().filter { it.eventName == "room.event.failed" }
+        device.events().filter { it.eventName == "room.event.failed" }
 
     fun assertNoFailedEvents(vararg devices: SimDevice) {
         devices.forEach { device ->

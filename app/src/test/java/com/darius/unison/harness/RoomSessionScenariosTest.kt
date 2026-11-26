@@ -146,7 +146,7 @@ class RoomSessionScenariosTest {
             settle(60_000)
 
             assertNull("no session was created", guest.roomId())
-            val attempts = guest.log.snapshot().count { it.eventName == "room.join.started" }
+            val attempts = guest.events().count { it.eventName == "room.join.started" }
             assertTrue("join attempts are bounded ($attempts)", attempts in 1..6)
             assertEquals(1, host.memberCount())
             RoomInvariants.assertNoFailedEvents(host, guest)

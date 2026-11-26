@@ -94,7 +94,7 @@ class RoomSoakScenariosTest {
                 assertEquals("seed $seed: everyone is a member", everyone.size, host.memberCount())
                 RoomInvariants.assertNoFailedEvents(*everyone.toTypedArray())
                 trace = everyone.sumOf { device ->
-                    device.log.snapshot().map { it.eventName }.hashCode()
+                    device.events().map { it.eventName }.hashCode()
                 }
             }
         }

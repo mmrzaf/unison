@@ -10,6 +10,7 @@ import com.darius.unison.room.RoomRuntime
 import com.darius.unison.room.port.DeviceInfo
 import com.darius.unison.room.port.RoomPorts
 import com.darius.unison.storage.ManagedFileStore
+import com.darius.unison.util.DiagnosticEvent
 import com.darius.unison.util.DiagnosticLog
 import com.darius.unison.util.MonotonicClock
 import java.io.File
@@ -54,6 +55,14 @@ class SimDevice(
     val localNetwork: SimLocalNetwork,
     private val directory: File,
 ) {
+    /**
+     * Events recorded so far; waits for the log's real writer thread, which virtual time cannot.
+     */
+    fun events(): List<DiagnosticEvent> {
+        log.flushPending()
+        return log.snapshot()
+    }
+
     val peerId: PeerId
         get() = identity.peerId
 

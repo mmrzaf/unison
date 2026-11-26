@@ -23,8 +23,8 @@ class RoomLifecycleScenariosTest {
             guest.runtime.submit(AppCommand.LeaveRoom).await()
             settle()
 
-            val hostEvents = host.log.snapshot().map { it.eventName }
-            val guestEvents = guest.log.snapshot().map { it.eventName }
+            val hostEvents = host.events().map { it.eventName }
+            val guestEvents = guest.events().map { it.eventName }
             assertEquals(
                 "participant is gone; host=$hostEvents guest=$guestEvents seq=" +
                     host.store.structure.value.snapshot?.sequence,
