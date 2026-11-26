@@ -19,6 +19,13 @@ phones.
   retention policy for received tracks.
 - Local-only structured diagnostics; no accounts, cloud service, analytics, advertising or relay.
 
+### Interface and accessibility
+
+- Dialog fields take focus when opened and submit from the keyboard's Done key; blank names are
+  rejected.
+- Buttons and checkbox rows expose their roles to screen readers, drag handles meet the 48 dp touch
+  target, and the room code is announced digit by digit.
+
 ### Reliability and stability
 
 - One room actor owns all room state. Playback preparation, media readiness, transfer demands and

@@ -21,6 +21,14 @@ module and a `RoomSession` decomposition.
 
 ## After 1.2
 
+- Link picked music in place instead of copying it. Only files chosen in the file picker qualify;
+  received and shared tracks stay managed copies. A track has exactly one explicit source, either a
+  managed file or a linked document (URI, size, last-modified), with no fallback chain and no silent
+  copy-on-read. Only local, seekable documents link; cloud and virtual documents are copied. Use
+  is checked by size and modification time, a changed or missing file is surfaced with re-pick or
+  remove, and the persisted-grant count has a hard cap below the platform limit. Player and transfer
+  paths need a descriptor-based source instead of `File`, so build it after the playback director
+  gives them one place that resolves where the bytes come from.
 - Improve `RoomRuntime` testability/decomposition while preserving one canonical writer.
 - Revisit targetSdk independently from room/playback stabilization.
 - Continue Android/OEM compatibility work based on real devices.
