@@ -1,9 +1,8 @@
 # Changelog
 
-## 1.2.0-rc.1
+## 1.2.0
 
-First public release of Unison: local-first, synchronized music playback across nearby Android
-phones.
+Unison: local-first, synchronized music playback across nearby Android phones.
 
 ### Features
 

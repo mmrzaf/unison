@@ -6,8 +6,7 @@ changelog rather than remaining as future roadmap work.
 
 ## 1.2.0 stabilization
 
-1.2.0 is the first release anyone installs, so it is the baseline rather than an upgrade target.
-The remaining work is stabilization, not features:
+1.2.0 is the baseline for the 1.2 line. The remaining work is stabilization, not features:
 
 - keep the JVM multi-peer harness as the release gate and extend it with every field report;
 - run the API 33 emulator suite locally and the API 30/33/36 matrix through the tag workflow;

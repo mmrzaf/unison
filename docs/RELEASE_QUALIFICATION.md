@@ -81,8 +81,7 @@ For the 1.2 line:
 
 - wire protocol remains Protocol 1;
 - Room database schema remains schema 1 and local-data format remains v1;
-- 1.2.0 is the first release and the local-data v1 baseline; later 1.2.x releases must keep its data
-  unchanged;
+- 1.2.0 is the local-data v1 baseline; later 1.2.x releases must keep its data unchanged;
 - local transfer policy/access denial must be bounded and visible rather than entering an automatic
   retry storm;
 - a blocked current/pending successor must not remain presented as `Preparing` after preparation has

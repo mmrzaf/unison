@@ -1,7 +1,6 @@
 # Local data contract
 
-Unison stores one local data format, **v1**. Unison 1.2.0 is the first release that installs it, so
-there is no earlier format, migration, compatibility layer, or reset path.
+Unison stores one local data format, **v1**. It has no migration, compatibility layer, or reset path.
 
 ## What v1 consists of
 
