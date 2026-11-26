@@ -59,42 +59,6 @@ data class RoomPlaybackTelemetry(
 
 data class RoomTransferTelemetry(val transfers: Map<TrackId, TransferProgress> = emptyMap())
 
-fun RoomUiState.toStructureState(): RoomStructureState =
-    RoomStructureState(
-        lifecycle = lifecycle,
-        localIdentity = localIdentity,
-        snapshot = snapshot,
-        isCoordinator = isCoordinator,
-        discoveredRooms = discoveredRooms,
-        discoveryCompleted = discoveryCompleted,
-        status = status,
-        statusMessage = statusMessage,
-        errorMessage = errorMessage,
-        issue = issue,
-        transportStatus = transportStatus,
-        roomAddress = roomAddress,
-        roomPort = roomPort,
-        localRoomPin = localRoomPin,
-        hotspot = hotspot,
-        memberRuntime = memberRuntime,
-        mediaReadiness = mediaReadiness,
-        pendingSuccessorQueueItemId = pendingSuccessorQueueItemId,
-    )
-
-fun RoomUiState.toPlaybackTelemetry(): RoomPlaybackTelemetry =
-    RoomPlaybackTelemetry(
-        localPositionMs = localPlaybackPositionMs,
-        localQueueItemId = localPlaybackQueueItemId,
-        localIsPlaying = localIsPlaying,
-        localPlaybackParticipation = localPlaybackParticipation,
-        localPlaybackInhibitionReason = localPlaybackInhibitionReason,
-        localAutomaticRejoinAllowed = localAutomaticRejoinAllowed,
-        localSeekRevision = localSeekRevision,
-        localDriftMs = localDriftMs,
-    )
-
-fun RoomUiState.toTransferTelemetry(): RoomTransferTelemetry = RoomTransferTelemetry(transfers)
-
 fun RoomStructureState.toUiState(
     playback: RoomPlaybackTelemetry = RoomPlaybackTelemetry(),
     transfer: RoomTransferTelemetry = RoomTransferTelemetry(),
