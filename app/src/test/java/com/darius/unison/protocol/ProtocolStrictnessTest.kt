@@ -9,7 +9,7 @@ class ProtocolStrictnessTest {
     @Test
     fun protocolOneRejectsUnsupportedHelloShape() {
         val unsupported =
-            """{"type":"unsupported_hello","peerId":"peer-123456789012","displayName":"Guest","appVersion":"1.0.0","protocolVersion":1,"listeningPort":4321,"roomId":"room-1234","clientNonce":"nonce-123456789012"}"""
+            """{"type":"unsupported_hello","peerId":"peer-123456789012","displayName":"Guest","appVersion":"1.2.0","protocolVersion":1,"listeningPort":4321,"roomId":"room-1234","clientNonce":"nonce-123456789012"}"""
 
         assertThrows(SerializationException::class.java) {
             ProtocolJson.decodeFromString<HandshakeMessage>(unsupported)
@@ -22,7 +22,7 @@ class ProtocolStrictnessTest {
             HandshakeMessage.ReconnectClientHello(
                 peerId = com.darius.unison.model.PeerId("peer-123456789012"),
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = "room-1234",
@@ -42,7 +42,7 @@ class ProtocolStrictnessTest {
             HandshakeMessage.FileClientHello(
                 peerId = com.darius.unison.model.PeerId("peer-123456789012"),
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = "room-1234",
