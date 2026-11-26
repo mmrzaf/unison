@@ -34,15 +34,16 @@ class PlaylistRepository(
     }
 
     suspend fun rename(playlistId: String, name: String) {
-        val current = database.playlistDao().get(playlistId) ?: return
-        database
-            .playlistDao()
-            .upsert(
+        database.withTransaction {
+            val dao = database.playlistDao()
+            val current = dao.get(playlistId) ?: return@withTransaction
+            dao.upsert(
                 current.copy(
                     name = normalizeName(name, current.name),
                     updatedAt = System.currentTimeMillis(),
                 )
             )
+        }
     }
 
     suspend fun replaceTracks(playlistId: String, trackIds: List<TrackId>) {
