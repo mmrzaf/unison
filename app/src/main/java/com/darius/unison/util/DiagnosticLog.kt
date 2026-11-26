@@ -1,8 +1,5 @@
 package com.darius.unison.util
 
-import android.content.Context
-import android.os.SystemClock
-import android.util.Log
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileOutputStream
@@ -17,7 +14,7 @@ import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,17 +28,12 @@ import kotlinx.coroutines.withContext
  * SDK or network exporter. Logging is deliberately lossy under overload: old pending diagnostics
  * are discarded before application work is allowed to block.
  */
-class DiagnosticLog
-internal constructor(
+class DiagnosticLog(
     private val file: File,
-    private val writeToLogcat: Boolean = false,
+    private val clock: MonotonicClock,
+    /** Mirrors each persisted line to the platform console (Logcat on Android) when present. */
+    private val console: ((DiagnosticSeverity, String) -> Unit)? = null,
 ) : AutoCloseable {
-    constructor(
-        context: Context
-    ) : this(
-        file = File(context.filesDir, "diagnostics/unison.ndjson"),
-        writeToLogcat = true,
-    )
 
     private data class RoomContext(
         val sessionId: String,
@@ -51,10 +43,6 @@ internal constructor(
 
     init {
         file.parentFile?.mkdirs()
-        // The pre-1.0 text logger is intentionally not carried forward. Structured NDJSON is the
-        // only durable format from this release onward.
-        File(file.parentFile, "unison.log").delete()
-        File(file.parentFile, "unison.log.1").delete()
     }
 
     private val lock = Any()
@@ -67,7 +55,7 @@ internal constructor(
     private var bufferedWriter: BufferedWriter? = null
     private var currentFileBytes: Long = file.length()
     private var unflushedEvents = 0
-    private var lastFlushMonotonicNs = System.nanoTime()
+    private var lastFlushMonotonicNs = clock.nowNs()
     private var lastUiRevisionMonotonicNs = Long.MIN_VALUE
 
     private val writer =
@@ -87,6 +75,8 @@ internal constructor(
                 }
             },
         )
+
+    private val ioDispatcher = writer.asCoroutineDispatcher()
 
     val pendingEventCount: Int
         get() = writer.queue.size
@@ -238,15 +228,7 @@ internal constructor(
 
     private fun persist(queuedEvent: DiagnosticEvent) {
         val event = queuedEvent.copy(observedTimestamp = Instant.now().toString())
-        if (writeToLogcat) {
-            val line = event.toLogcatJsonLine()
-            when (event.severity) {
-                DiagnosticSeverity.DEBUG -> Log.d(LOGCAT_TAG, line)
-                DiagnosticSeverity.INFO -> Log.i(LOGCAT_TAG, line)
-                DiagnosticSeverity.WARN -> Log.w(LOGCAT_TAG, line)
-                DiagnosticSeverity.ERROR -> Log.e(LOGCAT_TAG, line)
-            }
-        }
+        console?.invoke(event.severity, event.toLogcatJsonLine())
 
         val serialized = event.toJsonLine() + '\n'
         val encodedBytes = serialized.toByteArray(Charsets.UTF_8).size.toLong()
@@ -260,7 +242,7 @@ internal constructor(
                     writerForCurrentFile().write(serialized)
                     currentFileBytes += encodedBytes
                     unflushedEvents++
-                    val nowNs = System.nanoTime()
+                    val nowNs = clock.nowNs()
                     if (
                         event.severity.severityNumber >= DiagnosticSeverity.WARN.severityNumber ||
                             unflushedEvents >= FLUSH_EVENT_BATCH ||
@@ -275,7 +257,7 @@ internal constructor(
                     currentFileBytes = file.length()
                 }
         }
-        val revisionNowNs = System.nanoTime()
+        val revisionNowNs = clock.nowNs()
         if (
             event.severity.severityNumber >= DiagnosticSeverity.WARN.severityNumber ||
                 lastUiRevisionMonotonicNs == Long.MIN_VALUE ||
@@ -287,7 +269,7 @@ internal constructor(
     }
 
     suspend fun readRaw(): String =
-        withContext(Dispatchers.IO) {
+        withContext(ioDispatcher) {
             flushPending()
             synchronized(lock) {
                 buildString {
@@ -299,8 +281,7 @@ internal constructor(
             }
         }
 
-    private fun monotonicNowNs(): Long =
-        runCatching { SystemClock.elapsedRealtimeNanos() }.getOrElse { System.nanoTime() }
+    private fun monotonicNowNs(): Long = clock.nowNs()
 
     private fun sanitizeAttributes(
         attributes: Map<String, Any?>,
@@ -352,7 +333,7 @@ internal constructor(
     }
 
     override fun close() {
-        writer.shutdown()
+        ioDispatcher.close()
         runCatching { writer.awaitTermination(CLOSE_TIMEOUT_MS, TimeUnit.MILLISECONDS) }
         if (!writer.isTerminated) writer.shutdownNow()
         synchronized(lock) { closeWriter() }
@@ -364,7 +345,7 @@ internal constructor(
                 bufferedWriter = it
             }
 
-    private fun flushWriter(nowNs: Long = System.nanoTime()) {
+    private fun flushWriter(nowNs: Long = clock.nowNs()) {
         bufferedWriter?.flush()
         unflushedEvents = 0
         lastFlushMonotonicNs = nowNs
@@ -386,7 +367,7 @@ internal constructor(
             if (source.exists()) source.renameTo(destination)
         }
         currentFileBytes = 0L
-        lastFlushMonotonicNs = System.nanoTime()
+        lastFlushMonotonicNs = clock.nowNs()
     }
 
     private fun rotatedFilesOldestFirst(): List<File> =
@@ -402,7 +383,6 @@ internal constructor(
     }
 
     companion object {
-        private const val LOGCAT_TAG = "Unison"
         private const val INVALID_EVENT_NAME = "diagnostic.invalid_event_name"
         private const val MAX_PENDING_EVENTS = 1_024
         private const val MAX_RECENT_EVENTS = 5_000

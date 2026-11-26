@@ -2,31 +2,32 @@ package com.darius.unison.playback
 
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.protocol.ProtocolBody
+import com.darius.unison.util.MonotonicClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
- * Single serialized ownership boundary between canonical room mutations and Media3 work.
+ * Ordered player-effect queue. Room state (media readiness, the timeline window, transfer demands)
+ * is prepared by the room actor; this queue only turns already-decided mutations into Media3 work.
  *
- * Exact transport operations remain ordered. Replaceable timeline/preparation work is represented
- * by one queued reconciliation token and always reads the newest snapshot submitted before that
- * token executes. Submission uses backpressure rather than dropping work after canonical commit.
+ * Exact transport operations remain ordered. Replaceable reconciliation work is represented by one
+ * queued token and executes the repeat-mode maintenance. Submission never suspends and never drops
+ * work after a canonical commit: the queue is unbounded because its only producer is the room
+ * actor, whose exact commands are bounded by user and coordinator commands.
  */
-class CanonicalPlaybackDispatcher(
+class PlaybackEffectQueue(
     scope: CoroutineScope,
-    private val applyExact: suspend (ProtocolBody, RoomSnapshot) -> Unit,
+    private val clock: MonotonicClock,
+    private val applyExact: suspend (ProtocolBody, RoomSnapshot, ExactContext) -> Unit,
     private val reconcileLatest: suspend (PlaybackReconciliation) -> Unit,
     private val onFailure: (ProtocolBody?, Throwable, Timing) -> Unit,
     private val onTiming: (Timing) -> Unit = {},
     private val preparedQueueItemIds: () -> Set<com.darius.unison.model.QueueItemId> = {
         emptySet()
     },
-    capacity: Int = DEFAULT_CAPACITY,
 ) : AutoCloseable {
 
     data class Metrics(
@@ -51,6 +52,12 @@ class CanonicalPlaybackDispatcher(
         val applyDurationNs: Long,
     )
 
+    /** Everything the player needs to know, decided by the room actor. */
+    data class ExactContext(
+        val executable: Boolean,
+        val coordinator: Boolean,
+    )
+
     data class PlaybackReconciliation(
         val snapshot: RoomSnapshot,
         val key: PlaybackReconciliationKey,
@@ -69,6 +76,7 @@ class CanonicalPlaybackDispatcher(
         data class Exact(
             val body: ProtocolBody,
             val snapshot: RoomSnapshot,
+            val context: ExactContext,
             override val submittedNs: Long,
         ) : Work
 
@@ -85,8 +93,7 @@ class CanonicalPlaybackDispatcher(
     )
 
     private val stateLock = Any()
-    private val submissionMutex = Mutex()
-    private val work = Channel<Work>(capacity)
+    private val work = Channel<Work>(Channel.UNLIMITED)
     private val pendingReconciliations = mutableMapOf<Long, PendingReconciliation>()
     private var openReconciliationBatchId: Long? = null
     private var nextReconciliationBatchId = 0L
@@ -100,12 +107,12 @@ class CanonicalPlaybackDispatcher(
     private var failures = 0L
     private val worker: Job = scope.launch {
         for (item in work) {
-            val startedNs = System.nanoTime()
+            val startedNs = clock.nowNs()
             val submissionToStartNs = (startedNs - item.submittedNs).coerceAtLeast(0L)
             try {
                 when (item) {
                     is Work.Exact -> {
-                        applyExact(item.body, item.snapshot)
+                        applyExact(item.body, item.snapshot, item.context)
                         synchronized(stateLock) { exactApplied++ }
                     }
                     is Work.Reconcile -> applyPendingReconciliation(item.batchId)
@@ -119,11 +126,11 @@ class CanonicalPlaybackDispatcher(
                         kind = if (item is Work.Exact) WorkKind.EXACT else WorkKind.RECONCILIATION,
                         mutationType = (item as? Work.Exact)?.body?.let { it::class.simpleName },
                         submissionToStartNs = submissionToStartNs,
-                        applyDurationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L),
+                        applyDurationNs = (clock.nowNs() - startedNs).coerceAtLeast(0L),
                     )
                 onFailure((item as? Work.Exact)?.body, error, failureTiming)
             } finally {
-                val applyDurationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L)
+                val applyDurationNs = (clock.nowNs() - startedNs).coerceAtLeast(0L)
                 runCatching {
                     onTiming(
                         Timing(
@@ -140,7 +147,11 @@ class CanonicalPlaybackDispatcher(
         }
     }
 
-    suspend fun submit(body: ProtocolBody, snapshot: RoomSnapshot) = submissionMutex.withLock {
+    fun submit(
+        body: ProtocolBody,
+        snapshot: RoomSnapshot,
+        context: ExactContext,
+    ) {
         when (val classification = classify(body)) {
             Classification.Ignore -> Unit
             Classification.Exact -> {
@@ -151,18 +162,17 @@ class CanonicalPlaybackDispatcher(
                     // a token already queued ahead of the exact command.
                     openReconciliationBatchId = null
                 }
-                work.send(Work.Exact(body, snapshot, System.nanoTime()))
+                work.trySend(Work.Exact(body, snapshot, context, clock.nowNs()))
             }
-            is Classification.Reconcile ->
-                requestReconciliationLocked(snapshot, classification.trigger)
+            is Classification.Reconcile -> requestReconciliation(snapshot, classification.trigger)
         }
     }
 
-    suspend fun reconcile(snapshot: RoomSnapshot, trigger: Trigger) = submissionMutex.withLock {
-        requestReconciliationLocked(snapshot, trigger)
+    fun reconcile(snapshot: RoomSnapshot, trigger: Trigger) {
+        requestReconciliation(snapshot, trigger)
     }
 
-    private suspend fun requestReconciliationLocked(snapshot: RoomSnapshot, trigger: Trigger) {
+    private fun requestReconciliation(snapshot: RoomSnapshot, trigger: Trigger) {
         var batchId = 0L
         val shouldQueue =
             synchronized(stateLock) {
@@ -190,7 +200,7 @@ class CanonicalPlaybackDispatcher(
                     true
                 }
             }
-        if (shouldQueue) work.send(Work.Reconcile(batchId, System.nanoTime()))
+        if (shouldQueue) work.trySend(Work.Reconcile(batchId, clock.nowNs()))
     }
 
     private suspend fun applyPendingReconciliation(batchId: Long) {
@@ -275,8 +285,4 @@ class CanonicalPlaybackDispatcher(
 
             else -> Classification.Ignore
         }
-
-    companion object {
-        const val DEFAULT_CAPACITY = 64
-    }
 }

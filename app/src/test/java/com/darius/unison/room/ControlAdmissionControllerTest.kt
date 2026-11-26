@@ -5,12 +5,13 @@ import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RoomSnapshot
-import com.darius.unison.network.PeerServer
+import com.darius.unison.network.PeerNetwork
 import com.darius.unison.protocol.Crypto
 import com.darius.unison.protocol.HandshakeMessage
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.protocol.PinPake
 import com.darius.unison.util.DiagnosticLog
+import com.darius.unison.util.MonotonicClock
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -42,7 +43,11 @@ class ControlAdmissionControllerTest {
     @Before
     fun setUp() {
         sessionGeneration = 7L
-        log = DiagnosticLog(temporaryFolder.newFile("diagnostics.log"))
+        log =
+            DiagnosticLog(
+                temporaryFolder.newFile("diagnostics.log"),
+                MonotonicClock(System::nanoTime),
+            )
     }
 
     @After
@@ -72,7 +77,7 @@ class ControlAdmissionControllerTest {
             HandshakeMessage.PinClientHello(
                 peerId = guest,
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = roomId,
@@ -80,7 +85,7 @@ class ControlAdmissionControllerTest {
                 pinPublicValueBase64 = clientSession.publicValueBase64,
             )
         val challengeAdmission =
-            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.PinChallenge
+            controller().admit(hello, "192.168.1.2") as PeerNetwork.ControlAdmission.PinChallenge
         val challenge = challengeAdmission.response
         val answer =
             clientSession.answer(
@@ -92,7 +97,7 @@ class ControlAdmissionControllerTest {
             )
         val result =
             challengeAdmission.complete(HandshakeMessage.PinResponse(answer.proofBase64))
-                as PeerServer.ControlAdmission.Accepted
+                as PeerNetwork.ControlAdmission.Accepted
         assertEquals(guest, result.endpoint.peerId)
         assertEquals(roomId, result.roomId)
         assertEquals(7L, result.sessionGeneration)
@@ -114,7 +119,7 @@ class ControlAdmissionControllerTest {
             HandshakeMessage.PinClientHello(
                 peerId = guest,
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = roomId,
@@ -122,7 +127,7 @@ class ControlAdmissionControllerTest {
                 pinPublicValueBase64 = clientSession.publicValueBase64,
             )
         val challengeAdmission =
-            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.PinChallenge
+            controller().admit(hello, "192.168.1.2") as PeerNetwork.ControlAdmission.PinChallenge
         val challenge = challengeAdmission.response
         val answer =
             clientSession.answer(
@@ -133,7 +138,7 @@ class ControlAdmissionControllerTest {
                 )
             )
         val result = challengeAdmission.complete(HandshakeMessage.PinResponse(answer.proofBase64))
-        assertTrue(result is PeerServer.ControlAdmission.Rejected)
+        assertTrue(result is PeerNetwork.ControlAdmission.Rejected)
         answer.sessionKey.fill(0)
     }
 
@@ -143,7 +148,7 @@ class ControlAdmissionControllerTest {
             HandshakeMessage.PinClientHello(
                 peerId = PeerId("short"),
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = roomId,
@@ -151,7 +156,7 @@ class ControlAdmissionControllerTest {
                 pinPublicValueBase64 = "invalid",
             )
         val result =
-            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.Rejected
+            controller().admit(hello, "192.168.1.2") as PeerNetwork.ControlAdmission.Rejected
         assertEquals("Invalid peer identity", result.reason)
     }
 
@@ -162,7 +167,7 @@ class ControlAdmissionControllerTest {
             HandshakeMessage.ReconnectClientHello(
                 peerId = guest,
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = roomId,
@@ -170,7 +175,7 @@ class ControlAdmissionControllerTest {
             )
         val first =
             controller().admit(hello, "192.168.1.2")
-                as PeerServer.ControlAdmission.ReconnectChallenge
+                as PeerNetwork.ControlAdmission.ReconnectChallenge
         val capturedProof =
             Crypto.reconnectProof(
                 secret,
@@ -181,15 +186,15 @@ class ControlAdmissionControllerTest {
             )
         val accepted =
             first.complete(HandshakeMessage.ReconnectResponse(capturedProof))
-                as PeerServer.ControlAdmission.Accepted
+                as PeerNetwork.ControlAdmission.Accepted
         assertEquals(first.response.serverNonce, accepted.response.serverNonce)
 
         // Even after replay bookkeeping is gone, a captured response cannot answer a new challenge.
         val replay =
             controller().admit(hello, "192.168.1.2")
-                as PeerServer.ControlAdmission.ReconnectChallenge
+                as PeerNetwork.ControlAdmission.ReconnectChallenge
         val rejected = replay.complete(HandshakeMessage.ReconnectResponse(capturedProof))
-        assertTrue(rejected is PeerServer.ControlAdmission.Rejected)
+        assertTrue(rejected is PeerNetwork.ControlAdmission.Rejected)
         accepted.serverWriteKey.fill(0)
         accepted.serverReadKey.fill(0)
     }
@@ -200,7 +205,7 @@ class ControlAdmissionControllerTest {
             HandshakeMessage.ReconnectClientHello(
                 peerId = guest,
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION - 1,
                 listeningPort = 4321,
                 roomId = roomId,
@@ -208,7 +213,7 @@ class ControlAdmissionControllerTest {
             )
 
         val result =
-            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.Rejected
+            controller().admit(hello, "192.168.1.2") as PeerNetwork.ControlAdmission.Rejected
         assertEquals(
             com.darius.unison.protocol.HandshakeRejectionCode.PROTOCOL_MISMATCH,
             result.code,
@@ -221,7 +226,7 @@ class ControlAdmissionControllerTest {
             HandshakeMessage.ReconnectClientHello(
                 peerId = guest,
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION + 1,
                 listeningPort = 4321,
                 roomId = roomId,
@@ -229,7 +234,7 @@ class ControlAdmissionControllerTest {
             )
 
         val result =
-            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.Rejected
+            controller().admit(hello, "192.168.1.2") as PeerNetwork.ControlAdmission.Rejected
         assertEquals(
             com.darius.unison.protocol.HandshakeRejectionCode.PROTOCOL_MISMATCH,
             result.code,
@@ -244,7 +249,7 @@ class ControlAdmissionControllerTest {
             HandshakeMessage.PinClientHello(
                 peerId = guest,
                 displayName = "Guest",
-                appVersion = "1.0.0",
+                appVersion = "1.2.0",
                 protocolVersion = PROTOCOL_VERSION,
                 listeningPort = 4321,
                 roomId = roomId,
@@ -252,7 +257,7 @@ class ControlAdmissionControllerTest {
                 pinPublicValueBase64 = clientSession.publicValueBase64,
             )
         val challengeAdmission =
-            controller().admit(hello, "192.168.1.2") as PeerServer.ControlAdmission.PinChallenge
+            controller().admit(hello, "192.168.1.2") as PeerNetwork.ControlAdmission.PinChallenge
         val challenge = challengeAdmission.response
         val answer =
             clientSession.answer(
@@ -266,7 +271,7 @@ class ControlAdmissionControllerTest {
         sessionGeneration = 8L
         val accepted =
             challengeAdmission.complete(HandshakeMessage.PinResponse(answer.proofBase64))
-                as PeerServer.ControlAdmission.Accepted
+                as PeerNetwork.ControlAdmission.Accepted
 
         assertEquals(roomId, accepted.roomId)
         assertEquals(8L, accepted.sessionGeneration)

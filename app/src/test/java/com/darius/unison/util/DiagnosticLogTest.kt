@@ -16,7 +16,7 @@ class DiagnosticLogTest {
     @Test
     fun roomSessionScopesEventsAndRedactsSensitiveData() = runBlocking {
         val file = File(temporaryFolder.root, "diagnostics/unison.ndjson")
-        val log = DiagnosticLog(file)
+        val log = DiagnosticLog(file, MonotonicClock(System::nanoTime))
         val sessionId = log.beginRoom("raw-room-id", "participant")
         val logger = log.scoped("DiagnosticLogTest", DiagnosticCategory.ROOM)
 
@@ -55,7 +55,11 @@ class DiagnosticLogTest {
 
     @Test
     fun invalidEventNameCannotBreakApplicationWork() = runBlocking {
-        val log = DiagnosticLog(temporaryFolder.newFile("invalid.ndjson"))
+        val log =
+            DiagnosticLog(
+                temporaryFolder.newFile("invalid.ndjson"),
+                MonotonicClock(System::nanoTime),
+            )
         log.info(
             component = "Test",
             category = DiagnosticCategory.APP,
@@ -71,7 +75,8 @@ class DiagnosticLogTest {
 
     @Test
     fun endingRoomStopsSessionScopeWithoutLosingLaterAppDiagnostics() = runBlocking {
-        val log = DiagnosticLog(temporaryFolder.newFile("scope.ndjson"))
+        val log =
+            DiagnosticLog(temporaryFolder.newFile("scope.ndjson"), MonotonicClock(System::nanoTime))
         val sessionId = log.beginRoom("room-a", "coordinator")
         val roomLogger = log.scoped("RoomTest", DiagnosticCategory.ROOM)
         val appLogger = log.scoped("AppTest", DiagnosticCategory.APP)

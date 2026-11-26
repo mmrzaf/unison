@@ -4,26 +4,25 @@ import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.TrackId
 import com.darius.unison.protocol.ProtocolBody
-import java.util.concurrent.ConcurrentHashMap
 
 /** Session-scoped peer, availability, and assignment indexes owned by the room actor. */
 internal class PeerRegistry<C> {
-    val connections = ConcurrentHashMap<PeerId, C>()
-    val endpoints = ConcurrentHashMap<PeerId, PeerEndpoint>()
-    val availability = ConcurrentHashMap<TrackId, MutableSet<PeerId>>()
-    val waitingForSource = ConcurrentHashMap<TrackId, MutableSet<PeerId>>()
-    val lastSeenElapsedMs = ConcurrentHashMap<PeerId, Long>()
-    val announcedTrackIds = ConcurrentHashMap.newKeySet<TrackId>()
-    val pendingTransferAssignments = ConcurrentHashMap<String, ProtocolBody.TrackSourceAssigned>()
+    val connections = mutableMapOf<PeerId, C>()
+    val endpoints = mutableMapOf<PeerId, PeerEndpoint>()
+    val availability = mutableMapOf<TrackId, MutableSet<PeerId>>()
+    val waitingForSource = mutableMapOf<TrackId, MutableSet<PeerId>>()
+    val lastSeenElapsedMs = mutableMapOf<PeerId, Long>()
+    val announcedTrackIds = mutableSetOf<TrackId>()
+    val pendingTransferAssignments = mutableMapOf<String, ProtocolBody.TrackSourceAssigned>()
 
     fun markAvailable(peerId: PeerId, trackId: TrackId) {
-        availability.computeIfAbsent(trackId) { ConcurrentHashMap.newKeySet() }.add(peerId)
+        availability.getOrPut(trackId) { mutableSetOf() }.add(peerId)
         waitingForSource[trackId]?.remove(peerId)
     }
 
     fun markNeeded(peerId: PeerId, trackId: TrackId) {
         availability[trackId]?.remove(peerId)
-        waitingForSource.computeIfAbsent(trackId) { ConcurrentHashMap.newKeySet() }.add(peerId)
+        waitingForSource.getOrPut(trackId) { mutableSetOf() }.add(peerId)
     }
 
     fun removePeer(peerId: PeerId) {

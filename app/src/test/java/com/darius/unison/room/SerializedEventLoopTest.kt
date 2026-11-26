@@ -1,5 +1,6 @@
 package com.darius.unison.room
 
+import com.darius.unison.util.MonotonicClock
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -23,6 +24,7 @@ class SerializedEventLoopTest {
         val loop =
             SerializedEventLoop<Int>(
                 scope = this,
+                clock = MonotonicClock(System::nanoTime),
                 capacity = 8,
                 handler = { value ->
                     if (value == 1) delay(10)
@@ -45,6 +47,7 @@ class SerializedEventLoopTest {
         val loop =
             SerializedEventLoop<Int>(
                 scope = this,
+                clock = MonotonicClock(System::nanoTime),
                 capacity = 1,
                 handler = {
                     started.complete(Unit)
@@ -64,6 +67,7 @@ class SerializedEventLoopTest {
         val loop =
             SerializedEventLoop<Int>(
                 scope = this,
+                clock = MonotonicClock(System::nanoTime),
                 capacity = 1,
                 handler = {},
             )
@@ -82,6 +86,7 @@ class SerializedEventLoopTest {
             val loop =
                 SerializedEventLoop<Int>(
                     scope = scope,
+                    clock = MonotonicClock(System::nanoTime),
                     capacity = 2,
                     handler = { value ->
                         if (value == 1) {
@@ -110,6 +115,7 @@ class SerializedEventLoopTest {
         val loop =
             SerializedEventLoop<Int>(
                 scope = this,
+                clock = MonotonicClock(System::nanoTime),
                 capacity = 2,
                 handler = { value ->
                     if (value == 1) {
@@ -137,6 +143,7 @@ class SerializedEventLoopTest {
         val loop =
             SerializedEventLoop<Int>(
                 scope = this,
+                clock = MonotonicClock(System::nanoTime),
                 capacity = 2,
                 handler = { value ->
                     if (value == 1) {
@@ -166,6 +173,7 @@ class SerializedEventLoopTest {
         val loop =
             SerializedEventLoop<Int>(
                 scope = this,
+                clock = MonotonicClock(System::nanoTime),
                 capacity = 2,
                 handler = { value ->
                     if (value == 1) {
@@ -196,6 +204,7 @@ class SerializedEventLoopTest {
         val loop =
             SerializedEventLoop<Int>(
                 scope = this,
+                clock = MonotonicClock(System::nanoTime),
                 capacity = 1,
                 handler = { delay(2) },
                 onHandled = { value, durationNs -> handled.complete(value to durationNs) },

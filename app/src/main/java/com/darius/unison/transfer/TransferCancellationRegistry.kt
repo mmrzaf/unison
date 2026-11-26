@@ -55,11 +55,6 @@ class TransferCancellationRegistry {
         sockets.remove(trackId, socket)
     }
 
-    fun cancel(trackId: TrackId, reason: String = "Transfer cancelled") {
-        jobs[trackId]?.cancel(CancellationException(reason))
-        sockets.remove(trackId)?.let(::closeQuietly)
-    }
-
     fun cancelAll(reason: String = "Transfers cancelled") {
         jobs.values.forEach { it.cancel(CancellationException(reason)) }
         sockets.values.forEach(::closeQuietly)

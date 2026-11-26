@@ -42,7 +42,12 @@ class RoomEventProvenanceTest {
     @Test
     fun transferCompletionCarriesSessionGeneration() {
         val descriptor = TrackDescriptor(trackId = TrackId("a".repeat(64)), sizeBytes = 42L)
-        val event = RoomEvent.TransferCompleted(generation = 9L, descriptor = descriptor)
+        val event =
+            RoomEvent.TransferCompleted(
+                generation = 9L,
+                descriptor = descriptor,
+                file = java.io.File("track.audio"),
+            )
 
         assertEquals(9L, event.generation)
         assertEquals(RoomEventProvenanceRequirement.SESSION, event.provenanceRequirement)

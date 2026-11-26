@@ -35,7 +35,6 @@ internal class PlaybackSessionCoordinator(
     private var lastClockQualityReportNs = 0L
     private var lastObservedOutputRoute: AudioOutputRoute? = null
 
-    @Synchronized
     fun evaluateIncomingSync(
         sync: ProtocolBody.PlaybackStateSync,
         snapshot: RoomSnapshot,
@@ -69,11 +68,9 @@ internal class PlaybackSessionCoordinator(
         return IncomingSyncDecision.Apply(canonical)
     }
 
-    @Synchronized
     fun canonicalForTick(snapshot: RoomSnapshot, coordinator: Boolean): CanonicalPlaybackState =
         if (coordinator) snapshot.playback else latestPlaybackStateSync ?: snapshot.playback
 
-    @Synchronized
     fun playbackStateSync(
         snapshot: RoomSnapshot,
         atCoordinatorNs: Long,
@@ -86,7 +83,6 @@ internal class PlaybackSessionCoordinator(
             recovery = recovery,
         )
 
-    @Synchronized
     fun shouldReportPlaybackStatus(sampledAtLocalNs: Long): Boolean {
         if (sampledAtLocalNs - lastPlaybackStatusReportNs < playbackStatusReportIntervalNs) {
             return false
@@ -95,14 +91,12 @@ internal class PlaybackSessionCoordinator(
         return true
     }
 
-    @Synchronized
     fun shouldBroadcastPlaybackReference(nowCoordinatorNs: Long, intervalNs: Long): Boolean {
         if (nowCoordinatorNs - lastPlaybackReferenceBroadcastNs < intervalNs) return false
         lastPlaybackReferenceBroadcastNs = nowCoordinatorNs
         return true
     }
 
-    @Synchronized
     fun shouldReportClockQuality(nowLocalNs: Long, newlySynchronized: Boolean): Boolean {
         if (
             !newlySynchronized &&
@@ -115,14 +109,12 @@ internal class PlaybackSessionCoordinator(
     }
 
     /** Returns true only when a previously observed route changed. */
-    @Synchronized
     fun observeOutputRoute(route: AudioOutputRoute): Boolean {
         val previous = lastObservedOutputRoute
         lastObservedOutputRoute = route
         return previous != null && previous != route
     }
 
-    @Synchronized
     fun convergenceAction(
         peerId: PeerId,
         snapshot: RoomSnapshot,
@@ -132,24 +124,20 @@ internal class PlaybackSessionCoordinator(
     ): PlaybackConvergencePolicy.Action =
         convergence.decide(peerId, snapshot, report, coordinatorNowNs, playbackExecutable)
 
-    @Synchronized fun forgetPeer(peerId: PeerId) = convergence.forget(peerId)
+    fun forgetPeer(peerId: PeerId) = convergence.forget(peerId)
 
-    @Synchronized
     fun seedCanonical(playback: CanonicalPlaybackState) {
         latestPlaybackStateSync = playback
     }
 
-    @Synchronized
     fun clearCanonical() {
         latestPlaybackStateSync = null
     }
 
-    @Synchronized
     fun resetClockQuality() {
         lastClockQualityReportNs = 0L
     }
 
-    @Synchronized
     fun resetAfterDiscontinuity(canonical: CanonicalPlaybackState?) {
         latestPlaybackStateSync = canonical
         lastPlaybackReferenceBroadcastNs = 0L
@@ -157,7 +145,6 @@ internal class PlaybackSessionCoordinator(
         lastObservedOutputRoute = null
     }
 
-    @Synchronized
     fun resetSession() {
         latestPlaybackStateSync = null
         lastPlaybackReferenceBroadcastNs = 0L

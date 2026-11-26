@@ -8,15 +8,14 @@ import com.darius.unison.library.TrackRepository
 import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.storage.UnisonDatabase
 import com.darius.unison.storage.UnisonWorkerFactory
-import com.darius.unison.util.DiagnosticLog
 
 class AppContainer(context: Context) {
     val appContext: Context = context.applicationContext
     val database = UnisonDatabase.create(appContext)
-    val fileStore = ManagedFileStore(appContext)
-    val settings = UnisonSettings(appContext)
+    val fileStore = ManagedFileStore(appContext.filesDir)
+    val diagnostics = androidDiagnosticLog(appContext)
+    val settings = UnisonSettings(appContext, diagnostics)
     val roomStore = RoomStore()
-    val diagnostics = DiagnosticLog(appContext)
     val workerFactory =
         UnisonWorkerFactory(
             database,

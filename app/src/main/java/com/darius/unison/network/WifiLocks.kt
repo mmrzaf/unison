@@ -4,9 +4,11 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.PowerManager
 import android.os.SystemClock
+import com.darius.unison.room.port.PowerDemand
+import com.darius.unison.room.port.PowerPort
 
 /** Owns the radio/CPU locks required by an explicit active room. */
-class WifiLocks(context: Context) : AutoCloseable {
+class WifiLocks(context: Context) : PowerPort {
     private val appContext = context.applicationContext
     private val wifi = appContext.getSystemService(WifiManager::class.java)
     private val power = appContext.getSystemService(PowerManager::class.java)
@@ -53,27 +55,31 @@ class WifiLocks(context: Context) : AutoCloseable {
         if (multicastLock.isHeld) multicastLock.release()
     }
 
-    /** Keeps both screen-on low-latency and screen-off high-performance Wi-Fi modes available. */
+    /**
+     * Applies the session's radio/CPU demand. Wi-Fi keeps both screen-on low-latency and screen-off
+     * high-performance modes; the CPU lock carries a timeout so a leaked lock cannot survive a
+     * broken lifecycle, and active sessions refresh it through repeated application.
+     */
     @Synchronized
-    fun acquireWifi() {
+    override fun apply(demand: PowerDemand) {
+        if (demand.wifi) acquireWifi() else releaseWifi()
+        setCpuRequired(demand.cpu)
+        refresh()
+    }
+
+    private fun acquireWifi() {
         wifiRequired = true
         if (!lowLatencyLock.isHeld) lowLatencyLock.acquire()
         if (!screenOffWifiLock.isHeld) screenOffWifiLock.acquire()
     }
 
-    @Synchronized
-    fun releaseWifi() {
+    private fun releaseWifi() {
         wifiRequired = false
         if (lowLatencyLock.isHeld) lowLatencyLock.release()
         if (screenOffWifiLock.isHeld) screenOffWifiLock.release()
     }
 
-    /**
-     * A timeout prevents a leaked lock from surviving a broken lifecycle. Active sessions refresh
-     * it before expiry through their heartbeat and transfer activity.
-     */
-    @Synchronized
-    fun setCpuRequired(required: Boolean) {
+    private fun setCpuRequired(required: Boolean) {
         cpuRequired = required
         if (!required) {
             releaseCpuLocked()
@@ -82,8 +88,7 @@ class WifiLocks(context: Context) : AutoCloseable {
         refreshCpuLocked(SystemClock.elapsedRealtime())
     }
 
-    @Synchronized
-    fun refresh() {
+    private fun refresh() {
         if (wifiRequired) {
             if (!lowLatencyLock.isHeld) lowLatencyLock.acquire()
             if (!screenOffWifiLock.isHeld) screenOffWifiLock.acquire()

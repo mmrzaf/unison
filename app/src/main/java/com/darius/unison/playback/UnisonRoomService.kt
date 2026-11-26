@@ -13,6 +13,7 @@ import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.darius.unison.R
+import com.darius.unison.app.roomPorts
 import com.darius.unison.app.unisonContainer
 import com.darius.unison.model.AppCommand
 import com.darius.unison.room.RoomRuntime
@@ -114,7 +115,7 @@ class UnisonRoomService : MediaSessionService() {
             "playback.service.started",
         )
 
-        runtime = RoomRuntime(this, unisonContainer, playerAdapter, runtimeScope)
+        runtime = RoomRuntime(unisonContainer.roomPorts(runtimeScope), playerAdapter, runtimeScope)
         roomForegroundJob = lifecycleScope.launch {
             unisonContainer.roomStore.structure
                 .map { state -> state.sessionActive || state.hotspot != null }
@@ -164,7 +165,7 @@ class UnisonRoomService : MediaSessionService() {
             attributes = mapOf("command.type" to command::class.simpleName),
             throwable = error,
         )
-        unisonContainer.roomStore.update { state ->
+        unisonContainer.roomStore.updateStructure { state ->
             state.copy(errorMessage = "Unison could not complete that action")
         }
     }
@@ -174,7 +175,11 @@ class UnisonRoomService : MediaSessionService() {
         // A fresh command invalidates every idle decision made before this start ID existed.
         idleStopJob?.cancel()
         idleStopJob = null
-        return super.onStartCommand(intent, flags, startId)
+        val result = super.onStartCommand(intent, flags, startId)
+        // A sticky restart delivers a new start ID without a room-state change, so the foreground
+        // collector would not schedule another stop. Always re-evaluate against the new ID.
+        scheduleStopWhenIdle()
+        return result
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession =

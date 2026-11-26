@@ -41,12 +41,17 @@ class LocalPlaybackSyncControllerTest {
         val itemId = QueueItemId("item")
         val player = FakePlayer(itemId, clock)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val log = DiagnosticLog(File.createTempFile("unison-local-sync-test", ".ndjson"))
+        val log =
+            DiagnosticLog(
+                File.createTempFile("unison-local-sync-test", ".ndjson"),
+                MonotonicClock(System::nanoTime),
+            )
         val clockSync = ClockSyncEngine(clock)
         val executor =
             PlayerExecutor(
                 player = player,
                 clock = clock,
+                dispatcher = Dispatchers.Default,
                 clockSync = clockSync,
                 scope = scope,
                 log = log,
@@ -85,12 +90,17 @@ class LocalPlaybackSyncControllerTest {
         val itemId = QueueItemId("item")
         val player = FakePlayer(itemId, clock, initialPlaybackSpeed = 1.03f)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val log = DiagnosticLog(File.createTempFile("unison-solo-sync-test", ".ndjson"))
+        val log =
+            DiagnosticLog(
+                File.createTempFile("unison-solo-sync-test", ".ndjson"),
+                MonotonicClock(System::nanoTime),
+            )
         val clockSync = ClockSyncEngine(clock)
         val executor =
             PlayerExecutor(
                 player = player,
                 clock = clock,
+                dispatcher = Dispatchers.Default,
                 clockSync = clockSync,
                 scope = scope,
                 log = log,

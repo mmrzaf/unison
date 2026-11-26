@@ -53,7 +53,14 @@ class RoomMessageRouterTest {
                 isCoordinator = { false },
                 coordinatorTarget = { null },
                 peerTargets = {
-                    mapOf(remote to RoomSendTarget(send = { false }, close = { closed += it }))
+                    mapOf(
+                        remote to
+                            RoomSendTarget(
+                                send = { false },
+                                sendAndAwaitWrite = { false },
+                                close = { closed += it },
+                            )
+                    )
                 },
                 createEnvelope = { body, sequence -> envelope(body, sequence) },
                 handleCoordinatorLocal = {},
@@ -78,6 +85,10 @@ class RoomMessageRouterTest {
                         remote to
                             RoomSendTarget(
                                 send = {
+                                    sent += it
+                                    true
+                                },
+                                sendAndAwaitWrite = {
                                     sent += it
                                     true
                                 },

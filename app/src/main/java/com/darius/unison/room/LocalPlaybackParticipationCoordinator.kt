@@ -55,10 +55,8 @@ internal class LocalPlaybackParticipationCoordinator(
         val commandId: String?,
     )
 
-    private val rejoinLock = Any()
     private var nextToken = 1L
     private var pendingRejoin: PendingRejoin? = null
-    private var attemptInFlightToken: Long? = null
     private var lastAttemptAtNs = Long.MIN_VALUE
     private var lastWaitingReason: String? = null
     private var lastParticipation: LocalPlaybackParticipation? = null
@@ -107,14 +105,10 @@ internal class LocalPlaybackParticipationCoordinator(
     }
 
     fun requestManualRejoin(commandId: String) {
-        val pending =
-            synchronized(rejoinLock) {
-                val next = PendingRejoin(nextToken++, LocalRejoinReason.MANUAL, commandId)
-                pendingRejoin = next
-                lastAttemptAtNs = Long.MIN_VALUE
-                lastWaitingReason = null
-                next
-            }
+        val pending = PendingRejoin(nextToken++, LocalRejoinReason.MANUAL, commandId)
+        pendingRejoin = pending
+        lastAttemptAtNs = Long.MIN_VALUE
+        lastWaitingReason = null
         diagnostics.info(
             "playback.rejoin.pending",
             "playback.rejoin_reason" to pending.reason.name,
@@ -123,10 +117,8 @@ internal class LocalPlaybackParticipationCoordinator(
     }
 
     /**
-     * Attempts the newest pending rejoin against the newest canonical snapshot.
-     *
-     * Safe to call from both player-transition and independent sync jobs. A small synchronized
-     * claim prevents duplicate player mutations; no room/canonical state is mutated here.
+     * Attempts the newest pending rejoin against the newest canonical snapshot. Actor-owned: this
+     * is only called from a room actor turn, so it needs no internal synchronization.
      */
     suspend fun tryPendingRejoin() {
         val pending = claimPendingAttempt() ?: return
@@ -182,8 +174,7 @@ internal class LocalPlaybackParticipationCoordinator(
             if (!isAttemptCurrent(pending)) return
 
             // Re-read the latest canonical state after queue preparation. Disk/player work above
-            // may
-            // have taken long enough for the room to advance to another item.
+            // may have taken long enough for the room to advance to another item.
             val latest = snapshotProvider() ?: return
             val latestCanonical = latest.playback
             val latestItemId = latestCanonical.queueItemId ?: return
@@ -251,12 +242,9 @@ internal class LocalPlaybackParticipationCoordinator(
 
     /** Local interruption state belongs to one room session only. This reset never starts audio. */
     suspend fun resetForSessionBoundary() {
-        synchronized(rejoinLock) {
-            pendingRejoin = null
-            attemptInFlightToken = null
-            lastAttemptAtNs = Long.MIN_VALUE
-            lastWaitingReason = null
-        }
+        pendingRejoin = null
+        lastAttemptAtNs = Long.MIN_VALUE
+        lastWaitingReason = null
         val before = player.state.value
         playerExecutor.maintenance { resetLocalPlaybackParticipation() }
         val after = player.state.value
@@ -280,17 +268,11 @@ internal class LocalPlaybackParticipationCoordinator(
     }
 
     private fun ensureAutomaticAudioFocusRejoin() {
-        val created =
-            synchronized(rejoinLock) {
-                val existing = pendingRejoin
-                if (existing?.reason == LocalRejoinReason.MANUAL || existing != null)
-                    return@synchronized null
-                PendingRejoin(nextToken++, LocalRejoinReason.AUTO_AUDIO_FOCUS, null).also {
-                    pendingRejoin = it
-                    lastAttemptAtNs = Long.MIN_VALUE
-                    lastWaitingReason = null
-                }
-            } ?: return
+        if (pendingRejoin != null) return
+        val created = PendingRejoin(nextToken++, LocalRejoinReason.AUTO_AUDIO_FOCUS, null)
+        pendingRejoin = created
+        lastAttemptAtNs = Long.MIN_VALUE
+        lastWaitingReason = null
         diagnostics.info(
             "playback.rejoin.pending",
             "playback.rejoin_reason" to created.reason.name,
@@ -298,30 +280,21 @@ internal class LocalPlaybackParticipationCoordinator(
     }
 
     private fun cancelAutomaticRejoin(reason: String) {
-        val cancelled =
-            synchronized(rejoinLock) {
-                val current = pendingRejoin ?: return@synchronized null
-                if (current.reason != LocalRejoinReason.AUTO_AUDIO_FOCUS) return@synchronized null
-                pendingRejoin = null
-                lastWaitingReason = null
-                current
-            } ?: return
+        val current = pendingRejoin ?: return
+        if (current.reason != LocalRejoinReason.AUTO_AUDIO_FOCUS) return
+        pendingRejoin = null
+        lastWaitingReason = null
         diagnostics.debug(
             "playback.rejoin.cancelled",
-            "playback.rejoin_reason" to cancelled.reason.name,
+            "playback.rejoin_reason" to current.reason.name,
             "reason" to reason,
         )
     }
 
     private fun clearPendingRejoin(reason: String) {
-        val cleared =
-            synchronized(rejoinLock) {
-                val current = pendingRejoin ?: return@synchronized null
-                pendingRejoin = null
-                if (attemptInFlightToken == current.token) attemptInFlightToken = null
-                lastWaitingReason = null
-                current
-            } ?: return
+        val cleared = pendingRejoin ?: return
+        pendingRejoin = null
+        lastWaitingReason = null
         diagnostics.debug(
             "playback.rejoin.cleared",
             "playback.rejoin_reason" to cleared.reason.name,
@@ -329,54 +302,38 @@ internal class LocalPlaybackParticipationCoordinator(
         )
     }
 
-    private fun claimPendingAttempt(): PendingRejoin? =
-        synchronized(rejoinLock) {
-            val pending = pendingRejoin ?: return@synchronized null
-            if (attemptInFlightToken != null) return@synchronized null
-            val nowNs = clock.nowNs()
-            if (
-                lastAttemptAtNs != Long.MIN_VALUE &&
-                    nowNs >= lastAttemptAtNs &&
-                    nowNs - lastAttemptAtNs < REJOIN_RETRY_INTERVAL_NS
-            )
-                return@synchronized null
-            attemptInFlightToken = pending.token
-            lastAttemptAtNs = nowNs
-            pending
-        }
+    private fun claimPendingAttempt(): PendingRejoin? {
+        val pending = pendingRejoin ?: return null
+        val nowNs = clock.nowNs()
+        if (
+            lastAttemptAtNs != Long.MIN_VALUE &&
+                nowNs >= lastAttemptAtNs &&
+                nowNs - lastAttemptAtNs < REJOIN_RETRY_INTERVAL_NS
+        )
+            return null
+        lastAttemptAtNs = nowNs
+        return pending
+    }
 
     private fun isAttemptCurrent(pending: PendingRejoin): Boolean =
-        synchronized(rejoinLock) {
-            pendingRejoin?.token == pending.token && attemptInFlightToken == pending.token
-        }
+        pendingRejoin?.token == pending.token
 
     private fun releasePendingAttempt(pending: PendingRejoin, completed: Boolean) {
-        synchronized(rejoinLock) {
-            if (attemptInFlightToken == pending.token) attemptInFlightToken = null
-            if (completed && pendingRejoin?.token == pending.token) {
-                pendingRejoin = null
-                lastWaitingReason = null
-            }
+        if (completed && pendingRejoin?.token == pending.token) {
+            pendingRejoin = null
+            lastWaitingReason = null
         }
     }
 
     private fun recordWaiting(pending: PendingRejoin, reason: String) {
-        val shouldLog =
-            synchronized(rejoinLock) {
-                if (pendingRejoin?.token != pending.token || lastWaitingReason == reason) false
-                else {
-                    lastWaitingReason = reason
-                    true
-                }
-            }
-        if (shouldLog) {
-            diagnostics.debug(
-                "playback.rejoin.waiting",
-                "playback.rejoin_reason" to pending.reason.name,
-                "command.id" to pending.commandId?.take(12),
-                "reason" to reason,
-            )
-        }
+        if (pendingRejoin?.token != pending.token || lastWaitingReason == reason) return
+        lastWaitingReason = reason
+        diagnostics.debug(
+            "playback.rejoin.waiting",
+            "playback.rejoin_reason" to pending.reason.name,
+            "command.id" to pending.commandId?.take(12),
+            "reason" to reason,
+        )
     }
 
     private suspend fun resetPlaybackSynchronization() {

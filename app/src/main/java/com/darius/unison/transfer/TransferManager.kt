@@ -1,6 +1,5 @@
 package com.darius.unison.transfer
 
-import com.darius.unison.library.TrackRepository
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.MemberTrackState
 import com.darius.unison.model.PeerEndpoint
@@ -25,28 +24,35 @@ import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.protocol.TransferFailureBlame
 import com.darius.unison.protocol.TransferFailureCode
 import com.darius.unison.protocol.TransferFailureStage
+import com.darius.unison.room.port.TrackStore
+import com.darius.unison.room.port.TransferPort
 import com.darius.unison.storage.ManagedFileLeaseReason
 import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
+import com.darius.unison.util.MonotonicClock
+import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.Base64
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -69,22 +75,24 @@ class TransferManager(
     private val localDisplayName: () -> String = { localIdentity.displayName },
     private val listeningPort: () -> Int,
     private val appVersion: String,
-    private val trackRepository: TrackRepository,
+    private val trackRepository: TrackStore,
     private val fileStore: ManagedFileStore,
     private val scope: CoroutineScope,
+    private val dispatcher: CoroutineDispatcher,
+    private val clock: MonotonicClock,
     private val log: DiagnosticLog,
     private val socketProvider: LocalNetworkSocketProvider,
     private val retentionPolicyProvider: suspend () -> RetentionPolicy,
     private val onProgress: (TransferProgress) -> Unit,
-    private val onCompleted: suspend (TrackDescriptor) -> Unit,
+    private val onCompleted: suspend (TrackDescriptor, File) -> Unit,
     private val onFailed: suspend (TransferFailure) -> Unit,
     private val capacityPolicy: TransferCapacityPolicy = TransferCapacityPolicy.DEFAULT,
     private val onActiveTransferCountChanged: (Int) -> Unit = {},
-) {
+) : TransferPort {
     private val authorizations =
         TransferAuthorizationRegistry(
             maxEntries = MAX_TRACKED_AUTHORIZATIONS,
-            nowElapsedMs = { android.os.SystemClock.elapsedRealtime() },
+            nowElapsedMs = clock::elapsedMs,
             onCapacityEviction = {
                 log.warn(
                     TAG,
@@ -100,15 +108,15 @@ class TransferManager(
         )
     private val incomingSemaphore = Semaphore(capacityPolicy.maxInboundPerDestination)
     private val cancellationRegistry = TransferCancellationRegistry()
-    private val activeUploadSockets = ConcurrentHashMap<String, Socket>()
+    private val activeUploadSockets = MutableStateFlow<Map<String, Socket>>(emptyMap())
 
-    val activeTransferCount: Int
-        get() = cancellationRegistry.activeCount + activeUploadSockets.size
+    override val activeTransferCount: Int
+        get() = cancellationRegistry.activeCount + activeUploadSockets.value.size
 
-    val pendingAuthorizationCount: Int
+    override val pendingAuthorizationCount: Int
         get() = authorizations.size
 
-    fun authorize(
+    override fun authorize(
         roomId: String,
         trackId: TrackId,
         destinationPeerId: PeerId,
@@ -124,7 +132,10 @@ class TransferManager(
         )
     }
 
-    suspend fun handleIncomingFileSocket(socket: Socket, hello: HandshakeMessage.FileClientHello) {
+    override suspend fun handleIncomingFileSocket(
+        socket: Socket,
+        hello: HandshakeMessage.FileClientHello,
+    ) {
         // Coordinator admission should already guarantee capacity. Keep a non-blocking transport
         // guard so stale/duplicate sockets fail fast instead of waiting until the client handshake
         // timeout and masquerading as network instability.
@@ -132,9 +143,9 @@ class TransferManager(
             uploadGate.tryWithPermit(hello.peerId) {
                 val request = hello.request
                 val uploadOperationId = request.requestId
-                activeUploadSockets.put(uploadOperationId, socket)?.let { previous ->
-                    runCatching { previous.close() }
-                }
+                activeUploadSockets
+                    .getAndUpdate { it + (uploadOperationId to socket) }[uploadOperationId]
+                    ?.let { previous -> runCatching { previous.close() } }
                 notifyActiveTransferCount()
                 log.debug(
                     TAG,
@@ -204,7 +215,7 @@ class TransferManager(
                     if (
                         proof == null ||
                             proof.requestId != request.requestId ||
-                            !constantTimeStringEquals(expectedProof, proof.proofBase64)
+                            !Crypto.constantTimeEquals(expectedProof, proof.proofBase64)
                     ) {
                         HandshakeCodec.write(
                             socket.getOutputStream(),
@@ -322,13 +333,13 @@ class TransferManager(
                                 associatedData,
                             )
                             val uploadBytes = file.length() - request.offset
-                            val uploadStartedMs = android.os.SystemClock.elapsedRealtime()
+                            val uploadStartedMs = clock.elapsedMs()
                             lastProgressMs.set(uploadStartedMs)
                             watchdog =
-                                scope.launch(Dispatchers.IO) {
+                                scope.launch(dispatcher) {
                                     while (isActive && !socket.isClosed) {
                                         delay(UPLOAD_WATCHDOG_INTERVAL_MS)
-                                        val nowMs = android.os.SystemClock.elapsedRealtime()
+                                        val nowMs = clock.elapsedMs()
                                         val idleMs = nowMs - lastProgressMs.get()
                                         if (idleMs > UPLOAD_IDLE_TIMEOUT_MS) {
                                             uploadTimedOut.set(true)
@@ -379,9 +390,7 @@ class TransferManager(
                                             associatedData = associatedData,
                                         ) { totalWritten ->
                                             uploadedBytes.set(totalWritten)
-                                            lastProgressMs.set(
-                                                android.os.SystemClock.elapsedRealtime()
-                                            )
+                                            lastProgressMs.set(clock.elapsedMs())
                                         }
                                     }
                             }
@@ -399,9 +408,7 @@ class TransferManager(
                                         "transfer.offset" to request.offset,
                                         "transfer.bytes" to uploadBytes,
                                         "operation.duration_ms" to
-                                            (android.os.SystemClock.elapsedRealtime() -
-                                                    uploadStartedMs)
-                                                .coerceAtLeast(0L),
+                                            (clock.elapsedMs() - uploadStartedMs).coerceAtLeast(0L),
                                     ),
                             )
                         } finally {
@@ -435,7 +442,10 @@ class TransferManager(
                     // that would otherwise throw immediately and leak the socket registration.
                     withContext(NonCancellable) {
                         watchdog?.cancelAndJoin()
-                        activeUploadSockets.remove(uploadOperationId, socket)
+                        activeUploadSockets.update { sockets ->
+                            if (sockets[uploadOperationId] === socket) sockets - uploadOperationId
+                            else sockets
+                        }
                         notifyActiveTransferCount()
                         runCatching { socket.close() }
                     }
@@ -467,7 +477,7 @@ class TransferManager(
         }
     }
 
-    fun download(
+    override fun download(
         roomId: String,
         track: TrackDescriptor,
         source: PeerEndpoint,
@@ -475,9 +485,9 @@ class TransferManager(
     ) {
         val operationId = UUID.randomUUID().toString()
         val assignmentId = Crypto.fileTransferAuthorizationId(authorizationToken).take(16)
-        val downloadStartedMs = android.os.SystemClock.elapsedRealtime()
+        val downloadStartedMs = clock.elapsedMs()
         val job =
-            scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            scope.launch(dispatcher, start = CoroutineStart.LAZY) {
                 try {
                     cancellationRegistry.withTrackOperation(track.trackId) {
                         currentCoroutineContext().ensureActive()
@@ -508,7 +518,7 @@ class TransferManager(
                                         MemberTrackState.READY,
                                     )
                                 )
-                                onCompleted(track)
+                                onCompleted(track, readableRegisteredFile(track))
                             } else {
                                 incomingSemaphore.withPermit {
                                     performDownload(
@@ -575,8 +585,7 @@ class TransferManager(
                                 "transfer.bytes_remaining" to
                                     (track.sizeBytes - receivedBytes).coerceAtLeast(0L),
                                 "operation.duration_ms" to
-                                    (android.os.SystemClock.elapsedRealtime() - downloadStartedMs)
-                                        .coerceAtLeast(0L),
+                                    (clock.elapsedMs() - downloadStartedMs).coerceAtLeast(0L),
                             ),
                         throwable = staged?.cause ?: error,
                     )
@@ -626,7 +635,7 @@ class TransferManager(
         operationId: String,
         assignmentId: String,
     ) {
-        val downloadStartedMs = android.os.SystemClock.elapsedRealtime()
+        val downloadStartedMs = clock.elapsedMs()
         var phase = "VALIDATE"
         val transferAttemptAttributes: Map<String, Any?> =
             mapOf(
@@ -817,7 +826,7 @@ class TransferManager(
                         MemberTrackState.RECEIVING,
                     )
                 )
-                var lastReport = android.os.SystemClock.elapsedRealtime()
+                var lastReport = clock.elapsedMs()
                 val receiveResult =
                     FileWireCodec.encryptedBodyInputStream(
                             input = socket.getInputStream(),
@@ -833,7 +842,7 @@ class TransferManager(
                                 expectedSize = track.sizeBytes,
                                 input = authenticatedInput,
                             ) { total ->
-                                val now = android.os.SystemClock.elapsedRealtime()
+                                val now = clock.elapsedMs()
                                 if (now - lastReport >= 250 || total == track.sizeBytes) {
                                     onProgress(
                                         TransferProgress(
@@ -900,11 +909,10 @@ class TransferManager(
                                 "peer.id" to source.peerId.value.take(12),
                                 "transfer.bytes" to track.sizeBytes,
                                 "operation.duration_ms" to
-                                    (android.os.SystemClock.elapsedRealtime() - downloadStartedMs)
-                                        .coerceAtLeast(0L),
+                                    (clock.elapsedMs() - downloadStartedMs).coerceAtLeast(0L),
                             ),
                 )
-                onCompleted(track)
+                onCompleted(track, readableRegisteredFile(track))
             } finally {
                 sessionKey.fill(0)
                 associatedData.fill(0)
@@ -929,8 +937,7 @@ class TransferManager(
                             "transfer.bytes_remaining" to
                                 (track.sizeBytes - receivedBytes).coerceAtLeast(0L),
                             "operation.duration_ms" to
-                                (android.os.SystemClock.elapsedRealtime() - downloadStartedMs)
-                                    .coerceAtLeast(0L),
+                                (clock.elapsedMs() - downloadStartedMs).coerceAtLeast(0L),
                         ),
                 throwable = error,
             )
@@ -1065,39 +1072,31 @@ class TransferManager(
         )
     }
 
-    fun cancel(trackId: TrackId, reason: String = "Transfer cancelled") {
-        cancellationRegistry.cancel(trackId, reason)
-        notifyActiveTransferCount()
-    }
-
-    fun cancelAll() {
-        activeUploadSockets.values.forEach { socket -> runCatching { socket.close() } }
+    override fun cancelAll() {
+        activeUploadSockets.value.values.forEach { socket -> runCatching { socket.close() } }
         authorizations.clear()
         cancellationRegistry.cancelAll()
         notifyActiveTransferCount()
     }
 
-    suspend fun cancelAllAndJoin(timeoutMs: Long): Boolean {
+    override suspend fun cancelAllAndJoin(timeoutMs: Long): Boolean {
         cancelAll()
         val downloadsClosed = cancellationRegistry.cancelAllAndJoin(timeoutMs = timeoutMs)
         val uploadsClosed =
             withTimeoutOrNull(timeoutMs) {
-                while (activeUploadSockets.isNotEmpty()) delay(10)
+                activeUploadSockets.first { it.isEmpty() }
                 true
             } ?: false
         return downloadsClosed && uploadsClosed
     }
 
-    private fun constantTimeStringEquals(expected: String, actual: String): Boolean {
-        val expectedBytes = expected.encodeToByteArray()
-        val actualBytes = actual.encodeToByteArray()
-        return try {
-            Crypto.constantTimeEquals(expectedBytes, actualBytes)
-        } finally {
-            expectedBytes.fill(0)
-            actualBytes.fill(0)
-        }
-    }
+    /** A registered track is announced only if its managed file can actually be opened. */
+    private suspend fun readableRegisteredFile(track: TrackDescriptor): File =
+        trackRepository.requireReadableFile(track.trackId)
+            ?: throw TransferStageException(
+                "REGISTER",
+                IllegalStateException("Registered track file is not readable"),
+            )
 
     private fun notifyActiveTransferCount() {
         onActiveTransferCountChanged(activeTransferCount)

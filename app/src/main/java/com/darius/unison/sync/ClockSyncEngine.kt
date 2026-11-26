@@ -77,6 +77,47 @@ class ClockSyncEngine(
         val createdLocalNs: Long,
     )
 
+    /**
+     * Immutable projection of the estimator. Mutations happen on the room actor; every reader
+     * (player scheduler, sync jobs, UI) reads this published value without a lock.
+     */
+    private data class Published(
+        val anchorLocalNs: Long,
+        val anchorCoordinatorNs: Long,
+        val rate: Double,
+        val rttNs: Long,
+        val rttVariationNs: Long,
+        val baseUncertaintyNs: Long,
+        val lastGoodSampleLocalNs: Long?,
+        val sampleCount: Int,
+        val rejected: Int,
+    ) {
+        fun toCoordinator(localTimeNs: Long): Long {
+            if (anchorLocalNs == 0L && anchorCoordinatorNs == 0L) return localTimeNs
+            return anchorCoordinatorNs + ((localTimeNs - anchorLocalNs).toDouble() * rate).toLong()
+        }
+
+        fun toLocal(coordinatorTimeNs: Long): Long {
+            if (anchorLocalNs == 0L && anchorCoordinatorNs == 0L) return coordinatorTimeNs
+            return anchorLocalNs +
+                ((coordinatorTimeNs - anchorCoordinatorNs).toDouble() / rate).toLong()
+        }
+    }
+
+    @Volatile
+    private var published =
+        Published(
+            anchorLocalNs = 0L,
+            anchorCoordinatorNs = 0L,
+            rate = 1.0,
+            rttNs = Long.MAX_VALUE,
+            rttVariationNs = Long.MAX_VALUE,
+            baseUncertaintyNs = Long.MAX_VALUE,
+            lastGoodSampleLocalNs = null,
+            sampleCount = 0,
+            rejected = 0,
+        )
+
     private val pending = linkedMapOf<String, Long>()
     private val samples = ArrayDeque<Sample>()
     private var anchorLocalNs = 0L
@@ -88,34 +129,27 @@ class ClockSyncEngine(
     private var lastGoodSampleLocalNs: Long? = null
     private var rejected = 0
 
-    @get:Synchronized
     val state: ClockSyncState
         get() = estimate().state
 
-    @get:Synchronized
     val synchronized: Boolean
         get() = state == ClockSyncState.LOCKED
 
-    @get:Synchronized
     val offsetNs: Long
         get() {
             val now = clock.nowNs()
             return toCoordinatorTime(now) - now
         }
 
-    @get:Synchronized
     val rate: Double
-        get() = fittedRate
+        get() = published.rate
 
-    @get:Synchronized
     val roundTripNs: Long
-        get() = fittedRttNs
+        get() = published.rttNs
 
-    @get:Synchronized
     val uncertaintyNs: Long
         get() = estimate().uncertaintyNs
 
-    @Synchronized
     fun createPing(): PendingPing {
         val ping = PendingPing(UUID.randomUUID().toString(), clock.nowNs())
         pending[ping.pingId] = ping.localSendNs
@@ -123,7 +157,6 @@ class ClockSyncEngine(
         return ping
     }
 
-    @Synchronized
     fun recordPong(
         pingId: String,
         echoedGuestSendNs: Long,
@@ -185,23 +218,12 @@ class ClockSyncEngine(
         return sample
     }
 
-    @Synchronized
-    fun toCoordinatorTime(localTimeNs: Long): Long {
-        if (anchorLocalNs == 0L && anchorCoordinatorNs == 0L) return localTimeNs
-        val delta = localTimeNs - anchorLocalNs
-        return anchorCoordinatorNs + (delta.toDouble() * fittedRate).toLong()
-    }
+    fun toCoordinatorTime(localTimeNs: Long): Long = published.toCoordinator(localTimeNs)
 
-    @Synchronized
-    fun toLocalTime(coordinatorTimeNs: Long): Long {
-        if (anchorLocalNs == 0L && anchorCoordinatorNs == 0L) return coordinatorTimeNs
-        val delta = coordinatorTimeNs - anchorCoordinatorNs
-        return anchorLocalNs + (delta.toDouble() / fittedRate).toLong()
-    }
+    fun toLocalTime(coordinatorTimeNs: Long): Long = published.toLocal(coordinatorTimeNs)
 
-    @Synchronized fun coordinatorNowNs(): Long = toCoordinatorTime(clock.nowNs())
+    fun coordinatorNowNs(): Long = toCoordinatorTime(clock.nowNs())
 
-    @Synchronized
     fun toCoordinatorTimeWithUncertainty(localTimeNs: Long): ClockConversion {
         val estimate = estimate(localTimeNs)
         return ClockConversion(
@@ -211,40 +233,39 @@ class ClockSyncEngine(
         )
     }
 
-    @Synchronized
     fun estimate(atLocalNs: Long = clock.nowNs()): ClockEstimate {
-        val last = lastGoodSampleLocalNs
+        val snapshot = published
+        val last = snapshot.lastGoodSampleLocalNs
         val age = last?.let { (atLocalNs - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE
-        val state =
+        val clockState =
             when {
-                samples.isEmpty() -> ClockSyncState.UNSYNCHRONIZED
+                snapshot.sampleCount == 0 -> ClockSyncState.UNSYNCHRONIZED
                 age > config.staleAfterNs -> ClockSyncState.STALE
-                samples.size < config.minimumLockSamples -> ClockSyncState.ACQUIRING
+                snapshot.sampleCount < config.minimumLockSamples -> ClockSyncState.ACQUIRING
                 else -> ClockSyncState.LOCKED
             }
         val ageUncertainty =
             if (age == Long.MAX_VALUE) Long.MAX_VALUE
             else {
                 // Clock-rate error accumulated since the last accepted sample.
-                (age.toDouble() * abs(fittedRate - 1.0)).toLong()
+                (age.toDouble() * abs(snapshot.rate - 1.0)).toLong()
             }
-        val uncertainty = safeAdd(baseUncertaintyNs, ageUncertainty)
+        val uncertainty = safeAdd(snapshot.baseUncertaintyNs, ageUncertainty)
         return ClockEstimate(
-            offsetNs = if (last == null) 0L else toCoordinatorTime(atLocalNs) - atLocalNs,
-            rate = fittedRate,
-            rttNs = fittedRttNs,
-            rttVariationNs = fittedRttVariationNs,
+            offsetNs = if (last == null) 0L else snapshot.toCoordinator(atLocalNs) - atLocalNs,
+            rate = snapshot.rate,
+            rttNs = snapshot.rttNs,
+            rttVariationNs = snapshot.rttVariationNs,
             uncertaintyNs = uncertainty,
             sampledAtLocalNs = atLocalNs,
             lastGoodSampleLocalNs = last,
             sampleAgeNs = age,
-            acceptedSampleCount = samples.size,
-            rejectedSampleCount = rejected,
-            state = state,
+            acceptedSampleCount = snapshot.sampleCount,
+            rejectedSampleCount = snapshot.rejected,
+            state = clockState,
         )
     }
 
-    @Synchronized
     fun reset() {
         pending.clear()
         samples.clear()
@@ -256,6 +277,22 @@ class ClockSyncEngine(
         baseUncertaintyNs = Long.MAX_VALUE
         lastGoodSampleLocalNs = null
         rejected = 0
+        publish()
+    }
+
+    private fun publish() {
+        published =
+            Published(
+                anchorLocalNs = anchorLocalNs,
+                anchorCoordinatorNs = anchorCoordinatorNs,
+                rate = fittedRate,
+                rttNs = fittedRttNs,
+                rttVariationNs = fittedRttVariationNs,
+                baseUncertaintyNs = baseUncertaintyNs,
+                lastGoodSampleLocalNs = lastGoodSampleLocalNs,
+                sampleCount = samples.size,
+                rejected = rejected,
+            )
     }
 
     private fun recompute(nowLocalNs: Long) {
@@ -322,6 +359,7 @@ class ClockSyncEngine(
                 medianRtt / 2L,
                 safeAdd(residualMedian, rttMad / 2L),
             )
+        publish()
     }
 
     private fun linearRate(samples: List<Sample>): Double {
@@ -351,6 +389,7 @@ class ClockSyncEngine(
 
     private fun reject(): Sample? {
         rejected++
+        publish()
         return null
     }
 

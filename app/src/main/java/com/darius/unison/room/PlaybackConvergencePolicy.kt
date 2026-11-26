@@ -36,7 +36,6 @@ internal class PlaybackConvergencePolicy(
         val sentAtNs: Long,
     )
 
-    private val lock = Any()
     private val lastRepairByPeer = mutableMapOf<PeerId, RepairStamp>()
 
     fun decide(
@@ -48,7 +47,7 @@ internal class PlaybackConvergencePolicy(
     ): Action {
         val candidate = decideUnthrottled(snapshot, report, coordinatorNowNs, playbackExecutable)
         if (candidate == Action.None) {
-            synchronized(lock) { lastRepairByPeer.remove(peerId) }
+            lastRepairByPeer.remove(peerId)
             return Action.None
         }
         val kind =
@@ -57,35 +56,31 @@ internal class PlaybackConvergencePolicy(
                 is Action.SendSnapshot -> RepairKind.SNAPSHOT
                 Action.None -> error("None was handled before repair throttling")
             }
-        val shouldSend =
-            synchronized(lock) {
-                val previous = lastRepairByPeer[peerId]
-                val duplicate =
-                    previous != null &&
-                        previous.queueRevision == snapshot.queueRevision &&
-                        previous.playbackRevision == snapshot.playback.revision &&
-                        previous.kind == kind &&
-                        coordinatorNowNs - previous.sentAtNs < minimumRepairIntervalNs
-                if (!duplicate) {
-                    lastRepairByPeer[peerId] =
-                        RepairStamp(
-                            queueRevision = snapshot.queueRevision,
-                            playbackRevision = snapshot.playback.revision,
-                            kind = kind,
-                            sentAtNs = coordinatorNowNs,
-                        )
-                }
-                !duplicate
-            }
-        return if (shouldSend) candidate else Action.None
+        val previous = lastRepairByPeer[peerId]
+        val duplicate =
+            previous != null &&
+                previous.queueRevision == snapshot.queueRevision &&
+                previous.playbackRevision == snapshot.playback.revision &&
+                previous.kind == kind &&
+                coordinatorNowNs - previous.sentAtNs < minimumRepairIntervalNs
+        if (!duplicate) {
+            lastRepairByPeer[peerId] =
+                RepairStamp(
+                    queueRevision = snapshot.queueRevision,
+                    playbackRevision = snapshot.playback.revision,
+                    kind = kind,
+                    sentAtNs = coordinatorNowNs,
+                )
+        }
+        return if (!duplicate) candidate else Action.None
     }
 
     fun forget(peerId: PeerId) {
-        synchronized(lock) { lastRepairByPeer.remove(peerId) }
+        lastRepairByPeer.remove(peerId)
     }
 
     fun reset() {
-        synchronized(lock) { lastRepairByPeer.clear() }
+        lastRepairByPeer.clear()
     }
 
     private fun decideUnthrottled(

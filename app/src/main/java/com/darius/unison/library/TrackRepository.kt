@@ -6,7 +6,6 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.storage.StorageManager
 import android.provider.OpenableColumns
-import androidx.core.net.toUri
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -15,7 +14,7 @@ import androidx.room.withTransaction
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
-import com.darius.unison.model.TrackSourceType
+import com.darius.unison.room.port.TrackStore
 import com.darius.unison.storage.ManagedFileLeaseReason
 import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.storage.TrackEntity
@@ -52,7 +51,7 @@ internal constructor(
     private val fileStore: ManagedFileStore,
     private val log: DiagnosticLog,
     availableStorageBytes: (() -> Long)? = null,
-) {
+) : TrackStore {
     private val importStorageGate =
         ImportStorageGate(
             maximumTrackBytes = MAX_TRACK_BYTES,
@@ -134,14 +133,14 @@ internal constructor(
     suspend fun get(trackId: TrackId): TrackDescriptor? =
         database.trackDao().get(trackId.value)?.toDescriptor()
 
-    suspend fun markPlayed(trackId: TrackId) {
+    override suspend fun markPlayed(trackId: TrackId) {
         database.trackDao().markPlayed(trackId.value, System.currentTimeMillis())
     }
 
     suspend fun findReferenceCandidates(fileName: String, title: String): List<TrackDescriptor> =
         database.trackDao().findReferenceCandidates(fileName, title).map(TrackEntity::toDescriptor)
 
-    suspend fun getMany(trackIds: List<TrackId>): List<TrackDescriptor> {
+    override suspend fun getMany(trackIds: List<TrackId>): List<TrackDescriptor> {
         if (trackIds.isEmpty()) return emptyList()
         // Android's SQLite bind-variable limit varies by platform build. Large imported
         // playlists are valid, so query in conservative chunks and restore caller order.
@@ -158,112 +157,24 @@ internal constructor(
         return trackIds.mapNotNull(byId::get)
     }
 
-    suspend fun hasVerifiedSource(trackId: TrackId): Boolean {
+    override suspend fun hasVerifiedSource(trackId: TrackId): Boolean {
         val expectedSize = database.trackDao().get(trackId.value)?.sizeBytes
-        return verifiedManagedFile(trackId, expectedSize) != null ||
-            bestReadableUri(trackId) != null
+        return verifiedManagedFile(trackId, expectedSize) != null
     }
 
-    /**
-     * Best-effort portable M3U reference. App-private managed paths are intentionally never
-     * exported because another app or device cannot read them. The caller falls back to the
-     * original filename, producing a relative playlist entry without exposing private storage.
-     */
-    suspend fun exportReference(trackId: TrackId): String? =
-        withContext(Dispatchers.IO) {
-            database.trackSourceDao().getForTrack(trackId.value).firstNotNullOfOrNull { source ->
-                source.uri?.toUri()?.takeIf(::isReadable)?.toString()
-            }
-        }
-
-    suspend fun bestReadableUri(trackId: TrackId): Uri? =
+    override suspend fun requireReadableFile(trackId: TrackId): File? =
         withContext(Dispatchers.IO) {
             val expectedSize = database.trackDao().get(trackId.value)?.sizeBytes
-            verifiedManagedFile(trackId, expectedSize)?.let {
-                return@withContext Uri.fromFile(it)
-            }
-            database.trackSourceDao().getForTrack(trackId.value).firstNotNullOfOrNull { source ->
-                when {
-                    source.managedRelativePath != null ->
-                        verifiedManagedFile(trackId, expectedSize)?.let(Uri::fromFile)
-
-                    source.uri != null -> source.uri.toUri().takeIf { isReadable(it) }
-                    else -> null
-                }
-            }
-        }
-
-    suspend fun requireReadableFile(trackId: TrackId): File? =
-        withContext(Dispatchers.IO) {
-            val expectedSize = database.trackDao().get(trackId.value)?.sizeBytes
-            verifiedManagedFile(trackId, expectedSize)?.let { verified ->
+            verifiedManagedFile(trackId, expectedSize)?.also {
                 reconcilePendingDeleteWithManagedReference(trackId)
-                return@withContext verified
-            }
-
-            val publicationLease =
-                fileStore.acquireLease(trackId, ManagedFileLeaseReason.REFERENCE_PUBLICATION)
-            try {
-                // A concurrent repair/import may have restored the final file before this lease was
-                // acquired. Recheck before copying from another source.
-                verifiedManagedFile(trackId, expectedSize)?.let { verified ->
-                    reconcilePendingDeleteWithManagedReference(trackId)
-                    return@withContext verified
-                }
-                val uri = bestReadableUri(trackId) ?: return@withContext null
-                val result =
-                    copyWithStorageBudget(context.contentResolver, uri) { input, copyLimit ->
-                        fileStore.copyAndHash(input, copyLimit)
-                    } ?: return@withContext null
-                run {
-                    if (result.trackId != trackId) {
-                        if (
-                            database.trackSourceDao().managedCountForTrack(result.trackId.value) ==
-                                0
-                        ) {
-                            fileStore.requestDelete(result.trackId)
-                        }
-                        return@withContext null
-                    }
-                    val now = System.currentTimeMillis()
-                    val existingManaged = database.trackSourceDao().get("managed:${trackId.value}")
-                    val retention =
-                        strongerRetention(
-                            existingManaged?.retentionPolicy?.let(::retentionPolicyOrNull),
-                            RetentionPolicy.TEMPORARY_24_HOURS,
-                        )
-                    database
-                        .trackSourceDao()
-                        .upsert(
-                            TrackSourceEntity(
-                                sourceId = "managed:${trackId.value}",
-                                trackId = trackId.value,
-                                sourceType = TrackSourceType.APP_MANAGED_FILE.name,
-                                uri = null,
-                                managedRelativePath = result.file.relativeTo(context.filesDir).path,
-                                retentionPolicy = retention.name,
-                                verified = true,
-                                lastVerifiedAt = now,
-                                expiresAt = retention.expiryFrom(now),
-                            )
-                        )
-                    fileStore.cancelPendingDelete(trackId)
-                    if (database.trackSourceDao().managedCountForTrack(trackId.value) == 0) {
-                        fileStore.requestDelete(trackId)
-                        return@withContext null
-                    }
-                    result.file
-                }
-            } finally {
-                publicationLease.close()
             }
         }
 
     /**
-     * Resolves/repairs the managed file first, then atomically establishes the requested lease. If
+     * Resolves the verified managed file first, then atomically establishes the requested lease. If
      * deletion wins in the small resolution-to-lease gap, resolution is retried once.
      */
-    suspend fun requireReadableFileWithLease(
+    override suspend fun requireReadableFileWithLease(
         trackId: TrackId,
         reason: ManagedFileLeaseReason,
     ): ManagedFileStore.LeasedManagedFile? =
@@ -281,7 +192,7 @@ internal constructor(
             null
         }
 
-    suspend fun registerManagedFile(
+    override suspend fun registerManagedFile(
         descriptor: TrackDescriptor,
         retentionPolicy: RetentionPolicy,
     ) {
@@ -316,13 +227,6 @@ internal constructor(
                         TrackSourceEntity(
                             sourceId = sourceId,
                             trackId = normalized.trackId.value,
-                            sourceType = TrackSourceType.APP_MANAGED_FILE.name,
-                            uri = null,
-                            managedRelativePath =
-                                fileStore
-                                    .finalFile(normalized.trackId)
-                                    .relativeTo(context.filesDir)
-                                    .path,
                             retentionPolicy = effectiveRetention.name,
                             verified = true,
                             lastVerifiedAt = now,
@@ -331,7 +235,7 @@ internal constructor(
                     )
             }
             fileStore.cancelPendingDelete(normalized.trackId)
-            check(database.trackSourceDao().managedCountForTrack(normalized.trackId.value) > 0) {
+            check(database.trackSourceDao().countForTrack(normalized.trackId.value) > 0) {
                 fileStore.requestDelete(normalized.trackId)
                 "Managed registration was superseded by deletion"
             }
@@ -425,13 +329,12 @@ internal constructor(
                     .trackSourceDao()
                     .updateRetentionForTracks(
                         trackIds = chunk,
-                        sourceType = TrackSourceType.APP_MANAGED_FILE.name,
                         policy = RetentionPolicy.KEEP_IN_LIBRARY.name,
                     )
             }
     }
 
-    suspend fun touchTemporary(trackId: TrackId) {
+    override suspend fun touchTemporary(trackId: TrackId) {
         database
             .trackSourceDao()
             .extendTemporary(
@@ -449,10 +352,8 @@ internal constructor(
                     it.retentionPolicy == RetentionPolicy.TEMPORARY_24_HOURS.name
                 }
             for (source in temporary) sourceDao.delete(source)
-            deleteManagedBytes = sourceDao.managedCountForTrack(trackId.value) == 0
-            if (sourceDao.countForTrack(trackId.value) == 0) {
-                database.trackDao().delete(trackId.value)
-            }
+            deleteManagedBytes = sourceDao.countForTrack(trackId.value) == 0
+            if (deleteManagedBytes) database.trackDao().delete(trackId.value)
         }
         if (deleteManagedBytes) fileStore.requestDelete(trackId)
     }
@@ -477,14 +378,10 @@ internal constructor(
                     val sourceDao = database.trackSourceDao()
                     sourceDao.deleteTemporaryForTracks(candidates)
                     val remaining = sourceDao.remainingTrackIds(candidates).toHashSet()
-                    val remainingManaged =
-                        sourceDao.remainingManagedTrackIds(candidates).toHashSet()
                     val tracksWithoutSources = candidates.filterNot(remaining::contains)
                     if (tracksWithoutSources.isNotEmpty())
                         database.trackDao().deleteMany(tracksWithoutSources)
-                    candidates
-                        .filterNot(remainingManaged::contains)
-                        .mapTo(managedFilesToDelete, ::TrackId)
+                    tracksWithoutSources.mapTo(managedFilesToDelete, ::TrackId)
                 }
                 managedFilesToDelete.forEach(fileStore::requestDelete)
                 removed += candidates.size
@@ -497,9 +394,9 @@ internal constructor(
         val publicationLease =
             fileStore.acquireLease(trackId, ManagedFileLeaseReason.REFERENCE_PUBLICATION)
         try {
-            if (database.trackSourceDao().managedCountForTrack(trackId.value) > 0) {
+            if (database.trackSourceDao().countForTrack(trackId.value) > 0) {
                 fileStore.cancelPendingDelete(trackId)
-                if (database.trackSourceDao().managedCountForTrack(trackId.value) == 0) {
+                if (database.trackSourceDao().countForTrack(trackId.value) == 0) {
                     fileStore.requestDelete(trackId)
                 }
             }
@@ -519,11 +416,8 @@ internal constructor(
             trackSourceDao.get(managedSourceId)?.let { source ->
                 trackSourceDao.delete(source)
             }
-            deleteManagedBytes = trackSourceDao.managedCountForTrack(trackId.value) == 0
-
-            if (trackSourceDao.countForTrack(trackId.value) == 0) {
-                database.trackDao().delete(trackId.value)
-            }
+            deleteManagedBytes = trackSourceDao.countForTrack(trackId.value) == 0
+            if (deleteManagedBytes) database.trackDao().delete(trackId.value)
         }
         if (deleteManagedBytes) fileStore.requestDelete(trackId)
         return null
@@ -625,12 +519,6 @@ internal constructor(
                 durationMs > 0
         require(looksLikeAudio) { "The selected file is not recognized as audio" }
     }
-
-    private fun isReadable(uri: Uri): Boolean =
-        runCatching {
-                context.contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false
-            }
-            .getOrDefault(false)
 
     private fun queryDisplayName(resolver: ContentResolver, uri: Uri): String? =
         runCatching {

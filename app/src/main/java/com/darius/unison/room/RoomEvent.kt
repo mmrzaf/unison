@@ -5,7 +5,6 @@ import com.darius.unison.model.HotspotInfo
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
-import com.darius.unison.model.TransferPriority
 import com.darius.unison.model.TransportCommandPhase
 import com.darius.unison.model.UserCommand
 import com.darius.unison.network.ConnectedControl
@@ -14,6 +13,7 @@ import com.darius.unison.playback.PlayerState
 import com.darius.unison.protocol.Envelope
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.transfer.TransferFailure
+import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 
 /**
@@ -110,15 +110,6 @@ internal sealed interface RoomEvent {
         val completion: CompletableDeferred<Unit>,
     ) : RoomEvent
 
-    data class TrackAvailabilityObserved(
-        val peerId: PeerId,
-        val trackId: TrackId,
-        val available: Boolean,
-        val priority: TransferPriority = TransferPriority.BACKGROUND,
-        val neededByCoordinatorNs: Long? = null,
-        val completion: CompletableDeferred<Unit>,
-    ) : RoomEvent
-
     data class TracksPrepared(
         val generation: Long,
         val fenceTicket: QueuePreparationFence.Ticket,
@@ -146,7 +137,7 @@ internal sealed interface RoomEvent {
     data class LocalTrackAvailabilityProbed(
         val generation: Long,
         val trackId: TrackId,
-        val available: Boolean,
+        val file: File?,
     ) : RoomEvent
 
     data class TransportWatchdogExpired(
@@ -169,12 +160,25 @@ internal sealed interface RoomEvent {
     /** Low-frequency room/network consequence of the independent local playback sync loop. */
     data class LocalPlaybackStatusDue(val generation: Long) : RoomEvent
 
+    /** The actor's turn to run one playback synchronization tick. */
+    data class PlaybackSynchronizationTickDue(val generation: Long) : RoomEvent
+
+    /** Debounced timeline rebuild requested by a canonical or readiness change. */
+    data class TimelineRefreshDue(val generation: Long, val roomId: String) : RoomEvent
+
+    /** Fires after a scheduled canonical command's room time has passed. */
+    data class QueueRefreshDue(val generation: Long) : RoomEvent
+
+    /** Retry of a queue refresh that was deferred while a transport command was pending. */
+    data class PlayerMaintenanceRetryDue(val generation: Long) : RoomEvent
+
     /** Coordinator reference broadcast requested by the independent local playback sync loop. */
     data class PlaybackReferenceBroadcastDue(val generation: Long) : RoomEvent
 
     data class TransferCompleted(
         val generation: Long,
         val descriptor: TrackDescriptor,
+        val file: File,
     ) : RoomEvent
 
     data class TransferAuthorizationTimedOut(
@@ -227,8 +231,7 @@ internal val RoomEvent.provenanceRequirement: RoomEventProvenanceRequirement
             is RoomEvent.LocalTransportSubmitted,
             is RoomEvent.LocalTransportSuperseded,
             is RoomEvent.CoordinatorCommandReceived,
-            is RoomEvent.CanonicalMutationRequested,
-            is RoomEvent.TrackAvailabilityObserved -> RoomEventProvenanceRequirement.ACTOR_LOCAL
+            is RoomEvent.CanonicalMutationRequested -> RoomEventProvenanceRequirement.ACTOR_LOCAL
 
             is RoomEvent.LocalAddressChanged,
             is RoomEvent.HotspotChanged,
@@ -254,6 +257,10 @@ internal val RoomEvent.provenanceRequirement: RoomEventProvenanceRequirement
             is RoomEvent.TransportWatchdogAlignmentObserved,
             is RoomEvent.HeartbeatTick,
             is RoomEvent.LocalPlaybackStatusDue,
+            is RoomEvent.PlaybackSynchronizationTickDue,
+            is RoomEvent.TimelineRefreshDue,
+            is RoomEvent.QueueRefreshDue,
+            is RoomEvent.PlayerMaintenanceRetryDue,
             is RoomEvent.PlaybackReferenceBroadcastDue,
             is RoomEvent.TransferCompleted,
             is RoomEvent.TransferAuthorizationTimedOut,
@@ -271,7 +278,6 @@ internal fun RoomEvent.completionOrNull(): CompletableDeferred<Unit>? =
         is RoomEvent.ControlClosed -> completion
         is RoomEvent.CoordinatorCommandReceived -> completion
         is RoomEvent.CanonicalMutationRequested -> completion
-        is RoomEvent.TrackAvailabilityObserved -> completion
         is RoomEvent.TracksPrepared -> completion
         else -> null
     }

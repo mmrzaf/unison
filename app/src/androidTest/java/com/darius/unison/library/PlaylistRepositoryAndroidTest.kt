@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.darius.unison.app.AndroidMonotonicClock
 import com.darius.unison.model.TrackId
 import com.darius.unison.storage.ManagedFileStore
 import com.darius.unison.storage.PlaylistEntity
@@ -35,7 +36,7 @@ class PlaylistRepositoryAndroidTest {
             File(context.filesDir, "playlist-repository-test-${UUID.randomUUID()}").apply {
                 mkdirs()
             }
-        log = DiagnosticLog(File(root, "diagnostics.ndjson"))
+        log = DiagnosticLog(File(root, "diagnostics.ndjson"), AndroidMonotonicClock)
         database = newInMemoryDatabase()
         repository = newRepository(database)
     }

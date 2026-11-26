@@ -2,15 +2,19 @@ package com.darius.unison.app
 
 import android.content.Context
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.preferences.preferencesDataStoreFile
 import com.darius.unison.model.DEFAULT_DISPLAY_NAME
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RetentionPolicy
+import com.darius.unison.room.port.IdentityStore
+import com.darius.unison.util.DiagnosticCategory
+import com.darius.unison.util.DiagnosticLog
 import java.io.IOException
 import java.security.SecureRandom
 import java.util.Locale
@@ -28,14 +32,30 @@ internal fun normalizeDisplayName(name: String): String =
 
 private const val MAX_DISPLAY_NAME_LENGTH = 40
 
-private val Context.dataStore by
-    preferencesDataStore(
-        name = "unison_settings",
-        corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
-    )
-
-class UnisonSettings(private val context: Context) {
+/**
+ * Owns the process's single settings DataStore (one instance per file is a DataStore requirement;
+ * [AppContainer] creates exactly one [UnisonSettings]).
+ *
+ * A corrupt or unreadable file is replaced by empty preferences, which yields a fresh random peer
+ * identity and default settings. That is the correct recovery for local, non-secret settings, but
+ * it is recorded so a changed identity is never unexplained.
+ */
+class UnisonSettings(context: Context, private val log: DiagnosticLog) : IdentityStore {
     private val identityMutex = Mutex()
+    private val dataStore =
+        PreferenceDataStoreFactory.create(
+            corruptionHandler =
+                ReplaceFileCorruptionHandler { error ->
+                    log.warn(
+                        TAG,
+                        DiagnosticCategory.STORAGE,
+                        "storage.settings.corruption_replaced",
+                        throwable = error,
+                    )
+                    emptyPreferences()
+                },
+            produceFile = { context.applicationContext.preferencesDataStoreFile(FILE_NAME) },
+        )
 
     private object Keys {
         val peerId = stringPreferencesKey("peer_id")
@@ -45,8 +65,15 @@ class UnisonSettings(private val context: Context) {
     }
 
     private val data =
-        context.dataStore.data.catch { error ->
-            if (error is IOException) emit(emptyPreferences()) else throw error
+        dataStore.data.catch { error ->
+            if (error !is IOException) throw error
+            log.warn(
+                TAG,
+                DiagnosticCategory.STORAGE,
+                "storage.settings.read_failed",
+                throwable = error,
+            )
+            emit(emptyPreferences())
         }
 
     val identity: Flow<LocalIdentity> = data.map { prefs ->
@@ -57,7 +84,7 @@ class UnisonSettings(private val context: Context) {
     }
 
     val onboardingComplete: Flow<Boolean> = data.map { it[Keys.onboardingComplete] ?: false }
-    val retentionPolicy: Flow<RetentionPolicy> = data.map { prefs ->
+    override val retentionPolicy: Flow<RetentionPolicy> = data.map { prefs ->
         runCatching {
                 RetentionPolicy.valueOf(
                     prefs[Keys.retention] ?: RetentionPolicy.TEMPORARY_24_HOURS.name
@@ -66,7 +93,7 @@ class UnisonSettings(private val context: Context) {
             .getOrDefault(RetentionPolicy.TEMPORARY_24_HOURS)
     }
 
-    suspend fun ensureIdentity(): LocalIdentity = identityMutex.withLock {
+    override suspend fun ensureIdentity(): LocalIdentity = identityMutex.withLock {
         val prefs = data.first()
         val existing = prefs[Keys.peerId]?.takeIf(::isValidPeerId)
         if (existing != null)
@@ -81,7 +108,7 @@ class UnisonSettings(private val context: Context) {
      * Replaces a duplicated installation identity while preserving the user's display name. This is
      * intentionally explicit: normal reconnects must keep the same peer ID.
      */
-    suspend fun rotateIdentity(): LocalIdentity = identityMutex.withLock {
+    override suspend fun rotateIdentity(): LocalIdentity = identityMutex.withLock {
         val displayName = data.first()[Keys.displayName] ?: DEFAULT_DISPLAY_NAME
         createIdentity(displayName)
     }
@@ -92,7 +119,7 @@ class UnisonSettings(private val context: Context) {
             ByteArray(16).also(SecureRandom()::nextBytes).joinToString("") {
                 "%02x".format(Locale.ROOT, it)
             }
-        context.dataStore.edit {
+        dataStore.edit {
             it[Keys.peerId] = id
             it[Keys.displayName] = safeDisplayName
         }
@@ -102,15 +129,20 @@ class UnisonSettings(private val context: Context) {
     private fun isValidPeerId(value: String): Boolean =
         value.length in 16..128 && value.all { it.isLetterOrDigit() || it == '-' || it == '_' }
 
-    suspend fun saveDisplayName(name: String) {
+    override suspend fun saveDisplayName(name: String) {
         val safe = normalizeDisplayName(name)
-        context.dataStore.edit {
+        dataStore.edit {
             it[Keys.displayName] = safe
             it[Keys.onboardingComplete] = true
         }
     }
 
     suspend fun setRetentionPolicy(policy: RetentionPolicy) {
-        context.dataStore.edit { it[Keys.retention] = policy.name }
+        dataStore.edit { it[Keys.retention] = policy.name }
+    }
+
+    private companion object {
+        const val TAG = "UnisonSettings"
+        const val FILE_NAME = "unison_settings"
     }
 }

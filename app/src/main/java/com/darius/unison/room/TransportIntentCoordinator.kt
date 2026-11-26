@@ -26,7 +26,7 @@ class TransportIntentCoordinator(
     private val playPauseDebounceMs: Long = 45L,
     private val seekDebounceMs: Long = 90L,
     capacity: Int = DEFAULT_CAPACITY,
-    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val nowMs: () -> Long,
 ) : AutoCloseable {
     sealed interface Intent {
         val commandId: String
