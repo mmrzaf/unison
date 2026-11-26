@@ -58,6 +58,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             scope = viewModelScope,
             activeOperationCount = activeOperationCount,
             message = message,
+            availableQueueSlots = roomActions::availableQueueSlots,
             addTracksToRoom = { trackIds, insertAfterCurrent ->
                 roomActions.addTracksToRoom(trackIds, insertAfterCurrent)
             },

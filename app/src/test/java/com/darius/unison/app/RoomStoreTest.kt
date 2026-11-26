@@ -6,7 +6,7 @@ import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerId
 import com.darius.unison.model.RoomLifecycleState
 import com.darius.unison.model.RoomSnapshot
-import com.darius.unison.model.RoomUiState
+import com.darius.unison.model.RoomStructureState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -18,8 +18,8 @@ class RoomStoreTest {
         val identity = LocalIdentity(peerId, "Listener")
         val hotspot = HotspotInfo("Unison network", "secret", 2)
         val store = RoomStore()
-        store.set(
-            RoomUiState(
+        store.updateStructure {
+            RoomStructureState(
                 lifecycle = RoomLifecycleState.CONNECTED,
                 localIdentity = identity,
                 snapshot =
@@ -34,36 +34,36 @@ class RoomStoreTest {
                 hotspot = hotspot,
                 errorMessage = "old error",
             )
-        )
+        }
 
         store.reset()
 
-        assertEquals(RoomLifecycleState.IDLE, store.currentState().lifecycle)
-        assertNull(store.currentState().snapshot)
-        assertNull(store.currentState().errorMessage)
-        assertEquals(identity, store.currentState().localIdentity)
-        assertEquals(hotspot, store.currentState().hotspot)
-        assertEquals("192.168.43.1", store.currentState().roomAddress)
-        assertEquals(41111, store.currentState().roomPort)
+        assertEquals(RoomLifecycleState.IDLE, store.structure.value.lifecycle)
+        assertNull(store.structure.value.snapshot)
+        assertNull(store.structure.value.errorMessage)
+        assertEquals(identity, store.structure.value.localIdentity)
+        assertEquals(hotspot, store.structure.value.hotspot)
+        assertEquals("192.168.43.1", store.structure.value.roomAddress)
+        assertEquals(41111, store.structure.value.roomPort)
     }
 
     @Test
     fun resetCanStopIndependentHotspotForEndRoom() {
         val peerId = PeerId("local-peer")
         val store = RoomStore()
-        store.set(
-            RoomUiState(
+        store.updateStructure {
+            RoomStructureState(
                 localIdentity = LocalIdentity(peerId, "Listener"),
                 roomAddress = "192.168.43.1",
                 roomPort = 41111,
                 hotspot = HotspotInfo("Unison network", "secret", 2),
             )
-        )
+        }
 
         store.reset(preserveHotspot = false)
 
-        assertNull(store.currentState().hotspot)
-        assertNull(store.currentState().roomAddress)
-        assertEquals(41111, store.currentState().roomPort)
+        assertNull(store.structure.value.hotspot)
+        assertNull(store.structure.value.roomAddress)
+        assertEquals(41111, store.structure.value.roomPort)
     }
 }

@@ -1,7 +1,6 @@
 package com.darius.unison.room
 
-import kotlin.coroutines.AbstractCoroutineContextElement
-import kotlin.coroutines.CoroutineContext
+import com.darius.unison.util.MonotonicClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -24,6 +23,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 class SerializedEventLoop<E>(
     scope: CoroutineScope,
+    private val clock: MonotonicClock,
     capacity: Int,
     private val handler: suspend (E) -> Unit,
     private val onFailure: (E, Throwable, Timing) -> Unit = { _, _, _ -> },
@@ -41,10 +41,6 @@ class SerializedEventLoop<E>(
         val submittedNs: Long,
     )
 
-    private class LoopContext(val owner: Any) : AbstractCoroutineContextElement(Key) {
-        companion object Key : CoroutineContext.Key<LoopContext>
-    }
-
     private val events =
         Channel<Queued<E>>(
             capacity = capacity,
@@ -52,50 +48,54 @@ class SerializedEventLoop<E>(
                 runCatching { onDropped(queued.event, CancellationException(CLOSED_MESSAGE)) }
             },
         )
-    private val job: Job =
-        scope.launch(LoopContext(this@SerializedEventLoop)) {
-            for (queued in events) {
-                val event = queued.event
-                val startedNs = System.nanoTime()
-                val submissionToStartNs = (startedNs - queued.submittedNs).coerceAtLeast(0L)
-                fun timingAt(nowNs: Long) =
-                    Timing(
-                        submissionToStartNs = submissionToStartNs,
-                        handlerDurationNs = (nowNs - startedNs).coerceAtLeast(0L),
+    private val job: Job = scope.launch {
+        while (true) {
+            val queued = events.receiveCatching().getOrNull() ?: break
+            val event = queued.event
+            val startedNs = clock.nowNs()
+            val submissionToStartNs = (startedNs - queued.submittedNs).coerceAtLeast(0L)
+            fun timingAt(nowNs: Long) =
+                Timing(
+                    submissionToStartNs = submissionToStartNs,
+                    handlerDurationNs = (nowNs - startedNs).coerceAtLeast(0L),
+                )
+            try {
+                handler(event)
+            } catch (cancelled: CancellationException) {
+                if (!currentCoroutineContext().isActive) {
+                    runCatching { onDropped(event, cancelled) }
+                    throw cancelled
+                }
+                onFailure(event, cancelled, timingAt(clock.nowNs()))
+            } catch (error: Throwable) {
+                onFailure(event, error, timingAt(clock.nowNs()))
+            } finally {
+                val durationNs = (clock.nowNs() - startedNs).coerceAtLeast(0L)
+                runCatching { onHandled(event, durationNs) }
+                runCatching {
+                    onTiming(
+                        event,
+                        Timing(
+                            submissionToStartNs = submissionToStartNs,
+                            handlerDurationNs = durationNs,
+                        ),
                     )
-                try {
-                    handler(event)
-                } catch (cancelled: CancellationException) {
-                    if (!currentCoroutineContext().isActive) {
-                        runCatching { onDropped(event, cancelled) }
-                        throw cancelled
-                    }
-                    onFailure(event, cancelled, timingAt(System.nanoTime()))
-                } catch (error: Throwable) {
-                    onFailure(event, error, timingAt(System.nanoTime()))
-                } finally {
-                    val durationNs = (System.nanoTime() - startedNs).coerceAtLeast(0L)
-                    runCatching { onHandled(event, durationNs) }
-                    runCatching {
-                        onTiming(
-                            event,
-                            Timing(
-                                submissionToStartNs = submissionToStartNs,
-                                handlerDurationNs = durationNs,
-                            ),
-                        )
-                    }
                 }
             }
         }
-
-    suspend fun submit(event: E) {
-        events.send(Queued(event, System.nanoTime()))
     }
 
-    fun trySubmit(event: E): Boolean = events.trySend(Queued(event, System.nanoTime())).isSuccess
+    suspend fun submit(event: E) {
+        try {
+            events.send(Queued(event, clock.nowNs()))
+        } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) {
+            // A closed loop is a completed session, not a producer failure. Report through
+            // [onDropped] so completion-bearing events never strand their caller.
+            runCatching { onDropped(event, CancellationException(CLOSED_MESSAGE)) }
+        }
+    }
 
-    suspend fun isCurrentContext(): Boolean = currentCoroutineContext()[LoopContext]?.owner === this
+    fun trySubmit(event: E): Boolean = events.trySend(Queued(event, clock.nowNs())).isSuccess
 
     val isActive: Boolean
         get() = job.isActive

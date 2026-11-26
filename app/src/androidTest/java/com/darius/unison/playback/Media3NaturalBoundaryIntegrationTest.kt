@@ -1,22 +1,9 @@
 package com.darius.unison.playback
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.darius.unison.model.QueueItemId
-import com.darius.unison.model.TrackDescriptor
-import com.darius.unison.model.TrackId
-import com.darius.unison.util.DiagnosticLog
-import java.io.File
-import java.io.FileOutputStream
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -32,7 +19,7 @@ import org.junit.runner.RunWith
 class Media3NaturalBoundaryIntegrationTest {
     @Test
     fun twoItemBoundaryRemainsOwnedByFirstAcrossResumeTransition() = runBlocking {
-        withAdapter { fixture ->
+        withMedia3Adapter { fixture ->
             val first = fixture.item("first", durationMs = 1_300)
             val second = fixture.item("second", durationMs = 4_000)
             fixture.adapter.setQueue(listOf(first, second), first.queueItemId, 0)
@@ -67,7 +54,7 @@ class Media3NaturalBoundaryIntegrationTest {
 
     @Test
     fun finalItemProducesExactlyOneBoundary() = runBlocking {
-        withAdapter { fixture ->
+        withMedia3Adapter { fixture ->
             val only = fixture.item("only", durationMs = 1_300)
             fixture.adapter.setQueue(listOf(only), only.queueItemId, 0)
 
@@ -87,7 +74,7 @@ class Media3NaturalBoundaryIntegrationTest {
 
     @Test
     fun repeatOneBoundaryStaysOnRepeatedItemAndCanRearm() = runBlocking {
-        withAdapter { fixture ->
+        withMedia3Adapter { fixture ->
             val repeated = fixture.item("repeat", durationMs = 1_400)
             fixture.adapter.setQueue(listOf(repeated), repeated.queueItemId, 0)
             fixture.adapter.setRepeatCurrentItem(true)
@@ -111,7 +98,7 @@ class Media3NaturalBoundaryIntegrationTest {
 
     @Test
     fun explicitReplaySeekRearmsFinalBoundary() = runBlocking {
-        withAdapter { fixture ->
+        withMedia3Adapter { fixture ->
             val only = fixture.item("replay", durationMs = 1_400)
             fixture.adapter.setQueue(listOf(only), only.queueItemId, 0)
 
@@ -132,7 +119,7 @@ class Media3NaturalBoundaryIntegrationTest {
 
     @Test
     fun playlistMutationBeforeBoundaryDoesNotInventEndedItem() = runBlocking {
-        withAdapter { fixture ->
+        withMedia3Adapter { fixture ->
             val first = fixture.item("mutating-first", durationMs = 1_600)
             val second = fixture.item("mutating-second", durationMs = 4_000)
             val inserted = fixture.item("inserted", durationMs = 4_000)
@@ -156,102 +143,9 @@ class Media3NaturalBoundaryIntegrationTest {
         }
     }
 
-    private suspend fun withAdapter(block: suspend (Fixture) -> Unit) {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        val log = DiagnosticLog(context)
-        val adapter =
-            withContext(Dispatchers.Main.immediate) {
-                Media3PlayerAdapter(context, scope, log).also { it.exoPlayer.volume = 0f }
-            }
-        val fixture = Fixture(context, adapter)
-        try {
-            block(fixture)
-        } finally {
-            withContext(Dispatchers.Main.immediate) { adapter.close() }
-            scope.cancel()
-            log.close()
-            fixture.files.forEach(File::delete)
-        }
-    }
-
-    private class Fixture(
-        private val context: Context,
-        val adapter: Media3PlayerAdapter,
-    ) {
-        val files = mutableListOf<File>()
-        private var trackOrdinal = 1
-
-        fun item(name: String, durationMs: Long): LocalPlayableItem {
-            val file = File(context.cacheDir, "unison-boundary-$name-${System.nanoTime()}.wav")
-            writeSilentPcmWav(file, durationMs)
-            files += file
-            val digit = Integer.toHexString(trackOrdinal++).last()
-            return LocalPlayableItem(
-                queueItemId = QueueItemId("boundary-$name"),
-                track =
-                    TrackDescriptor(
-                        trackId = TrackId(digit.toString().repeat(64)),
-                        sizeBytes = file.length(),
-                        mimeType = "audio/wav",
-                        durationMs = durationMs,
-                        title = name,
-                        originalFileName = file.name,
-                    ),
-                file = file,
-            )
-        }
-
-        suspend fun awaitBoundaryAfter(revision: Long): PlayerState =
-            withTimeout(BOUNDARY_TIMEOUT_MS) {
-                adapter.state.first { it.itemBoundaryRevision > revision }
-            }
-    }
-
     private companion object {
-        const val SAMPLE_RATE_HZ = 8_000
-        const val BITS_PER_SAMPLE = 16
-        const val CHANNELS = 1
-        const val BOUNDARY_TIMEOUT_MS = 12_000L
         const val NO_DUPLICATE_SETTLE_MS = 300L
         const val QUEUE_MUTATION_LEAD_MS = 350L
         const val QUEUE_MUTATION_SETTLE_MS = 150L
-
-        fun writeSilentPcmWav(file: File, durationMs: Long) {
-            val sampleCount = ((SAMPLE_RATE_HZ.toLong() * durationMs) / 1_000L).toInt()
-            val bytesPerSample = BITS_PER_SAMPLE / 8
-            val dataSize = sampleCount * CHANNELS * bytesPerSample
-            val byteRate = SAMPLE_RATE_HZ * CHANNELS * bytesPerSample
-            val blockAlign = CHANNELS * bytesPerSample
-
-            FileOutputStream(file).use { out ->
-                out.write("RIFF".toByteArray(Charsets.US_ASCII))
-                out.writeLittleEndianInt(36 + dataSize)
-                out.write("WAVE".toByteArray(Charsets.US_ASCII))
-                out.write("fmt ".toByteArray(Charsets.US_ASCII))
-                out.writeLittleEndianInt(16)
-                out.writeLittleEndianShort(1) // PCM
-                out.writeLittleEndianShort(CHANNELS)
-                out.writeLittleEndianInt(SAMPLE_RATE_HZ)
-                out.writeLittleEndianInt(byteRate)
-                out.writeLittleEndianShort(blockAlign)
-                out.writeLittleEndianShort(BITS_PER_SAMPLE)
-                out.write("data".toByteArray(Charsets.US_ASCII))
-                out.writeLittleEndianInt(dataSize)
-                repeat(dataSize) { out.write(0) }
-            }
-        }
-
-        fun FileOutputStream.writeLittleEndianInt(value: Int) {
-            write(value and 0xff)
-            write((value ushr 8) and 0xff)
-            write((value ushr 16) and 0xff)
-            write((value ushr 24) and 0xff)
-        }
-
-        fun FileOutputStream.writeLittleEndianShort(value: Int) {
-            write(value and 0xff)
-            write((value ushr 8) and 0xff)
-        }
     }
 }

@@ -1,11 +1,8 @@
 package com.darius.unison.util
 
-import android.os.SystemClock
-
+/** Monotonic device time that keeps advancing through deep sleep. */
 fun interface MonotonicClock {
     fun nowNs(): Long
-}
 
-object AndroidMonotonicClock : MonotonicClock {
-    override fun nowNs(): Long = SystemClock.elapsedRealtimeNanos()
+    fun elapsedMs(): Long = nowNs() / 1_000_000L
 }

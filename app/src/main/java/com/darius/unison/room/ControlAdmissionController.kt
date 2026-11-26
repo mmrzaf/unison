@@ -1,12 +1,11 @@
 package com.darius.unison.room
 
-import android.os.SystemClock
 import com.darius.unison.model.DEFAULT_DISPLAY_NAME
 import com.darius.unison.model.LocalIdentity
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.network.ControlConnection
-import com.darius.unison.network.PeerServer
+import com.darius.unison.network.PeerNetwork
 import com.darius.unison.protocol.ControlCredentialMode
 import com.darius.unison.protocol.Crypto
 import com.darius.unison.protocol.Envelope
@@ -32,7 +31,7 @@ internal class ControlAdmissionController(
     private val log: DiagnosticLog,
     private val onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
     private val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
-    private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime,
+    private val elapsedRealtimeMs: () -> Long,
 ) {
     private data class CredentialResult(
         val mode: ControlCredentialMode,
@@ -44,7 +43,7 @@ internal class ControlAdmissionController(
     private sealed interface ValidationResult {
         data class Valid(val snapshot: RoomSnapshot) : ValidationResult
 
-        data class Invalid(val rejection: PeerServer.ControlAdmission.Rejected) : ValidationResult
+        data class Invalid(val rejection: PeerNetwork.ControlAdmission.Rejected) : ValidationResult
     }
 
     private val admissionGuard = AdmissionGuard()
@@ -53,7 +52,7 @@ internal class ControlAdmissionController(
     suspend fun admit(
         hello: HandshakeMessage.ControlHello,
         remoteAddress: String,
-    ): PeerServer.ControlAdmission {
+    ): PeerNetwork.ControlAdmission {
         val current =
             when (val validation = validateRoomAndHello(hello, remoteAddress)) {
                 is ValidationResult.Valid -> validation.snapshot
@@ -126,7 +125,7 @@ internal class ControlAdmissionController(
         hello: HandshakeMessage.PinClientHello,
         remoteAddress: String,
         startedAtElapsedMs: Long,
-    ): PeerServer.ControlAdmission {
+    ): PeerNetwork.ControlAdmission {
         val pin =
             roomPin() ?: return rejected(HandshakeRejectionCode.ROOM_INACTIVE, "Room is restarting")
         val serverSession =
@@ -152,7 +151,7 @@ internal class ControlAdmissionController(
                     )
                 }
 
-        return PeerServer.ControlAdmission.PinChallenge(
+        return PeerNetwork.ControlAdmission.PinChallenge(
             response =
                 HandshakeMessage.PinChallenge(
                     saltBase64 = serverSession.challenge.saltBase64,
@@ -193,12 +192,12 @@ internal class ControlAdmissionController(
         current: RoomSnapshot,
         hello: HandshakeMessage.ReconnectClientHello,
         remoteAddress: String,
-    ): PeerServer.ControlAdmission {
+    ): PeerNetwork.ControlAdmission {
         val secret =
             roomSecret()
                 ?: return rejected(HandshakeRejectionCode.ROOM_INACTIVE, "Room is restarting")
         val serverNonce = Crypto.randomBase64(18)
-        return PeerServer.ControlAdmission.ReconnectChallenge(
+        return PeerNetwork.ControlAdmission.ReconnectChallenge(
             response = HandshakeMessage.ReconnectChallenge(serverNonce),
             complete = { response ->
                 val credential =
@@ -219,7 +218,7 @@ internal class ControlAdmissionController(
                                     hello.clientNonce,
                                     serverNonce,
                                 )
-                            if (!constantTimeStringEquals(expected, response.proofBase64)) {
+                            if (!Crypto.constantTimeEquals(expected, response.proofBase64)) {
                                 null
                             } else {
                                 CredentialResult(
@@ -255,7 +254,7 @@ internal class ControlAdmissionController(
         hello: HandshakeMessage.ControlHello,
         remoteAddress: String,
         credential: CredentialResult,
-    ): PeerServer.ControlAdmission {
+    ): PeerNetwork.ControlAdmission {
         try {
             val current =
                 snapshot()
@@ -314,7 +313,7 @@ internal class ControlAdmissionController(
                     snapshotSequence = current.sequence,
                 )
             val keys = Crypto.deriveControlSessionKeys(secret, hello.clientNonce, serverNonce)
-            return PeerServer.ControlAdmission.Accepted(
+            return PeerNetwork.ControlAdmission.Accepted(
                 response = response,
                 serverWriteKey = keys.coordinatorToClient,
                 serverReadKey = keys.clientToCoordinator,
@@ -341,19 +340,8 @@ internal class ControlAdmissionController(
             else -> null
         }
 
-    private fun constantTimeStringEquals(expected: String, actual: String): Boolean {
-        val expectedBytes = expected.encodeToByteArray()
-        val actualBytes = actual.encodeToByteArray()
-        return try {
-            Crypto.constantTimeEquals(expectedBytes, actualBytes)
-        } finally {
-            expectedBytes.fill(0)
-            actualBytes.fill(0)
-        }
-    }
-
     private fun rejected(code: HandshakeRejectionCode, reason: String) =
-        PeerServer.ControlAdmission.Rejected(reason, code)
+        PeerNetwork.ControlAdmission.Rejected(reason, code)
 
     private companion object {
         const val TAG = "ControlAdmission"

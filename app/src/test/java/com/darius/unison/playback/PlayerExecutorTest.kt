@@ -191,6 +191,7 @@ class PlayerExecutorTest {
                 PlayerExecutor(
                     player = player,
                     clock = clock,
+                    dispatcher = Dispatchers.Default,
                     clockSync = ClockSyncEngine(clock),
                     scope = scope,
                     log = testLog(),
@@ -301,6 +302,7 @@ class PlayerExecutorTest {
                 PlayerExecutor(
                     player = player,
                     clock = clock,
+                    dispatcher = Dispatchers.Default,
                     clockSync = clockSync,
                     scope = scope,
                     log = testLog(),
@@ -354,6 +356,7 @@ class PlayerExecutorTest {
             PlayerExecutor(
                     player = player,
                     clock = clock,
+                    dispatcher = Dispatchers.Default,
                     clockSync = ClockSyncEngine(clock),
                     scope = scope,
                     log = testLog(),
@@ -387,6 +390,7 @@ class PlayerExecutorTest {
             PlayerExecutor(
                     player = player,
                     clock = clock,
+                    dispatcher = Dispatchers.Default,
                     clockSync = ClockSyncEngine(clock),
                     scope = scope,
                     log = testLog(),
@@ -448,6 +452,7 @@ class PlayerExecutorTest {
                 PlayerExecutor(
                     player = player,
                     clock = clock,
+                    dispatcher = Dispatchers.Default,
                     clockSync = ClockSyncEngine(clock),
                     scope = scope,
                     log = testLog(),
@@ -623,6 +628,7 @@ class PlayerExecutorTest {
         return PlayerExecutor(
             player = player,
             clock = clock,
+            dispatcher = Dispatchers.Default,
             clockSync = ClockSyncEngine(clock),
             scope = scope,
             log = testLog(),
@@ -637,7 +643,10 @@ class PlayerExecutorTest {
     }
 
     private fun testLog(): DiagnosticLog =
-        DiagnosticLog(temporaryFolder.newFile("diagnostics-${System.nanoTime()}.log"))
+        DiagnosticLog(
+            temporaryFolder.newFile("diagnostics-${System.nanoTime()}.log"),
+            MonotonicClock(System::nanoTime),
+        )
 
     private class FakePlayer(
         initial: PlayerState,

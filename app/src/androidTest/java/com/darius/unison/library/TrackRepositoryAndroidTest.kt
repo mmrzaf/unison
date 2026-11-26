@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.darius.unison.app.AndroidMonotonicClock
 import com.darius.unison.model.RetentionPolicy
 import com.darius.unison.model.TrackId
 import com.darius.unison.storage.ManagedFileStore
@@ -47,7 +48,7 @@ class TrackRepositoryAndroidTest {
                 .allowMainThreadQueries()
                 .build()
         fileStore = ManagedFileStore(root)
-        log = DiagnosticLog(File(root, "diagnostics.ndjson"))
+        log = DiagnosticLog(File(root, "diagnostics.ndjson"), AndroidMonotonicClock)
     }
 
     @After

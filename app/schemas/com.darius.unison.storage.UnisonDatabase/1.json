@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "665f72f124b82a71a1f9e3af4f4edbc5",
+    "identityHash": "4c6385c1db76ebdf6e26ac1667e6f49e",
     "entities": [
       {
         "tableName": "tracks",
@@ -146,7 +146,7 @@
       },
       {
         "tableName": "track_sources",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceId` TEXT NOT NULL, `trackId` TEXT NOT NULL, `sourceType` TEXT NOT NULL, `uri` TEXT, `managedRelativePath` TEXT, `retentionPolicy` TEXT NOT NULL, `verified` INTEGER NOT NULL, `lastVerifiedAt` INTEGER, `expiresAt` INTEGER, PRIMARY KEY(`sourceId`), FOREIGN KEY(`trackId`) REFERENCES `tracks`(`trackId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sourceId` TEXT NOT NULL, `trackId` TEXT NOT NULL, `retentionPolicy` TEXT NOT NULL, `verified` INTEGER NOT NULL, `lastVerifiedAt` INTEGER, `expiresAt` INTEGER, PRIMARY KEY(`sourceId`), FOREIGN KEY(`trackId`) REFERENCES `tracks`(`trackId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "sourceId",
@@ -159,22 +159,6 @@
             "columnName": "trackId",
             "affinity": "TEXT",
             "notNull": true
-          },
-          {
-            "fieldPath": "sourceType",
-            "columnName": "sourceType",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "uri",
-            "columnName": "uri",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "managedRelativePath",
-            "columnName": "managedRelativePath",
-            "affinity": "TEXT"
           },
           {
             "fieldPath": "retentionPolicy",
@@ -379,7 +363,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '665f72f124b82a71a1f9e3af4f4edbc5')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4c6385c1db76ebdf6e26ac1667e6f49e')"
     ]
   }
 }

@@ -46,7 +46,7 @@ class UnisonApplication : Application(), Configuration.Provider {
             }
             try {
                 val identity = appContainer.settings.ensureIdentity()
-                appContainer.roomStore.update { it.copy(localIdentity = identity) }
+                appContainer.roomStore.updateStructure { it.copy(localIdentity = identity) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {

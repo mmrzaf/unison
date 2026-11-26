@@ -3,39 +3,37 @@ package com.darius.unison.room
 import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.UserCommand
 import com.darius.unison.protocol.ProtocolBody
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
- * Atomic canonical-state holder. All work performed while its mutex is held is pure in-memory
- * reduction; network, player, database, channel, and file effects are executed by RoomRuntime only
- * after the transition has committed.
+ * Canonical-state holder owned exclusively by the room actor.
+ *
+ * It deliberately has no synchronization: every method must be called from a room actor turn. A
+ * second caller would be a design error, not a locking problem, so the type makes that visible.
  */
 class RoomEngine(initialSnapshot: RoomSnapshot) {
-    private val mutex = Mutex()
     private var current = initialSnapshot
 
-    suspend fun snapshot(): RoomSnapshot = mutex.withLock { current }
+    fun snapshot(): RoomSnapshot = current
 
-    suspend fun replace(snapshot: RoomSnapshot): RoomSnapshot = mutex.withLock {
+    fun replace(snapshot: RoomSnapshot): RoomSnapshot {
         if (
             snapshot.term.number > current.term.number ||
                 (snapshot.term.number == current.term.number &&
                     snapshot.sequence >= current.sequence)
         )
             current = snapshot
-        current
+        return current
     }
 
-    suspend fun decide(
+    fun decide(
         command: UserCommand,
         coordinatorNowNs: Long,
         leadNs: Long = RoomReducer.DEFAULT_COMMAND_LEAD_NS,
         preparedQueueItemIds: Set<com.darius.unison.model.QueueItemId> = emptySet(),
         playPositionOverrideMs: Long? = null,
         acceptsSnapshot: (RoomSnapshot) -> Boolean = { true },
-    ): RoomReducer.Decision = mutex.withLock {
-        when (
+    ): RoomReducer.Decision {
+        return when (
             val decision =
                 RoomReducer.decide(
                     current,
@@ -99,22 +97,22 @@ class RoomEngine(initialSnapshot: RoomSnapshot) {
         return best
     }
 
-    suspend fun apply(sequence: Long, body: ProtocolBody): RoomSnapshot = mutex.withLock {
+    fun apply(sequence: Long, body: ProtocolBody): RoomSnapshot {
         current = RoomReducer.applyCanonical(current, sequence, body)
-        current
+        return current
     }
 
     /**
      * Applies a local mutation only when its complete candidate snapshot passes the supplied gate.
      */
-    suspend fun applyValidated(
+    fun applyValidated(
         sequence: Long,
         body: ProtocolBody,
         acceptsSnapshot: (RoomSnapshot) -> Boolean,
-    ): RoomSnapshot? = mutex.withLock {
+    ): RoomSnapshot? {
         val candidate = RoomReducer.applyCanonical(current, sequence, body)
-        if (!acceptsSnapshot(candidate)) return@withLock null
+        if (!acceptsSnapshot(candidate)) return null
         current = candidate
-        current
+        return current
     }
 }

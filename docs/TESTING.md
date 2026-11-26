@@ -8,7 +8,7 @@ not a custom distributed-systems test platform.
 These checks do not require an Android device:
 
 ```bash
-./scripts/check-static.sh
+python3 ./scripts/check-source-tree.py
 ./scripts/check-data.sh
 python3 ./scripts/analyze-playback-log.py --self-test
 python3 ./scripts/analyze-stability-log.py --self-test
@@ -27,6 +27,46 @@ normal Gradle gate then runs the complete JVM unit suite, formatting, lint, APK 
 Android-test compilation against the real dependencies. The benchmark verifies all four browse sort
 modes, a deep title page, literal substring search, and SQLite query plans; indexed browse paths are not
 allowed to regress to a temporary B-tree sort.
+
+## Multi-peer room harness
+
+`app/src/test/java/com/darius/unison/harness/` runs the real `RoomRuntime` for several simulated
+phones on one virtual-time scheduler. Only the host is simulated:
+
+- the real `ControlHandshake`, `ControlAdmissionController`, SRP proof exchange, routing, reducer,
+  transfer orchestration, and player authority;
+- an in-memory `PeerNetwork` whose links carry the real handshake and JSON-round-tripped envelopes,
+  and an in-memory `TransferPort` that moves bytes on virtual time with injectable failures (the byte
+  protocol itself is covered by the real-socket `TransferManager` tests);
+- a virtual `MonotonicClock`, a temporary `ManagedFileStore`, an in-memory library, and a
+  deterministic `SimulatedPlayer` that counts physical mutations.
+
+That means a scenario can express "two phones join, then the network drops, then they reconnect"
+without sockets, sleeps, or wall-clock timing.
+
+Current scenarios:
+
+- create, join, and quiet steady state: after settling, 60 s of virtual time must not produce a
+  single `setQueue`, seek, or speed change;
+- leaving as a participant removes canonical membership (the leave frame is flushed first);
+- control loss reconnects inside the grace window and restores membership;
+- leaving while a join is in flight never lands the old session;
+- closing a runtime closes its control links;
+- transfers (S8): every guest receives the queued tracks, retryable route failures retry within a
+  bound, a non-retryable failure is not hammered, and a partitioned route suspends and recovers on an
+  explicit prepare;
+- natural ends (S10): the canonical successor, the final item, and repeat-one;
+- interruptions (S11): a transient focus loss rejoins exactly once after the real release while the
+  room keeps playing; a permanent one waits for an explicit play;
+- load (S15): a 400 ms-per-call player under a 120-command flood leaves every member connected and
+  keeps the actor's worst queue wait under 2.5 s;
+- seeded chaos (S16): random transport, queue, interruption, partition and rejoin traffic must
+  converge with zero failed events, and the same seed must replay the same history. The default is
+  three 5-minute seeds on every `testDebugUnitTest`; `scripts/build-release.sh` runs sixteen
+  20-minute seeds (`-Dunison.soak.seeds=… -Dunison.soak.minutes=…`).
+
+Every scenario also asserts zero `room.event.failed` records. Add a scenario by creating devices,
+advancing with `settle(...)`, and asserting an invariant; do not add sleeps or real time.
 
 ## High-value stress coverage
 

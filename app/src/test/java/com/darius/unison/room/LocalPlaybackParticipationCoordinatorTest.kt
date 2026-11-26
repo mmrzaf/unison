@@ -285,7 +285,11 @@ class LocalPlaybackParticipationCoordinatorTest {
         var snapshot = snapshot(liveItem)
         val player = FakePlayer(PlayerState())
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val log = DiagnosticLog(File.createTempFile("unison-rejoin-test", ".ndjson"))
+        val log =
+            DiagnosticLog(
+                File.createTempFile("unison-rejoin-test", ".ndjson"),
+                MonotonicClock(System::nanoTime),
+            )
         val clockSync =
             ClockSyncEngine(
                 clock,
@@ -295,6 +299,7 @@ class LocalPlaybackParticipationCoordinatorTest {
             PlayerExecutor(
                 player = player,
                 clock = clock,
+                dispatcher = Dispatchers.Default,
                 clockSync = clockSync,
                 scope = scope,
                 log = log,

@@ -64,9 +64,6 @@ data class TrackEntity(
 data class TrackSourceEntity(
     @PrimaryKey val sourceId: String,
     val trackId: String,
-    val sourceType: String,
-    val uri: String?,
-    val managedRelativePath: String?,
     val retentionPolicy: String,
     val verified: Boolean,
     val lastVerifiedAt: Long?,
@@ -229,8 +226,11 @@ interface TrackSourceDao {
     @Query("SELECT * FROM track_sources WHERE sourceId = :sourceId")
     suspend fun get(sourceId: String): TrackSourceEntity?
 
-    @Query("SELECT * FROM track_sources WHERE expiresAt IS NOT NULL AND expiresAt <= :now")
-    suspend fun expired(now: Long): List<TrackSourceEntity>
+    @Query(
+        "SELECT * FROM track_sources WHERE expiresAt IS NOT NULL AND expiresAt <= :now " +
+            "AND sourceId > :afterSourceId ORDER BY sourceId LIMIT :limit"
+    )
+    suspend fun expiredAfter(now: Long, afterSourceId: String, limit: Int): List<TrackSourceEntity>
 
     @Query("SELECT trackId FROM track_sources WHERE retentionPolicy = 'TEMPORARY_24_HOURS'")
     fun observeTemporaryTrackIds(): Flow<List<String>>
@@ -255,24 +255,17 @@ interface TrackSourceDao {
     suspend fun remainingTrackIds(trackIds: List<String>): List<String>
 
     @Query(
-        "SELECT DISTINCT trackId FROM track_sources " +
-            "WHERE trackId IN (:trackIds) AND managedRelativePath IS NOT NULL"
+        "SELECT * FROM track_sources WHERE sourceId > :afterSourceId ORDER BY sourceId LIMIT :limit"
     )
-    suspend fun remainingManagedTrackIds(trackIds: List<String>): List<String>
+    suspend fun sourcesAfter(afterSourceId: String, limit: Int): List<TrackSourceEntity>
 
-    @Query("SELECT * FROM track_sources WHERE managedRelativePath IS NOT NULL")
-    suspend fun managedSources(): List<TrackSourceEntity>
-
-    @Query("SELECT trackId FROM track_sources WHERE managedRelativePath IS NOT NULL")
-    suspend fun managedTrackIds(): List<String>
+    @Query("SELECT DISTINCT trackId FROM track_sources")
+    suspend fun referencedTrackIds(): List<String>
 
     @Query(
         """
         SELECT COALESCE(SUM(sizeBytes), 0) FROM tracks
-        WHERE trackId IN (
-            SELECT trackId FROM track_sources
-            WHERE managedRelativePath IS NOT NULL
-        )
+        WHERE trackId IN (SELECT trackId FROM track_sources)
     """
     )
     fun observeManagedBytes(): Flow<Long>
@@ -282,7 +275,7 @@ interface TrackSourceDao {
         SELECT COALESCE(SUM(sizeBytes), 0) FROM tracks
         WHERE trackId IN (
             SELECT trackId FROM track_sources
-            WHERE managedRelativePath IS NOT NULL AND retentionPolicy = 'KEEP_IN_LIBRARY'
+            WHERE retentionPolicy = 'KEEP_IN_LIBRARY'
         )
     """
     )
@@ -293,7 +286,7 @@ interface TrackSourceDao {
         SELECT COALESCE(SUM(sizeBytes), 0) FROM tracks
         WHERE trackId IN (
             SELECT trackId FROM track_sources
-            WHERE managedRelativePath IS NOT NULL AND retentionPolicy = 'TEMPORARY_24_HOURS'
+            WHERE retentionPolicy = 'TEMPORARY_24_HOURS'
         )
     """
     )
@@ -310,14 +303,10 @@ interface TrackSourceDao {
         """
         UPDATE track_sources
         SET retentionPolicy = :policy, expiresAt = NULL
-        WHERE trackId IN (:trackIds) AND sourceType = :sourceType
+        WHERE trackId IN (:trackIds)
         """
     )
-    suspend fun updateRetentionForTracks(
-        trackIds: List<String>,
-        sourceType: String,
-        policy: String,
-    )
+    suspend fun updateRetentionForTracks(trackIds: List<String>, policy: String)
 
     @Query(
         "UPDATE track_sources SET expiresAt = :expiresAt WHERE trackId = :trackId AND retentionPolicy = 'TEMPORARY_24_HOURS'"
@@ -328,11 +317,6 @@ interface TrackSourceDao {
 
     @Query("SELECT COUNT(*) FROM track_sources WHERE trackId = :trackId")
     suspend fun countForTrack(trackId: String): Int
-
-    @Query(
-        "SELECT COUNT(*) FROM track_sources WHERE trackId = :trackId AND managedRelativePath IS NOT NULL"
-    )
-    suspend fun managedCountForTrack(trackId: String): Int
 }
 
 @Dao

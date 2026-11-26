@@ -53,6 +53,18 @@ object Crypto {
 
     fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean = MessageDigest.isEqual(a, b)
 
+    /** Constant-time comparison of two proofs; the transient byte copies are wiped. */
+    fun constantTimeEquals(expected: String, actual: String): Boolean {
+        val expectedBytes = expected.encodeToByteArray()
+        val actualBytes = actual.encodeToByteArray()
+        return try {
+            constantTimeEquals(expectedBytes, actualBytes)
+        } finally {
+            expectedBytes.fill(0)
+            actualBytes.fill(0)
+        }
+    }
+
     fun hkdfSha256(
         input: ByteArray,
         salt: ByteArray,

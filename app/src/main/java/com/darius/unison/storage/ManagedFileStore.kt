@@ -1,6 +1,5 @@
 package com.darius.unison.storage
 
-import android.content.Context
 import com.darius.unison.model.TrackId
 import java.io.BufferedOutputStream
 import java.io.File
@@ -44,8 +43,6 @@ interface ManagedFileLease : AutoCloseable {
 }
 
 class ManagedFileStore(filesDir: File) {
-    constructor(context: Context) : this(context.filesDir)
-
     private val root = File(filesDir, "tracks").apply { mkdirs() }
     private val commitLocks = Array(COMMIT_LOCK_STRIPES) { Any() }
     private val leaseCounts = ConcurrentHashMap<LeaseKey, Int>()

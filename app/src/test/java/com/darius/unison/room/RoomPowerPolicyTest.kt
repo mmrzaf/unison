@@ -1,5 +1,6 @@
 package com.darius.unison.room
 
+import com.darius.unison.room.port.PowerDemand
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -7,7 +8,7 @@ class RoomPowerPolicyTest {
     @Test
     fun inactiveRoomReleasesEverything() {
         assertEquals(
-            RoomPowerPolicy.Demand(wifi = false, cpu = false),
+            PowerDemand.NONE,
             RoomPowerPolicy.evaluate(sessionActive = false),
         )
     }
@@ -15,7 +16,7 @@ class RoomPowerPolicyTest {
     @Test
     fun everyActivePeerKeepsCpuAndWifiAvailable() {
         assertEquals(
-            RoomPowerPolicy.Demand(wifi = true, cpu = true),
+            PowerDemand(wifi = true, cpu = true),
             RoomPowerPolicy.evaluate(sessionActive = true),
         )
     }

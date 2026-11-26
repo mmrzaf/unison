@@ -6,13 +6,11 @@ import com.darius.unison.model.PeerId
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.TrackId
 import com.darius.unison.protocol.Envelope
-import com.darius.unison.protocol.FrameCodec
 import com.darius.unison.protocol.PROTOCOL_VERSION
 import com.darius.unison.protocol.ProtocolBody
 import com.darius.unison.util.DiagnosticLog
+import com.darius.unison.util.MonotonicClock
 import java.io.File
-import java.net.ServerSocket
-import java.net.Socket
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -105,13 +103,9 @@ class ControlConnectionPriorityTest {
         }
 
     private fun <T> withConnection(block: suspend (ControlConnection) -> T): T = runBlocking {
-        val server = ServerSocket(0)
-        val client = Socket("127.0.0.1", server.localPort)
-        val accepted = server.accept()
-        server.close()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val logFile = File.createTempFile("unison-control-priority", ".ndjson")
-        val diagnosticLog = DiagnosticLog(logFile)
+        val diagnosticLog = DiagnosticLog(logFile, MonotonicClock(System::nanoTime))
         val connection =
             ControlConnection(
                 peerId = PeerId("peer-priority"),
@@ -120,12 +114,13 @@ class ControlConnectionPriorityTest {
                         peerId = PeerId("peer-priority"),
                         displayName = "Peer",
                         hostAddress = "127.0.0.1",
-                        port = accepted.localPort,
+                        port = 4321,
                         appVersion = "test",
                     ),
-                socket = accepted,
-                codec = FrameCodec(ByteArray(32) { 7 }),
+                channel = NoopEnvelopeChannel,
                 parentScope = scope,
+                dispatcher = Dispatchers.Default,
+                clock = MonotonicClock(System::nanoTime),
                 log = diagnosticLog,
                 onEnvelope = { _, _ -> },
                 onClosed = { _, _ -> },
@@ -134,7 +129,6 @@ class ControlConnectionPriorityTest {
             block(connection)
         } finally {
             connection.closeSilently()
-            client.close()
             scope.cancel()
             diagnosticLog.close()
             logFile.delete()
@@ -178,5 +172,15 @@ class ControlConnectionPriorityTest {
             sentAtElapsedNs = seed.toLong(),
             body = body,
         )
+    }
+
+    private object NoopEnvelopeChannel : com.darius.unison.network.EnvelopeChannel {
+        override val remoteHostAddress: String = "127.0.0.1"
+
+        override suspend fun receive(): Envelope? = null
+
+        override suspend fun send(envelope: Envelope) = Unit
+
+        override fun close(cause: Throwable?) = Unit
     }
 }

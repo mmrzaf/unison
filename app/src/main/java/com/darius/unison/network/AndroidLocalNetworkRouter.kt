@@ -7,6 +7,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.system.ErrnoException
 import android.system.OsConstants
+import com.darius.unison.room.port.LocalNetworkPort
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import java.io.IOException
@@ -28,7 +29,7 @@ import java.util.concurrent.ConcurrentHashMap
 class AndroidLocalNetworkRouter(
     context: Context,
     private val log: DiagnosticLog,
-) : LocalNetworkSocketProvider {
+) : LocalNetworkPort {
     private val connectivityManager =
         context.applicationContext.getSystemService(ConnectivityManager::class.java)
 
@@ -41,7 +42,7 @@ class AndroidLocalNetworkRouter(
         discoveredNetworks.clear()
     }
 
-    fun resetSession() {
+    override fun resetSession() {
         activeRoomNetwork = null
         activeLocalAddress = null
     }
@@ -324,7 +325,7 @@ class AndroidLocalNetworkRouter(
      * bound network, the system active LAN, any remaining local Android network, then direct
      * interface enumeration for hotspot/downstream cases where Android exposes no usable [Network].
      */
-    fun preferredLocalAddress(preferHotspot: Boolean): InetAddress? {
+    override fun preferredLocalAddress(preferHotspot: Boolean): InetAddress? {
         activeLocalAddress?.takeIf(NetworkAddressPolicy::isAllowed)?.let { address ->
             return address
         }

@@ -24,7 +24,6 @@ class RoomStateSeparationTest {
 
         assertEquals(before, store.structure.value)
         assertEquals(1_250L, store.playback.value.localPositionMs)
-        assertEquals(1_250L, store.currentState().localPlaybackPositionMs)
     }
 
     @Test
@@ -38,10 +37,9 @@ class RoomStateSeparationTest {
                 members = listOf(MemberSnapshot(peer, "Phone")),
             )
         val store = RoomStore()
-        store.set(RoomUiState(snapshot = snapshot))
+        store.updateStructure { it.copy(snapshot = snapshot) }
 
         assertEquals(snapshot.members, store.structure.value.snapshot!!.members)
-        assertEquals(snapshot.members, store.currentState().snapshot!!.members)
     }
 
     @Test
@@ -51,14 +49,49 @@ class RoomStateSeparationTest {
         store.updateStructure { it.copy(pendingSuccessorQueueItemId = pending) }
 
         assertEquals(pending, store.structure.value.pendingSuccessorQueueItemId)
-        assertEquals(pending, store.currentState().pendingSuccessorQueueItemId)
     }
 
     @Test
     fun unknownLocalPositionIsNotRepresentedAsZeroInTelemetry() {
         val store = RoomStore()
         assertNull(store.playback.value.localPositionMs)
-        assertEquals(0L, store.currentState().localPlaybackPositionMs)
+        assertEquals(
+            0L,
+            store.structure.value
+                .toUiState(store.playback.value, store.transfers.value)
+                .localPlaybackPositionMs,
+        )
+    }
+
+    @Test
+    fun uiStateComposesTheThreeFlows() {
+        val store = RoomStore()
+        val trackId = TrackId("b".repeat(64))
+        store.updateStructure { it.copy(lifecycle = RoomLifecycleState.CONNECTED) }
+        store.updatePlayback { it.copy(localPositionMs = 900L, localIsPlaying = true) }
+        store.updateTransfers {
+            it.copy(
+                transfers =
+                    mapOf(
+                        trackId to
+                            TransferProgress(
+                                trackId = trackId,
+                                bytesTransferred = 1,
+                                totalBytes = 2,
+                                sourcePeerId = peer,
+                                destinationPeerId = null,
+                                state = MemberTrackState.RECEIVING,
+                            )
+                    )
+            )
+        }
+
+        val ui = store.structure.value.toUiState(store.playback.value, store.transfers.value)
+
+        assertEquals(RoomLifecycleState.CONNECTED, ui.lifecycle)
+        assertEquals(900L, ui.localPlaybackPositionMs)
+        assertTrue(ui.localIsPlaying)
+        assertTrue(ui.transfers.containsKey(trackId))
     }
 
     @Test

@@ -9,6 +9,7 @@ import com.darius.unison.model.RoomSnapshot
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.protocol.ProtocolBody
+import com.darius.unison.util.MonotonicClock
 import java.util.Collections
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -22,7 +23,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class CanonicalPlaybackDispatcherTest {
+class PlaybackEffectQueueTest {
     @Test
     fun timelineBurstCollapsesToLatestSnapshot() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -30,9 +31,10 @@ class CanonicalPlaybackDispatcherTest {
         val release = CompletableDeferred<Unit>()
         val reconciled = Collections.synchronizedList(mutableListOf<Long>())
         val dispatcher =
-            CanonicalPlaybackDispatcher(
+            PlaybackEffectQueue(
                 scope = scope,
-                applyExact = { _, _ -> },
+                clock = MonotonicClock(System::nanoTime),
+                applyExact = { _, _, _ -> },
                 reconcileLatest = { work ->
                     reconciled += work.snapshot.sequence
                     if (reconciled.size == 1) {
@@ -69,9 +71,10 @@ class CanonicalPlaybackDispatcherTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val applied = Collections.synchronizedList(mutableListOf<String>())
         val dispatcher =
-            CanonicalPlaybackDispatcher(
+            PlaybackEffectQueue(
                 scope = scope,
-                applyExact = { body, _ -> applied += body::class.simpleName.orEmpty() },
+                clock = MonotonicClock(System::nanoTime),
+                applyExact = { body, _, _ -> applied += body::class.simpleName.orEmpty() },
                 reconcileLatest = {},
                 onFailure = { _, error, _ -> throw error },
             )
@@ -99,9 +102,10 @@ class CanonicalPlaybackDispatcherTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         var calls = 0
         val dispatcher =
-            CanonicalPlaybackDispatcher(
+            PlaybackEffectQueue(
                 scope = scope,
-                applyExact = { _, _ -> calls++ },
+                clock = MonotonicClock(System::nanoTime),
+                applyExact = { _, _, _ -> calls++ },
                 reconcileLatest = { calls++ },
                 onFailure = { _, error, _ -> throw error },
             )
@@ -121,9 +125,10 @@ class CanonicalPlaybackDispatcherTest {
         val failures = Collections.synchronizedList(mutableListOf<Throwable>())
         var reconciliationCalls = 0
         val dispatcher =
-            CanonicalPlaybackDispatcher(
+            PlaybackEffectQueue(
                 scope = scope,
-                applyExact = { _, _ -> },
+                clock = MonotonicClock(System::nanoTime),
+                applyExact = { _, _, _ -> },
                 reconcileLatest = {
                     reconciliationCalls++
                     if (reconciliationCalls == 1) error("broken")
@@ -153,9 +158,10 @@ class CanonicalPlaybackDispatcherTest {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
         val dispatcher =
-            CanonicalPlaybackDispatcher(
+            PlaybackEffectQueue(
                 scope = scope,
-                applyExact = { _, _ -> },
+                clock = MonotonicClock(System::nanoTime),
+                applyExact = { _, _, _ -> },
                 reconcileLatest = {
                     if (!started.isCompleted) {
                         started.complete(Unit)
@@ -194,18 +200,19 @@ class CanonicalPlaybackDispatcherTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val firstStarted = CompletableDeferred<Unit>()
         val releaseFirst = CompletableDeferred<Unit>()
-        val exactTiming = CompletableDeferred<CanonicalPlaybackDispatcher.Timing>()
+        val exactTiming = CompletableDeferred<PlaybackEffectQueue.Timing>()
         val dispatcher =
-            CanonicalPlaybackDispatcher(
+            PlaybackEffectQueue(
                 scope = scope,
-                applyExact = { _, _ -> Unit },
+                clock = MonotonicClock(System::nanoTime),
+                applyExact = { _, _, _ -> Unit },
                 reconcileLatest = {
                     firstStarted.complete(Unit)
                     releaseFirst.await()
                 },
                 onFailure = { _, error, _ -> throw error },
                 onTiming = { timing ->
-                    if (timing.kind == CanonicalPlaybackDispatcher.WorkKind.EXACT) {
+                    if (timing.kind == PlaybackEffectQueue.WorkKind.EXACT) {
                         exactTiming.complete(timing)
                     }
                 },
@@ -222,7 +229,7 @@ class CanonicalPlaybackDispatcherTest {
             releaseFirst.complete(Unit)
 
             val timing = withTimeout(2_000) { exactTiming.await() }
-            assertEquals(CanonicalPlaybackDispatcher.WorkKind.EXACT, timing.kind)
+            assertEquals(PlaybackEffectQueue.WorkKind.EXACT, timing.kind)
             assertEquals("PauseScheduled", timing.mutationType)
             assertTrue(timing.submissionToStartNs > 0L)
             assertTrue(timing.applyDurationNs >= 0L)
@@ -240,9 +247,10 @@ class CanonicalPlaybackDispatcherTest {
         val releaseFirst = CompletableDeferred<Unit>()
         val order = Collections.synchronizedList(mutableListOf<String>())
         val dispatcher =
-            CanonicalPlaybackDispatcher(
+            PlaybackEffectQueue(
                 scope = scope,
-                applyExact = { _, snapshot -> order += "exact:${snapshot.sequence}" },
+                clock = MonotonicClock(System::nanoTime),
+                applyExact = { _, snapshot, _ -> order += "exact:${snapshot.sequence}" },
                 reconcileLatest = { work ->
                     order += "reconcile:${work.snapshot.sequence}"
                     if (work.snapshot.sequence == 1L) {
@@ -301,4 +309,12 @@ class CanonicalPlaybackDispatcherTest {
             playback = CanonicalPlaybackState(queueItemId = item.queueItemId, isPlaying = playing),
         )
     }
+
+    private fun exactContext(): PlaybackEffectQueue.ExactContext =
+        PlaybackEffectQueue.ExactContext(executable = true, coordinator = true)
+
+    private suspend fun PlaybackEffectQueue.submit(
+        body: com.darius.unison.protocol.ProtocolBody,
+        snapshot: com.darius.unison.model.RoomSnapshot,
+    ) = submit(body, snapshot, exactContext())
 }

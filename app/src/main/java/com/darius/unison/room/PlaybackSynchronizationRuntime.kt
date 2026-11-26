@@ -24,29 +24,24 @@ internal class PlaybackSynchronizationRuntime(
         private set
 
     val tuning: PlaybackSyncTuning
-        @Synchronized get() = controller.tuning
+        get() = controller.tuning
 
     val state: PlaybackSyncState
-        @Synchronized get() = controller.state
+        get() = controller.state
 
-    @Synchronized
     fun evaluate(input: PlaybackSyncInput): PlaybackSyncDecision = controller.evaluate(input)
 
-    @Synchronized
     fun holdForFutureCommand(): PlaybackSyncDecision = controller.holdForFutureCommand()
 
-    @Synchronized
     fun selectSpeed(requestedSpeed: Float, actualSpeed: Float, nowNs: Long): Float? =
         speedGate.select(requestedSpeed, actualSpeed, nowNs)
 
-    @Synchronized
     fun reset(preserveLearnedBaseline: Boolean = true) {
         controller.reset(preserveLearnedBaseline)
         speedGate.reset()
     }
 
     /** Returns true only when a different profile was installed. */
-    @Synchronized
     fun updateProfile(value: PlaybackSyncProfile): Boolean {
         if (value == profile) return false
         profile = value

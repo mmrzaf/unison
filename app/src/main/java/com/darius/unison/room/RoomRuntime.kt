@@ -1,10 +1,5 @@
 package com.darius.unison.room
 
-import android.content.Context
-import android.os.Build
-import android.os.SystemClock
-import com.darius.unison.BuildConfig
-import com.darius.unison.app.AppContainer
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.CoordinatorTerm
 import com.darius.unison.model.DiscoveredRoom
@@ -14,6 +9,7 @@ import com.darius.unison.model.LocalPlaybackParticipation
 import com.darius.unison.model.MemberSnapshot
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
+import com.darius.unison.model.QueueItem
 import com.darius.unison.model.QueueItemId
 import com.darius.unison.model.RoomIssue
 import com.darius.unison.model.RoomIssueCode
@@ -32,19 +28,14 @@ import com.darius.unison.model.UserCommand
 import com.darius.unison.model.UserFacingStatus
 import com.darius.unison.model.transportAction
 import com.darius.unison.model.transportActionOrNull
-import com.darius.unison.network.AndroidLocalNetworkRouter
-import com.darius.unison.network.ControlClient
 import com.darius.unison.network.ControlConnection
 import com.darius.unison.network.DiscoveredRoomRegistry
-import com.darius.unison.network.LocalHotspotController
 import com.darius.unison.network.NsdDiscoveryEvent
 import com.darius.unison.network.NsdDiscoveryException
-import com.darius.unison.network.NsdRoomDiscovery
-import com.darius.unison.network.PeerServer
-import com.darius.unison.network.WifiLocks
-import com.darius.unison.playback.CanonicalPlaybackDispatcher
+import com.darius.unison.network.PeerNetwork
 import com.darius.unison.playback.LocalPlayableItem
 import com.darius.unison.playback.PlaybackActivityState
+import com.darius.unison.playback.PlaybackEffectQueue
 import com.darius.unison.playback.PlaybackFailure
 import com.darius.unison.playback.PlaybackIntentReconciliationPolicy
 import com.darius.unison.playback.PlaybackPauseCause
@@ -68,24 +59,25 @@ import com.darius.unison.protocol.SnapshotValidationContext
 import com.darius.unison.protocol.SnapshotValidationResult
 import com.darius.unison.protocol.TransferFailureBlame
 import com.darius.unison.protocol.TransferFailureCode
+import com.darius.unison.room.port.PowerDemand
+import com.darius.unison.room.port.RoomPorts
+import com.darius.unison.room.port.TransferHost
+import com.darius.unison.room.port.TransferPort
 import com.darius.unison.storage.ManagedFileLease
 import com.darius.unison.storage.ManagedFileLeaseReason
 import com.darius.unison.sync.ClockSyncEngine
 import com.darius.unison.sync.SynchronizationDiagnostics
 import com.darius.unison.sync.SynchronizationEventFactory
 import com.darius.unison.transfer.TransferCapacityPolicy
-import com.darius.unison.transfer.TransferManager
-import com.darius.unison.util.AndroidMonotonicClock
+import java.io.File
 import java.net.Socket
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -93,8 +85,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -103,11 +93,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * supplies the shared monotonic clock, and assigns file sources.
  */
 class RoomRuntime(
-    context: Context,
-    private val container: AppContainer,
+    private val ports: RoomPorts,
     private val player: PlayerPort,
     private val scope: CoroutineScope,
-) : PeerServer.Handler, AutoCloseable {
+) : PeerNetwork.Handler, AutoCloseable {
     private data class PendingJoin(
         val room: DiscoveredRoom,
         val credential: RoomJoinCredential,
@@ -130,26 +119,28 @@ class RoomRuntime(
         val requestedBy: PeerId? = null,
     )
 
-    private val appContext = context.applicationContext
-    private val log = container.diagnostics
+    private val log = ports.log
+    private val roomStore = ports.roomStore
     private val diagnostics = RoomDiagnostics(log)
-    private val clock = AndroidMonotonicClock
+    private val clock = ports.clock
     private val clockSync = ClockSyncEngine(clock)
     private val playbackSynchronization = PlaybackSynchronizationRuntime()
-    private val syncDiagnostics = SynchronizationDiagnostics(scope, log)
-    private val wifiLocks = WifiLocks(appContext)
-    private val localNetworkRouter = AndroidLocalNetworkRouter(appContext, log)
-    private val discovery = NsdRoomDiscovery(appContext, wifiLocks, log, localNetworkRouter)
+    private val syncDiagnostics = SynchronizationDiagnostics(scope, ports.ioDispatcher, log)
+    /** Actor-published cadence for the next synchronization tick; read by the timer only. */
+    @Volatile private var nextPlaybackSyncIntervalMs = PLAYBACK_SYNC_INITIAL_INTERVAL_MS
+    private val power = ports.power
+    private val localNetworkRouter = ports.localNetwork
+    private val discovery = ports.discovery
     private val discoveredRoomRegistry = DiscoveredRoomRegistry()
-    private val hotspot = LocalHotspotController(appContext, log)
-    private val controlClient = ControlClient(scope, log, localNetworkRouter)
-    private val server = PeerServer(scope, log, this, localNetworkRouter)
+    private val hotspot = ports.hotspot
+    private val network = ports.network
     private val playerExecutor =
         PlayerExecutor(
             player = player,
             clock = clock,
             clockSync = clockSync,
             scope = scope,
+            dispatcher = ports.ioDispatcher,
             log = log,
             onError = ::onPlaybackFailure,
             onCommandPhase = ::onScheduledCommandPhase,
@@ -202,7 +193,6 @@ class RoomRuntime(
     private val pendingTransferAssignments
         get() = peers.pendingTransferAssignments
 
-    private val initializationMutex = Mutex()
     private val snapshotValidator = RoomSnapshotValidator(maxMembers = MAX_ROOM_MEMBERS)
     private val envelopeReplayProtector = EnvelopeReplayProtector()
     private val admission =
@@ -216,6 +206,7 @@ class RoomRuntime(
             log = log,
             onEnvelope = ::enqueueEnvelope,
             onClosed = ::enqueueControlClosed,
+            elapsedRealtimeMs = clock::elapsedMs,
         )
     private val messageRouter =
         RoomMessageRouter(
@@ -253,6 +244,7 @@ class RoomRuntime(
     private val roomEvents =
         SerializedEventLoop<RoomEvent>(
             scope = scope,
+            clock = clock,
             capacity = ROOM_EVENT_CAPACITY,
             handler = ::processRoomEvent,
             onFailure = { event, error, timing ->
@@ -305,7 +297,12 @@ class RoomRuntime(
             },
         )
     private val transportIntents =
-        TransportIntentCoordinator(scope, ::acceptTransportIntent, ::supersedeTransportIntent)
+        TransportIntentCoordinator(
+            scope,
+            ::acceptTransportIntent,
+            ::supersedeTransportIntent,
+            nowMs = { clock.nowNs() / 1_000_000L },
+        )
     private val localPlaybackParticipation =
         LocalPlaybackParticipationCoordinator(
             player = player,
@@ -329,17 +326,18 @@ class RoomRuntime(
             resetLocalSynchronization = {
                 localPlaybackSync.resetTracking(preserveLearnedBaseline = false)
                 syncDiagnostics.clear()
-                container.roomStore.updatePlayback { it.copy(localDriftMs = null) }
+                roomStore.updatePlayback { it.copy(localDriftMs = null) }
             },
             publishStatus = { report -> publishLocalPlaybackStatus(report) },
             onCoordinatorCohortChanged = ::reevaluateAllPreparation,
             diagnostics = diagnostics,
         )
-    private val playbackDispatcher =
-        CanonicalPlaybackDispatcher(
+    private val playbackEffects =
+        PlaybackEffectQueue(
             scope = scope,
-            applyExact = ::applyExactCanonicalPlayback,
-            reconcileLatest = ::reconcileCanonicalPlayback,
+            clock = clock,
+            applyExact = ::applyExactPlayerEffects,
+            reconcileLatest = ::applyReconcilePlayerEffects,
             preparedQueueItemIds = { preparedQueueItemIds },
             onFailure = { body, error, timing ->
                 diagnostics.error(
@@ -360,8 +358,8 @@ class RoomRuntime(
             },
             onTiming = { timing ->
                 if (
-                    timing.submissionToStartNs >= SLOW_PLAYBACK_DISPATCH_NS ||
-                        timing.applyDurationNs >= SLOW_PLAYBACK_DISPATCH_NS
+                    timing.submissionToStartNs >= SLOW_PLAYBACK_EFFECT_NS ||
+                        timing.applyDurationNs >= SLOW_PLAYBACK_EFFECT_NS
                 ) {
                     diagnostics.warn(
                         "playback.dispatch.slow",
@@ -375,7 +373,7 @@ class RoomRuntime(
             },
         )
 
-    private var transferManager: TransferManager? = null
+    private var transferManager: TransferPort? = null
     private var hotspotStateJob: Job? = null
     private var playerStateJob: Job? = null
     private var discoveryJob: Job? = null
@@ -405,7 +403,7 @@ class RoomRuntime(
     private var explicitPreparationQueueItemIds: Set<QueueItemId> = emptySet()
     private var playbackReadinessQueueRevision: Long = -1L
     private var desiredTransferDemands: Map<TrackId, TransferDemand> = emptyMap()
-    private val localTrackAvailability = ConcurrentHashMap<TrackId, Boolean>()
+    private val localMedia = LocalMediaIndex()
     private var pendingSuccessor: PendingSuccessor? = null
     private var terminalNaturalPause: TerminalNaturalPause? = null
     private val localTransportCommandIds = LinkedHashSet<String>()
@@ -416,8 +414,8 @@ class RoomRuntime(
     private var transferRetryWakeupJob: Job? = null
     private var transportStatusClearJob: Job? = null
     private val sessionJobs = SessionJobRegistry(scope)
-    private val diagnosticDeviceModel = Build.MODEL.orEmpty().take(80)
-    private val diagnosticAndroidVersion = Build.VERSION.SDK_INT
+    private val diagnosticDeviceModel = ports.device.model.take(80)
+    private val diagnosticAndroidVersion = ports.device.sdkInt
     private val closed = AtomicBoolean(false)
 
     private suspend fun processRoomEvent(event: RoomEvent) {
@@ -485,7 +483,7 @@ class RoomRuntime(
 
             is RoomEvent.CoordinatorCommandReceived ->
                 completeEvent(event.completion) {
-                    applyCoordinatorCommandInActor(event.command)
+                    applyCoordinatorCommand(event.command)
                 }
 
             is RoomEvent.CoordinatorTransportSuperseded -> {
@@ -497,20 +495,6 @@ class RoomRuntime(
             is RoomEvent.CanonicalMutationRequested ->
                 completeEvent(event.completion) {
                     applyCanonicalMutation(event.body)
-                }
-
-            is RoomEvent.TrackAvailabilityObserved ->
-                completeEvent(event.completion) {
-                    if (event.available) {
-                        onTrackHaveInActor(event.peerId, event.trackId)
-                    } else {
-                        onTrackNeedInActor(
-                            event.peerId,
-                            event.trackId,
-                            event.priority,
-                            event.neededByCoordinatorNs,
-                        )
-                    }
                 }
 
             is RoomEvent.TracksPrepared ->
@@ -537,12 +521,47 @@ class RoomRuntime(
             is RoomEvent.LocalPlaybackStatusDue -> {
                 if (sessionJobs.isCurrent(event.generation)) processLocalPlaybackStatusDue()
             }
+            is RoomEvent.TimelineRefreshDue -> {
+                if (sessionJobs.isCurrent(event.generation)) {
+                    val snapshot = engine?.snapshot()?.takeIf { it.roomId == event.roomId }
+                    if (snapshot != null) {
+                        refreshPlayerQueue(snapshot)
+                        prepareWindow(snapshot)
+                    }
+                }
+            }
+            is RoomEvent.QueueRefreshDue -> {
+                if (sessionJobs.isCurrent(event.generation)) {
+                    engine?.snapshot()?.let { refreshPlayerQueue(it) }
+                }
+            }
+            is RoomEvent.PlayerMaintenanceRetryDue -> {
+                if (sessionJobs.isCurrent(event.generation)) {
+                    engine?.snapshot()?.let { refreshPlayerQueue(it, allowDeferredRetry = false) }
+                }
+            }
+            is RoomEvent.PlaybackSynchronizationTickDue -> {
+                if (sessionJobs.isCurrent(event.generation)) {
+                    val snapshot = engine?.snapshot() ?: return
+                    runPlaybackSynchronizationTick(
+                        snapshot = snapshot,
+                        coordinator = snapshot.term.coordinatorPeerId == identity.peerId,
+                        connected =
+                            roomStore.structure.value.lifecycle == RoomLifecycleState.CONNECTED,
+                        generation = event.generation,
+                        localPeerId = identity.peerId,
+                    )
+                    nextPlaybackSyncIntervalMs =
+                        localPlaybackSync.intervalMs(snapshot, player.state.value)
+                            ?: localPlaybackSync.tuning.suspendedRecheckIntervalMs
+                }
+            }
             is RoomEvent.PlaybackReferenceBroadcastDue -> {
                 if (sessionJobs.isCurrent(event.generation)) processPlaybackReferenceBroadcastDue()
             }
             is RoomEvent.TransferCompleted -> {
                 if (sessionJobs.isCurrent(event.generation)) {
-                    onLocalTrackReady(event.descriptor)
+                    onLocalTrackReady(event.descriptor, event.file)
                 } else {
                     logStaleSessionEvent("TransferCompleted", event.generation)
                 }
@@ -627,9 +646,9 @@ class RoomRuntime(
     }
 
     private suspend fun processLocalAddressChanged(address: String?) {
-        container.roomStore.update { it.copy(roomAddress = address) }
+        roomStore.updateStructure { it.copy(roomAddress = address) }
         clearRecoveredLocalNetworkIssue(address)
-        if (!::identity.isInitialized || engine == null) return
+        if (engine == null) return
 
         if (address == null) {
             beginLocalConnectivityInterruption()
@@ -658,10 +677,10 @@ class RoomRuntime(
     }
 
     private suspend fun processHotspotChanged(value: HotspotInfo?, address: String?) {
-        val previous = container.roomStore.structure.value.hotspot
-        container.roomStore.update { it.copy(hotspot = value, roomAddress = address) }
+        val previous = roomStore.structure.value.hotspot
+        roomStore.updateStructure { it.copy(hotspot = value, roomAddress = address) }
         clearRecoveredLocalNetworkIssue(address)
-        if (!::identity.isInitialized || engine == null) return
+        if (engine == null) return
 
         // A hosted LocalOnlyHotspot is the room's network, not a cosmetic setting. If Android or
         // the user removes it while this phone coordinates the room, the old room can no longer be
@@ -675,7 +694,7 @@ class RoomRuntime(
 
     private fun clearRecoveredLocalNetworkIssue(address: String?) {
         if (address == null || engine != null) return
-        container.roomStore.update { state ->
+        roomStore.updateStructure { state ->
             if (
                 state.snapshot == null &&
                     state.issue?.code == RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE
@@ -696,7 +715,7 @@ class RoomRuntime(
     private suspend fun beginLocalConnectivityInterruption() {
         val snapshot = engine?.snapshot() ?: return
         pauseLocalPlaybackForConnectivityLoss()
-        container.roomStore.update { state ->
+        roomStore.updateStructure { state ->
             state.copy(
                 lifecycle = RoomLifecycleState.RECONNECTING,
                 status = UserFacingStatus.RECONNECTING,
@@ -741,9 +760,9 @@ class RoomRuntime(
 
     private fun restoreConnectedLifecycle(message: String) {
         if (engine == null) return
-        val current = container.roomStore.structure.value
+        val current = roomStore.structure.value
         if (current.lifecycle != RoomLifecycleState.RECONNECTING) return
-        container.roomStore.update { state ->
+        roomStore.updateStructure { state ->
             state.copy(
                 lifecycle = RoomLifecycleState.CONNECTED,
                 status = UserFacingStatus.READY,
@@ -789,7 +808,7 @@ class RoomRuntime(
         val snapshot = engine?.snapshot() ?: return
         if (snapshot.members.none { it.peerId == peerId }) return
 
-        emitCanonical(ProtocolBody.PeerLeft(peerId))
+        applyCanonicalMutation(ProtocolBody.PeerLeft(peerId))
         peers.removePeer(peerId)
         transferCoordinator.removePeer(peerId)
         cancelTransferRetriesForPeer(peerId)
@@ -808,10 +827,10 @@ class RoomRuntime(
     private suspend fun processPlayerTransition(value: PlayerState) {
         localPlaybackParticipation.observe(value, engine?.snapshot())
         if (value.participation == LocalPlaybackParticipation.OUTPUT_INHIBITED) {
-            launchSessionJob { localPlaybackParticipation.tryPendingRejoin() }
+            localPlaybackParticipation.tryPendingRejoin()
         }
         value.error?.let { error ->
-            container.roomStore.updateStructure { it.copy(errorMessage = error) }
+            roomStore.updateStructure { it.copy(errorMessage = error) }
         }
         when (val action = playerEventInterpreter.observe(value, isCoordinator())) {
             PlayerEventInterpreter.Action.None -> Unit
@@ -848,7 +867,7 @@ class RoomRuntime(
                 // Position is presentation telemetry, not a canonical room event. Publishing it
                 // directly keeps the serialized actor available for joins, heartbeats, and user
                 // commands even while the progress indicator advances several times per second.
-                container.roomStore.updatePlayback { playback ->
+                roomStore.updatePlayback { playback ->
                     playback.copy(
                         localPositionMs = value.positionMs,
                         localQueueItemId = value.queueItemId,
@@ -911,6 +930,7 @@ class RoomRuntime(
 
     /** Enqueues one app command and returns its terminal completion. */
     suspend fun submit(command: AppCommand): CompletableDeferred<Unit> {
+        if (closed.get()) return CompletableDeferred<Unit>().also { it.complete(Unit) }
         if (command is AppCommand.Transport) {
             val completion = CompletableDeferred<Unit>()
             if (!transportIntents.submit(command, completion))
@@ -947,25 +967,14 @@ class RoomRuntime(
     }
 
     private suspend fun handleAppCommand(command: AppCommand) {
-        // Updating local identity must not bring up room networking. Besides being unnecessary,
-        // starting a real PeerServer makes this settings-only command depend on socket setup.
+        diagnostics.info("room.command.received", "command.type" to command::class.simpleName)
+        // A settings-only update must not bring up room networking.
         if (command is AppCommand.SaveDisplayName) {
-            diagnostics.info("room.command.received", "command.type" to command::class.simpleName)
-            container.settings.saveDisplayName(command.name)
-            identity = container.settings.ensureIdentity()
-            container.roomStore.update { it.copy(localIdentity = identity) }
-            if (isCoordinator()) {
-                refreshLocalCoordinatorEndpoint()
-            } else if (engine != null) {
-                localEndpointOrNull()?.let {
-                    sendToCoordinator(ProtocolBody.EndpointAnnouncement(it))
-                }
-            }
+            saveDisplayName(command.name)
             return
         }
 
         ensureInitialized()
-        diagnostics.info("room.command.received", "command.type" to command::class.simpleName)
         when (command) {
             is AppCommand.CreateRoom -> createRoom(command.roomName)
             is AppCommand.JoinRoom -> joinRoom(command.room, command.credential)
@@ -985,9 +994,7 @@ class RoomRuntime(
                 }
             AppCommand.StopOfflineNetwork -> {
                 if (
-                    engine != null &&
-                        isCoordinator() &&
-                        container.roomStore.structure.value.hotspot != null
+                    engine != null && isCoordinator() && roomStore.structure.value.hotspot != null
                 ) {
                     leaveRoom("Room hotspot stopped")
                 } else {
@@ -995,8 +1002,8 @@ class RoomRuntime(
                 }
             }
             is AppCommand.AddTracks -> error("Track preparation must run outside the room actor")
-            // Handled before ensureInitialized() so a settings-only update never starts networking.
-            is AppCommand.SaveDisplayName -> Unit
+            is AppCommand.SaveDisplayName ->
+                error("SaveDisplayName is handled before initialization")
 
             is AppCommand.Play -> {
                 val snapshot = engine?.snapshot()
@@ -1015,7 +1022,7 @@ class RoomRuntime(
                             "Waiting to rejoin",
                             action = TransportAction.PLAY,
                         )
-                        launchSessionJob { localPlaybackParticipation.tryPendingRejoin() }
+                        localPlaybackParticipation.tryPendingRejoin()
                     }
                     PlaybackIntentReconciliationPolicy.PlayRequestAction.MUTATE_CANONICAL_ROOM ->
                         submitUserCommand(
@@ -1128,65 +1135,72 @@ class RoomRuntime(
         }
     }
 
-    private suspend fun ensureInitialized() {
-        initializationMutex.withLock {
-            if (!::identity.isInitialized) {
-                identity = container.settings.ensureIdentity()
-                container.roomStore.update { it.copy(localIdentity = identity) }
-            }
-            ensureServerAndTransfers()
+    private suspend fun saveDisplayName(name: String) {
+        ports.identity.saveDisplayName(name)
+        loadIdentity()
+        if (isCoordinator()) {
+            refreshLocalCoordinatorEndpoint()
+        } else if (engine != null) {
+            localEndpointOrNull()?.let { sendToCoordinator(ProtocolBody.EndpointAnnouncement(it)) }
         }
     }
 
+    private suspend fun loadIdentity() {
+        identity = ports.identity.ensureIdentity()
+        roomStore.updateStructure { it.copy(localIdentity = identity) }
+    }
+
+    private suspend fun ensureInitialized() {
+        if (!::identity.isInitialized) loadIdentity()
+        ensureServerAndTransfers()
+    }
+
     private fun ensureServerAndTransfers() {
-        val port = server.start()
-        if (transferManager == null && ::identity.isInitialized) {
+        val port = network.listen(this)
+        if (transferManager == null) {
             val managerGeneration = sessionJobs.generation
             transferManager =
-                TransferManager(
-                    localIdentity = identity,
-                    localDisplayName = {
-                        container.roomStore.structure.value.localIdentity?.displayName
-                            ?: identity.displayName
-                    },
-                    listeningPort = { server.port },
-                    appVersion = BuildConfig.VERSION_NAME,
-                    trackRepository = container.trackRepository,
-                    fileStore = container.fileStore,
-                    scope = scope,
-                    log = log,
-                    socketProvider = localNetworkRouter,
-                    retentionPolicyProvider = { container.settings.retentionPolicy.first() },
-                    onProgress = { progress ->
-                        sessionJobs.runIfCurrent(managerGeneration) {
-                            container.roomStore.updateTransfers { state ->
-                                state.copy(
-                                    transfers = state.transfers + (progress.trackId to progress)
+                ports.transfers.create(
+                    TransferHost(
+                        localIdentity = identity,
+                        localDisplayName = {
+                            roomStore.structure.value.localIdentity?.displayName
+                                ?: identity.displayName
+                        },
+                        listeningPort = { network.port },
+                        capacityPolicy = transferCapacityPolicy,
+                        onProgress = { progress ->
+                            sessionJobs.runIfCurrent(managerGeneration) {
+                                roomStore.updateTransfers { state ->
+                                    state.copy(
+                                        transfers = state.transfers + (progress.trackId to progress)
+                                    )
+                                }
+                            }
+                        },
+                        onCompleted = { descriptor, file ->
+                            if (sessionJobs.isCurrent(managerGeneration)) {
+                                roomEvents.submit(
+                                    RoomEvent.TransferCompleted(managerGeneration, descriptor, file)
                                 )
                             }
-                        }
-                    },
-                    onCompleted = { descriptor ->
-                        if (sessionJobs.isCurrent(managerGeneration)) {
-                            roomEvents.submit(
-                                RoomEvent.TransferCompleted(managerGeneration, descriptor)
-                            )
-                        }
-                    },
-                    onFailed = { failure ->
-                        if (sessionJobs.isCurrent(managerGeneration)) {
-                            roomEvents.submit(RoomEvent.TransferFailed(managerGeneration, failure))
-                        }
-                    },
-                    capacityPolicy = transferCapacityPolicy,
+                        },
+                        onFailed = { failure ->
+                            if (sessionJobs.isCurrent(managerGeneration)) {
+                                roomEvents.submit(
+                                    RoomEvent.TransferFailed(managerGeneration, failure)
+                                )
+                            }
+                        },
+                    )
                 )
         }
-        container.roomStore.update { it.copy(roomPort = port) }
+        roomStore.updateStructure { it.copy(roomPort = port) }
     }
 
     private suspend fun createRoom(requestedName: String?) {
         resetSession(keepDiscovery = false)
-        container.roomStore.reset()
+        roomStore.reset()
         if (selectedLocalAddress() == null) {
             setFailure(
                 "Connect to Wi-Fi or create a local connection before starting a room",
@@ -1225,16 +1239,16 @@ class RoomRuntime(
             )
         check(snapshotFitsProtocol(initial)) { "Locally-created room snapshot is invalid" }
         engine = RoomEngine(initial)
-        discovery.advertise(id, name, server.port, 1, onError = ::setError)
-        container.roomStore.update { it.copy(localRoomPin = pin) }
+        discovery.advertise(id, name, network.port, 1, onError = ::setError)
+        roomStore.updateStructure { it.copy(localRoomPin = pin) }
         updateSnapshot(initial, RoomLifecycleState.CONNECTED, "Room ready")
         startSessionJobs()
-        diagnostics.created(server.port)
+        diagnostics.created(network.port)
     }
 
     private suspend fun joinRoom(room: DiscoveredRoom, credential: RoomJoinCredential) {
         resetSession(keepDiscovery = false)
-        container.roomStore.reset()
+        roomStore.reset()
         if (selectedLocalAddress() == null) {
             setFailure(
                 "Connect to Wi-Fi or a local connection before joining a room",
@@ -1250,7 +1264,7 @@ class RoomRuntime(
                 credential = credential,
                 generation = sessionJobs.generation,
             )
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 lifecycle = RoomLifecycleState.CONNECTING,
                 status = UserFacingStatus.PREPARING,
@@ -1272,7 +1286,7 @@ class RoomRuntime(
         if (!sessionJobs.isCurrent(pending.generation)) return
         val attempt = pending.attemptsStarted + 1
         pendingJoin = pending.copy(attemptsStarted = attempt)
-        container.roomStore.update { state ->
+        roomStore.updateStructure { state ->
             state.copy(
                 lifecycle = RoomLifecycleState.CONNECTING,
                 status = UserFacingStatus.PREPARING,
@@ -1288,30 +1302,30 @@ class RoomRuntime(
         }
         refreshPowerLocks()
         joinAttemptJob = launchSessionJob {
-            val startedAtMs = SystemClock.elapsedRealtime()
+            val startedAtMs = clock.elapsedMs()
             try {
                 diagnostics.joinStarted(attempt, identity.peerId.value, pending.room.port)
                 val credential = pending.credential as RoomJoinCredential.Pin
                 val connected =
-                    controlClient.connectWithPin(
+                    network.connectWithPin(
                         identity = identity,
                         roomId = pending.room.roomId,
                         host = pending.room.hostAddress,
                         port = pending.room.port,
-                        listeningPort = server.port,
+                        listeningPort = network.port,
                         pin = credential.value,
-                        appVersion = BuildConfig.VERSION_NAME,
+                        appVersion = ports.device.appVersion,
                         onEnvelope = ::enqueueEnvelope,
                         onClosed = ::enqueueControlClosed,
                     )
-                diagnostics.joinAdmitted(attempt, SystemClock.elapsedRealtime() - startedAtMs)
+                diagnostics.joinAdmitted(attempt, clock.elapsedMs() - startedAtMs)
                 roomEvents.submit(
                     RoomEvent.InitialJoinConnected(pending.generation, attempt, connected)
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
-                diagnostics.joinFailed(attempt, SystemClock.elapsedRealtime() - startedAtMs, error)
+                diagnostics.joinFailed(attempt, clock.elapsedMs() - startedAtMs, error)
                 roomEvents.submit(RoomEvent.InitialJoinFailed(pending.generation, attempt, error))
             }
         }
@@ -1331,7 +1345,6 @@ class RoomRuntime(
             return
         }
         coordinatorConnection?.closeSilently()
-        roomSecret?.fill(0)
         roomSecret = event.connected.roomSecret
         roomPin = null
         coordinatorPeerId = event.connected.coordinatorPeerId
@@ -1339,7 +1352,7 @@ class RoomRuntime(
         connections[event.connected.coordinatorPeerId] = event.connected.connection
         publishMemberRuntime()
         event.connected.connection.start()
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 lifecycle = RoomLifecycleState.JOINING,
                 status = UserFacingStatus.PREPARING,
@@ -1390,7 +1403,7 @@ class RoomRuntime(
             return
         }
 
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 lifecycle = RoomLifecycleState.CONNECTING,
                 status = UserFacingStatus.RECONNECTING,
@@ -1412,8 +1425,8 @@ class RoomRuntime(
         sessionJobs.advanceAndCancelNow()
         transferManager?.cancelAll()
         transferManager = null
-        identity = container.settings.rotateIdentity()
-        container.roomStore.update {
+        identity = ports.identity.rotateIdentity()
+        roomStore.updateStructure {
             it.copy(
                 localIdentity = identity,
                 lifecycle = RoomLifecycleState.CONNECTING,
@@ -1450,7 +1463,7 @@ class RoomRuntime(
         discoveryJob?.cancel()
         val scanGeneration = ++discoveryGeneration
         discoveredRoomRegistry.clear()
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 lifecycle =
                     if (it.snapshot == null) RoomLifecycleState.DISCOVERING else it.lifecycle,
@@ -1466,7 +1479,7 @@ class RoomRuntime(
             scope.launch(start = CoroutineStart.LAZY) {
                 fun publishRooms() {
                     val rooms = discoveredRoomRegistry.rooms()
-                    container.roomStore.update { state ->
+                    roomStore.updateStructure { state ->
                         if (state.discoveredRooms == rooms) state
                         else state.copy(discoveredRooms = rooms)
                     }
@@ -1507,7 +1520,7 @@ class RoomRuntime(
                         error,
                         "discovery.recoverable" to recoverable,
                     )
-                    container.roomStore.update { state ->
+                    roomStore.updateStructure { state ->
                         state.copy(
                             errorMessage =
                                 if (recoverable) {
@@ -1525,7 +1538,7 @@ class RoomRuntime(
                     // scan that has already installed its listener.
                     if (discoveryGeneration == scanGeneration) {
                         discoveryJob = null
-                        container.roomStore.update { state ->
+                        roomStore.updateStructure { state ->
                             state.copy(
                                 lifecycle =
                                     if (state.snapshot == null) RoomLifecycleState.IDLE
@@ -1548,7 +1561,7 @@ class RoomRuntime(
         discoveryJob = null
         discovery.stopDiscovery()
         discoveredRoomRegistry.clear()
-        container.roomStore.update { state ->
+        roomStore.updateStructure { state ->
             state.copy(
                 lifecycle =
                     if (state.snapshot == null) RoomLifecycleState.IDLE else state.lifecycle,
@@ -1575,7 +1588,7 @@ class RoomRuntime(
             completion.complete(Unit)
             return
         }
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 status = UserFacingStatus.PREPARING,
                 statusMessage = "Adding music…",
@@ -1589,13 +1602,10 @@ class RoomRuntime(
             val result =
                 try {
                     Result.success(
-                        withContext(Dispatchers.IO) {
-                            container.trackRepository.getMany(requestedTrackIds).filter { descriptor
-                                ->
+                        withContext(ports.ioDispatcher) {
+                            ports.tracks.getMany(requestedTrackIds).filter { descriptor ->
                                 suspendResult {
-                                        container.trackRepository.requireReadableFile(
-                                            descriptor.trackId
-                                        ) != null
+                                        ports.tracks.requireReadableFile(descriptor.trackId) != null
                                     }
                                     .onFailure { error ->
                                         diagnostics.warn(
@@ -1682,7 +1692,7 @@ class RoomRuntime(
         )
         val queueItemId = (command as? AppCommand.PlayQueueItem)?.queueItemId
         val positionMs = (command as? AppCommand.Seek)?.positionMs
-        container.roomStore.updateStructure { state ->
+        roomStore.updateStructure { state ->
             state.copy(
                 transportStatus =
                     TransportCommandStatus(
@@ -1709,7 +1719,7 @@ class RoomRuntime(
         if (commandId !in localTransportCommandIds) return
         if (commandId in completedLocalTransportCommandIds) return
         var applied = false
-        container.roomStore.updateStructure { state ->
+        roomStore.updateStructure { state ->
             val current = state.transportStatus
             if (current != null && current.commandId != commandId && current.active)
                 return@updateStructure state
@@ -1754,7 +1764,7 @@ class RoomRuntime(
                     if (phase == TransportCommandPhase.REJECTED) TRANSPORT_REJECTION_VISIBLE_MS
                     else TRANSPORT_RESULT_VISIBLE_MS
                 )
-                container.roomStore.updateStructure { state ->
+                roomStore.updateStructure { state ->
                     val current = state.transportStatus
                     if (current?.commandId == commandId && current.phase == phase) {
                         state.copy(transportStatus = null)
@@ -2017,9 +2027,7 @@ class RoomRuntime(
 
         // The watchdog observes command completion; it is not a second playback controller.
         // Canonical playback/sync owns repair. Cancel only this command's stale reservation.
-        launchSessionJob {
-            playerExecutor.cancelIfOwned(event.commandId, publishSuperseded = false)
-        }
+        playerExecutor.cancelIfOwned(event.commandId, publishSuperseded = false)
         val message = "Playback command did not settle"
         publishTransportStatus(
             requestedBy = route.requestedBy,
@@ -2112,16 +2120,6 @@ class RoomRuntime(
     }
 
     private suspend fun applyCoordinatorCommand(command: UserCommand) {
-        if (roomEvents.isCurrentContext()) {
-            applyCoordinatorCommandInActor(command)
-            return
-        }
-        val completion = CompletableDeferred<Unit>()
-        roomEvents.submit(RoomEvent.CoordinatorCommandReceived(command, completion))
-        completion.await()
-    }
-
-    private suspend fun applyCoordinatorCommandInActor(command: UserCommand) {
         if (!recentCommandIds.add(command.commandId)) return
         while (recentCommandIds.size > RECENT_COMMAND_ID_LIMIT) {
             recentCommandIds.remove(recentCommandIds.first())
@@ -2209,25 +2207,7 @@ class RoomRuntime(
             return
         }
         resolution.rejection?.let { reason ->
-            diagnostics.warn(
-                "room.command.rejected",
-                null,
-                "command.type" to command::class.simpleName,
-                "reason" to reason,
-            )
-            if (action != null) {
-                publishTransportStatus(
-                    requestedBy = command.requestedBy,
-                    commandId = command.commandId,
-                    action = action,
-                    phase = TransportCommandPhase.REJECTED,
-                    message = reason,
-                )
-            } else if (command.requestedBy == identity.peerId) {
-                setError(reason)
-            } else {
-                send(command.requestedBy, ProtocolBody.CommandRejected(command.commandId, reason))
-            }
+            rejectCommand(command, action, reason)
             return
         }
 
@@ -2293,82 +2273,99 @@ class RoomRuntime(
                     playPositionOverrideMs = replayPositionOverrideMs,
                 )
         ) {
-            is RoomReducer.Decision.Rejected -> {
-                diagnostics.warn(
-                    "room.command.rejected",
-                    null,
-                    "command.type" to effectiveCommand::class.simpleName,
-                    "reason" to decision.reason,
-                )
-                if (action != null) {
-                    publishTransportStatus(
-                        requestedBy = command.requestedBy,
-                        commandId = command.commandId,
-                        action = action,
-                        phase = TransportCommandPhase.REJECTED,
-                        message = decision.reason,
-                    )
-                } else if (command.requestedBy == identity.peerId) {
-                    setError(decision.reason)
-                } else {
-                    send(
-                        command.requestedBy,
-                        ProtocolBody.CommandRejected(command.commandId, decision.reason),
-                    )
-                }
-            }
-
+            is RoomReducer.Decision.Rejected -> rejectCommand(command, action, decision.reason)
             is RoomReducer.Decision.Accepted -> {
-                diagnostics.info(
-                    "room.command.accepted",
-                    "command.type" to effectiveCommand::class.simpleName,
-                    "canonical.mutation_count" to decision.mutations.size,
-                )
-                if (action != null) {
-                    val targetId =
-                        decision.mutations
-                            .asSequence()
-                            .mapNotNull { mutation ->
-                                when (val body = mutation.body) {
-                                    is ProtocolBody.PlayScheduled -> body.queueItemId
-                                    is ProtocolBody.PauseScheduled -> body.queueItemId
-                                    is ProtocolBody.SeekScheduled -> body.queueItemId
-                                    is ProtocolBody.CurrentItemChanged -> body.queueItemId
-                                    else -> null
-                                }
-                            }
-                            .lastOrNull()
-                    publishTransportStatus(
-                        requestedBy = command.requestedBy,
-                        commandId = command.commandId,
-                        action = action,
-                        phase = TransportCommandPhase.ACCEPTED,
-                        queueItemId = targetId,
-                        requestedPositionMs = (effectiveCommand as? UserCommand.Seek)?.positionMs,
-                    )
-                }
-                if (
-                    effectiveCommand is UserCommand.Play ||
-                        effectiveCommand is UserCommand.Pause ||
-                        effectiveCommand is UserCommand.Seek ||
-                        effectiveCommand is UserCommand.SkipNext ||
-                        effectiveCommand is UserCommand.SkipPrevious ||
-                        effectiveCommand is UserCommand.PlayQueueItem
-                ) {
-                    cancelPendingSuccessor("Replaced by a newer playback action")
-                }
-                decision.mutations.forEach { mutation ->
-                    updateSnapshot(mutation.snapshot)
-                    revalidateTerminalNaturalPause(mutation.snapshot)
-                    broadcastCanonical(mutation.sequence, mutation.body)
-                    playbackDispatcher.submit(mutation.body, mutation.snapshot)
-                }
+                commitAcceptedCommand(command, effectiveCommand, action, decision)
                 if (replayPositionOverrideMs != null && effectiveCommand is UserCommand.Play) {
                     terminalNaturalPause = null
                 }
             }
         }
     }
+
+    /**
+     * Rejects [command]. Transport commands answer through the status lane, the coordinator's own
+     * commands surface as a local error, and everyone else gets a direct rejection.
+     */
+    private suspend fun rejectCommand(
+        command: UserCommand,
+        action: TransportAction?,
+        reason: String,
+    ) {
+        diagnostics.warn(
+            "room.command.rejected",
+            null,
+            "command.type" to command::class.simpleName,
+            "reason" to reason,
+        )
+        when {
+            action != null ->
+                publishTransportStatus(
+                    requestedBy = command.requestedBy,
+                    commandId = command.commandId,
+                    action = action,
+                    phase = TransportCommandPhase.REJECTED,
+                    message = reason,
+                )
+            command.requestedBy == identity.peerId -> setError(reason)
+            else ->
+                send(command.requestedBy, ProtocolBody.CommandRejected(command.commandId, reason))
+        }
+    }
+
+    private suspend fun commitAcceptedCommand(
+        command: UserCommand,
+        effectiveCommand: UserCommand,
+        action: TransportAction?,
+        decision: RoomReducer.Decision.Accepted,
+    ) {
+        diagnostics.info(
+            "room.command.accepted",
+            "command.type" to effectiveCommand::class.simpleName,
+            "canonical.mutation_count" to decision.mutations.size,
+        )
+        if (action != null) {
+            val targetId =
+                decision.mutations
+                    .asSequence()
+                    .mapNotNull { mutation ->
+                        when (val body = mutation.body) {
+                            is ProtocolBody.PlayScheduled -> body.queueItemId
+                            is ProtocolBody.PauseScheduled -> body.queueItemId
+                            is ProtocolBody.SeekScheduled -> body.queueItemId
+                            is ProtocolBody.CurrentItemChanged -> body.queueItemId
+                            else -> null
+                        }
+                    }
+                    .lastOrNull()
+            publishTransportStatus(
+                requestedBy = command.requestedBy,
+                commandId = command.commandId,
+                action = action,
+                phase = TransportCommandPhase.ACCEPTED,
+                queueItemId = targetId,
+                requestedPositionMs = (effectiveCommand as? UserCommand.Seek)?.positionMs,
+            )
+        }
+        if (effectiveCommand.supersedesPendingSuccessor()) {
+            cancelPendingSuccessor("Replaced by a newer playback action")
+        }
+        decision.mutations.forEach { mutation ->
+            updateSnapshot(mutation.snapshot)
+            revalidateTerminalNaturalPause(mutation.snapshot)
+            broadcastCanonical(mutation.sequence, mutation.body)
+            prepareCanonicalPlayback(mutation.body, mutation.snapshot)
+            playbackEffects.submit(mutation.body, mutation.snapshot, exactContext(mutation.body))
+        }
+    }
+
+    private fun UserCommand.supersedesPendingSuccessor(): Boolean =
+        this is UserCommand.Play ||
+            this is UserCommand.Pause ||
+            this is UserCommand.Seek ||
+            this is UserCommand.SkipNext ||
+            this is UserCommand.SkipPrevious ||
+            this is UserCommand.PlayQueueItem
 
     private fun transportLeadNs(snapshot: RoomSnapshot): Long =
         RoomTransportTiming.leadNs(
@@ -2378,26 +2375,29 @@ class RoomRuntime(
             localCoordinatorPeerId = identity.peerId,
             localParticipation = player.state.value.participation,
             nowNs = clock.nowNs(),
-            reconnecting =
-                container.roomStore.structure.value.lifecycle == RoomLifecycleState.RECONNECTING,
+            reconnecting = roomStore.structure.value.lifecycle == RoomLifecycleState.RECONNECTING,
         )
 
-    private suspend fun reconcileCanonicalPlayback(
-        reconciliation: CanonicalPlaybackDispatcher.PlaybackReconciliation
+    /** Player-only side of reconciliation; the actor already scheduled the timeline refresh. */
+    private suspend fun applyReconcilePlayerEffects(
+        reconciliation: PlaybackEffectQueue.PlaybackReconciliation
     ) {
-        val snapshot = reconciliation.snapshot
         diagnostics.debug(
             "playback.reconcile.requested",
-            "canonical.sequence" to snapshot.sequence,
+            "canonical.sequence" to reconciliation.snapshot.sequence,
             "playback.queue_revision" to reconciliation.key.queueRevision,
             "playback.triggers" to reconciliation.triggers.joinToString(),
         )
         // Canonical queue semantics own repeat behavior. Media3 itself never loops an item.
         playerExecutor.maintenance { setRepeatCurrentItem(false) }
-        requestTimelineRefresh(snapshot)
     }
 
-    private suspend fun applyExactCanonicalPlayback(body: ProtocolBody, snapshot: RoomSnapshot) {
+    /**
+     * Actor-owned playback preparation. Media readiness, the transfer demand window, and
+     * preparation jobs are room state, so they are computed on the actor's thread of control.
+     * [applyExactPlayerEffects] below is the only part that crosses into the player queue.
+     */
+    private suspend fun prepareCanonicalPlayback(body: ProtocolBody, snapshot: RoomSnapshot) {
         diagnostics.info(
             "room.canonical.applied",
             "mutation.type" to body::class.simpleName,
@@ -2423,13 +2423,9 @@ class RoomRuntime(
             }
 
             is ProtocolBody.PlayScheduled ->
-                if (canApplyScheduledCommand()) {
+                if (canApplyScheduledCommand(isCoordinator())) {
                     if (!isQueueItemLocallyExecutable(body.queueItemId)) {
-                        diagnostics.debug(
-                            "playback.execution.waiting_for_media",
-                            "queue.item_id" to body.queueItemId.value.take(12),
-                            "command.id" to body.commandId?.take(12),
-                        )
+                        logWaitingForMedia(body.queueItemId, body.commandId)
                         prepareWindow(snapshot, priorityQueueItemId = body.queueItemId)
                     } else {
                         val local = player.state.value
@@ -2439,33 +2435,13 @@ class RoomRuntime(
                             preferredPositionMs = local.positionMs,
                         )
                         markTrackPlayed(snapshot, body.queueItemId)
-                        playerExecutor.schedulePlay(
-                            body.queueItemId,
-                            body.positionMs,
-                            body.executeAtCoordinatorNs,
-                            body.commandId,
-                        )
                     }
                 }
 
-            is ProtocolBody.PauseScheduled ->
-                if (canApplyScheduledCommand()) {
-                    playerExecutor.schedulePause(
-                        body.queueItemId,
-                        body.positionMs,
-                        body.executeAtCoordinatorNs,
-                        body.commandId,
-                    )
-                }
-
             is ProtocolBody.SeekScheduled ->
-                if (canApplyScheduledCommand()) {
+                if (canApplyScheduledCommand(isCoordinator())) {
                     if (!isQueueItemLocallyExecutable(body.queueItemId)) {
-                        diagnostics.debug(
-                            "playback.execution.waiting_for_media",
-                            "queue.item_id" to body.queueItemId.value.take(12),
-                            "command.id" to body.commandId?.take(12),
-                        )
+                        logWaitingForMedia(body.queueItemId, body.commandId)
                         prepareWindow(snapshot, priorityQueueItemId = body.queueItemId)
                     } else {
                         val local = player.state.value
@@ -2474,24 +2450,18 @@ class RoomRuntime(
                             preferredCurrentQueueItemId = local.queueItemId,
                             preferredPositionMs = local.positionMs,
                         )
-                        playerExecutor.scheduleSeek(
-                            body.queueItemId,
-                            body.positionMs,
-                            body.resumePlayback,
-                            body.executeAtCoordinatorNs,
-                            body.commandId,
-                        )
                     }
                 }
+
+            is ProtocolBody.QueueItemsAdded,
+            is ProtocolBody.QueueItemMoved,
+            is ProtocolBody.QueueShuffled,
+            is ProtocolBody.RepeatModeChanged -> requestTimelineRefresh(snapshot)
 
             is ProtocolBody.CurrentItemChanged -> {
                 val targetQueueItemId = body.queueItemId
                 if (targetQueueItemId != null && !isQueueItemLocallyExecutable(targetQueueItemId)) {
-                    diagnostics.debug(
-                        "playback.execution.waiting_for_media",
-                        "queue.item_id" to targetQueueItemId.value.take(12),
-                        "command.id" to body.commandId?.take(12),
-                    )
+                    logWaitingForMedia(targetQueueItemId, body.commandId)
                     prepareWindow(snapshot, priorityQueueItemId = targetQueueItemId)
                     return
                 }
@@ -2511,7 +2481,78 @@ class RoomRuntime(
                     refreshPlayerQueue(snapshot)
                 }
                 prepareWindow(snapshot)
-                if (!canApplyScheduledCommand()) return
+                scheduleQueueRefresh(body.executeAtCoordinatorNs)
+            }
+
+            else -> Unit
+        }
+    }
+
+    private suspend fun exactContext(body: ProtocolBody): PlaybackEffectQueue.ExactContext =
+        PlaybackEffectQueue.ExactContext(
+            executable =
+                when (body) {
+                    is ProtocolBody.PlayScheduled -> isQueueItemLocallyExecutable(body.queueItemId)
+                    is ProtocolBody.SeekScheduled -> isQueueItemLocallyExecutable(body.queueItemId)
+                    is ProtocolBody.CurrentItemChanged -> {
+                        val queueItemId = body.queueItemId
+                        if (queueItemId == null) true else isQueueItemLocallyExecutable(queueItemId)
+                    }
+                    else -> true
+                },
+            coordinator = isCoordinator(),
+        )
+
+    private fun logWaitingForMedia(queueItemId: QueueItemId, commandId: String?) {
+        diagnostics.debug(
+            "playback.execution.waiting_for_media",
+            "queue.item_id" to queueItemId.value.take(12),
+            "command.id" to commandId?.take(12),
+        )
+    }
+
+    /** Player-only effects. Runs on the playback queue and never reads or writes room state. */
+    private suspend fun applyExactPlayerEffects(
+        body: ProtocolBody,
+        snapshot: RoomSnapshot,
+        context: PlaybackEffectQueue.ExactContext,
+    ) {
+        when (body) {
+            ProtocolBody.QueueCleared -> Unit
+
+            is ProtocolBody.PlayScheduled ->
+                if (canApplyScheduledCommand(context.coordinator) && context.executable) {
+                    playerExecutor.schedulePlay(
+                        body.queueItemId,
+                        body.positionMs,
+                        body.executeAtCoordinatorNs,
+                        body.commandId,
+                    )
+                }
+
+            is ProtocolBody.PauseScheduled ->
+                if (canApplyScheduledCommand(context.coordinator)) {
+                    playerExecutor.schedulePause(
+                        body.queueItemId,
+                        body.positionMs,
+                        body.executeAtCoordinatorNs,
+                        body.commandId,
+                    )
+                }
+
+            is ProtocolBody.SeekScheduled ->
+                if (canApplyScheduledCommand(context.coordinator) && context.executable) {
+                    playerExecutor.scheduleSeek(
+                        body.queueItemId,
+                        body.positionMs,
+                        body.resumePlayback,
+                        body.executeAtCoordinatorNs,
+                        body.commandId,
+                    )
+                }
+
+            is ProtocolBody.CurrentItemChanged -> {
+                if (!canApplyScheduledCommand(context.coordinator) || !context.executable) return
                 body.queueItemId?.let { target ->
                     val expectedNow =
                         body.positionMs +
@@ -2551,7 +2592,6 @@ class RoomRuntime(
                             pause(PlaybackPauseCause.CANONICAL_QUEUE_EMPTY)
                         }
                     }
-                scheduleQueueRefresh(body.executeAtCoordinatorNs)
             }
 
             else -> Unit
@@ -2654,349 +2694,49 @@ class RoomRuntime(
     ) {
         val current = engine?.snapshot()
         if (current != null && envelope.roomId != current.roomId) return
-        val coordinatorNow =
-            when {
-                isCoordinator() -> clock.nowNs()
-                clockSync.synchronized -> clockSync.coordinatorNowNs()
-                else -> null
-            }
-        when (
-            val acceptance =
-                envelopeReplayProtector.evaluate(
-                    socketPeerId = peerId,
-                    envelope = envelope,
-                    acceptedTerm = current?.term?.number,
-                    lastAppliedSequence = current?.sequence,
-                    coordinatorNowNs = coordinatorNow,
-                )
-        ) {
-            EnvelopeAcceptance.Accepted -> Unit
-            EnvelopeAcceptance.Duplicate -> return
-            is EnvelopeAcceptance.SequenceGap -> {
-                diagnostics.warn(
-                    "network.envelope.sequence_gap",
-                    null,
-                    "sequence.expected" to acceptance.expected,
-                    "sequence.actual" to acceptance.actual,
-                    "peer.id" to peerId.value.take(12),
-                )
-                if (!isCoordinator() && current != null) {
-                    sendToCoordinator(ProtocolBody.SnapshotRequest(current.sequence))
-                }
-                return
-            }
-            is EnvelopeAcceptance.Rejected -> {
-                diagnostics.warn(
-                    "network.envelope.rejected",
-                    null,
-                    "peer.id" to peerId.value.take(12),
-                    "reason" to acceptance.reason,
-                )
-                return
-            }
-        }
+        if (!admitEnvelope(peerId, envelope, current)) return
         if (refreshRemoteLiveness) {
-            lastSeenElapsedMs[peerId] = SystemClock.elapsedRealtime()
+            lastSeenElapsedMs[peerId] = clock.elapsedMs()
         }
         when (val body = envelope.body) {
-            is ProtocolBody.JoinAccepted -> {
-                if (isCoordinator() || peerId != coordinatorPeerId) return
-                if (
-                    body.snapshot.term.number != envelope.term ||
-                        !validateIncomingSnapshot(
-                            snapshot = body.snapshot,
-                            expectedRoomId = envelope.roomId,
-                            expectedCoordinatorPeerId = peerId,
-                            minimumTerm = current?.term?.number,
-                            minimumSequence = current?.sequence,
-                        ) ||
-                        !validatePeerDirectory(body.peerDirectory, body.snapshot)
-                ) {
-                    throw IllegalStateException("Invalid join acceptance")
-                }
-                joinTimeoutJob?.cancel()
-                joinTimeoutJob = null
-                joinAttemptJob?.cancel()
-                joinAttemptJob = null
-                pendingJoin = null
-                resetClockSynchronization()
-                engine = RoomEngine(body.snapshot)
-                coordinatorPeerId = body.snapshot.term.coordinatorPeerId
-                body.peerDirectory.forEach { peerDirectory[it.peerId] = it }
-                lastSeenElapsedMs[body.snapshot.term.coordinatorPeerId] =
-                    SystemClock.elapsedRealtime()
-                announcedTrackIds.clear()
-                preparedQueueItemIds = emptySet()
-                explicitPreparationQueueItemIds = emptySet()
-                playbackReadinessQueueRevision = -1L
-                recoveryJob?.cancel()
-                recoveryJob = null
-
-                // Publish the authenticated room and start liveness work before touching local
-                // files. Playback preparation is recoverable and must never hold the
-                // serialized room actor or make an otherwise valid join appear to time out.
-                updateSnapshot(body.snapshot, RoomLifecycleState.CONNECTED, "Connected")
-                startSessionJobs()
-                launchSnapshotPreparation(body.snapshot, initialJoin = true)
-            }
-
-            is ProtocolBody.UserCommandRequest ->
-                if (isCoordinator()) {
-                    if (body.command.requestedBy != peerId) {
-                        send(
-                            peerId,
-                            ProtocolBody.CommandRejected(
-                                body.command.commandId,
-                                "Invalid command identity",
-                            ),
-                        )
-                    } else if (body.command.transportActionOrNull() != null) {
-                        queueRemoteTransportCommand(body.command)
-                    } else {
-                        applyCoordinatorCommand(body.command)
-                    }
-                }
-
-            is ProtocolBody.CommandStatus ->
-                if (peerId == coordinatorPeerId && body.commandId.isNotBlank()) {
-                    if (body.commandId in localTransportCommandIds) {
-                        updateLocalTransportPhase(
-                            commandId = body.commandId,
-                            phase = body.phase,
-                            message = body.message,
-                            queueItemId = body.queueItemId,
-                            requestedPositionMs = body.requestedPositionMs,
-                            action = body.action,
-                        )
-                    }
-                }
-
-            is ProtocolBody.CommandRejected ->
-                if (peerId == coordinatorPeerId && body.commandId.isNotBlank()) {
-                    val currentStatus = container.roomStore.structure.value.transportStatus
-                    if (currentStatus?.commandId == body.commandId) {
-                        updateLocalTransportPhase(
-                            body.commandId,
-                            TransportCommandPhase.REJECTED,
-                            body.reason,
-                        )
-                    } else {
-                        setError(body.reason)
-                    }
-                }
-
-            is ProtocolBody.PeerJoined -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.PeerUpdated -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.PeerLeft -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.QueueItemsAdded -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.QueueItemsRemoved -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.QueueItemMoved -> applyCanonicalEnvelope(envelope, body)
-            ProtocolBody.QueueCleared -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.PlaybackReadinessChanged -> {
-                if (!isCoordinator() && peerId == coordinatorPeerId) {
-                    applyPlaybackReadiness(body)
-                }
-            }
-            is ProtocolBody.QueueItemPreparationRequested -> {
-                when {
-                    isCoordinator() -> {
-                        val snapshot = engine?.snapshot() ?: return
-                        if (snapshot.members.any { it.peerId == peerId }) {
-                            requestQueueItemPreparation(
-                                queueItemId = body.queueItemId,
-                                requestId = body.commandId,
-                                requestingPeerId = peerId,
-                            )
-                        }
-                    }
-                    peerId == coordinatorPeerId -> {
-                        val snapshot = engine?.snapshot() ?: return
-                        if (snapshot.queue.any { it.queueItemId == body.queueItemId }) {
-                            explicitPreparationQueueItemIds += body.queueItemId
-                            publishMediaReadiness(snapshot)
-                            prepareWindow(snapshot, priorityQueueItemId = body.queueItemId)
-                        }
-                    }
-                }
-            }
-            is ProtocolBody.QueueShuffled -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.RepeatModeChanged -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.PlayScheduled -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.PauseScheduled -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.SeekScheduled -> applyCanonicalEnvelope(envelope, body)
+            is ProtocolBody.JoinAccepted -> onJoinAccepted(peerId, envelope, body, current)
+            is ProtocolBody.UserCommandRequest -> onUserCommandRequest(peerId, body)
+            is ProtocolBody.CommandStatus -> onCommandStatus(peerId, body)
+            is ProtocolBody.CommandRejected -> onCommandRejected(peerId, body)
+            is ProtocolBody.PeerJoined,
+            is ProtocolBody.PeerUpdated,
+            is ProtocolBody.PeerLeft,
+            is ProtocolBody.QueueItemsAdded,
+            is ProtocolBody.QueueItemsRemoved,
+            is ProtocolBody.QueueItemMoved,
+            ProtocolBody.QueueCleared,
+            is ProtocolBody.QueueShuffled,
+            is ProtocolBody.RepeatModeChanged,
+            is ProtocolBody.PlayScheduled,
+            is ProtocolBody.PauseScheduled,
+            is ProtocolBody.SeekScheduled,
             is ProtocolBody.CurrentItemChanged -> applyCanonicalEnvelope(envelope, body)
-            is ProtocolBody.Snapshot -> {
-                val before = engine?.snapshot()
-                val expectedCoordinator =
-                    before?.term?.coordinatorPeerId ?: coordinatorPeerId ?: return
-                if (isCoordinator() || peerId != expectedCoordinator) return
-                if (
-                    !validateIncomingSnapshot(
-                        snapshot = body.snapshot,
-                        expectedRoomId = envelope.roomId,
-                        expectedCoordinatorPeerId = peerId,
-                        minimumTerm = before?.term?.number,
-                        minimumSequence = before?.sequence,
-                    )
-                )
-                    return
-                if (before != null && body.snapshot.term.number > before.term.number) {
-                    resetClockSynchronization()
-                    localPlaybackSync.resetRuntime(preserveLearnedBaseline = true)
-                    playbackSession.clearCanonical()
-                }
-                val replaced =
-                    engine?.replace(body.snapshot) ?: body.snapshot.also { engine = RoomEngine(it) }
-                preparedQueueItemIds = emptySet()
-                explicitPreparationQueueItemIds = emptySet()
-                playbackReadinessQueueRevision = -1L
-                updateSnapshot(replaced)
-                launchSnapshotPreparation(replaced, initialJoin = false)
-            }
-
-            is ProtocolBody.SnapshotRequest ->
-                if (isCoordinator())
-                    send(
-                        peerId,
-                        ProtocolBody.Snapshot(engine?.snapshot() ?: return),
-                    )
-
-            is ProtocolBody.PeerDirectory ->
-                if (!isCoordinator() && peerId == coordinatorPeerId) {
-                    val snapshot = engine?.snapshot() ?: return
-                    if (!validatePeerDirectory(body.peers, snapshot)) {
-                        diagnostics.warn("room.peer_directory.rejected")
-                        return
-                    }
-                    peerDirectory.keys.retainAll(body.peers.map { it.peerId }.toSet())
-                    body.peers.forEach { peerDirectory[it.peerId] = it }
-                }
-
+            is ProtocolBody.PlaybackReadinessChanged ->
+                if (!isCoordinator() && peerId == coordinatorPeerId) applyPlaybackReadiness(body)
+            is ProtocolBody.QueueItemPreparationRequested ->
+                onQueueItemPreparationRequested(peerId, body)
+            is ProtocolBody.Snapshot -> onSnapshot(peerId, envelope, body)
+            is ProtocolBody.SnapshotRequest -> onSnapshotRequest(peerId)
+            is ProtocolBody.PeerDirectory -> onPeerDirectory(peerId, body)
             is ProtocolBody.EndpointAnnouncement ->
                 if (isCoordinator() && sourceConnection != null) {
                     updatePeerEndpoint(sourceConnection, body.endpoint)
                 }
-
-            is ProtocolBody.Heartbeat -> {
-                val snapshot = engine?.snapshot()
-                if (isCoordinator()) {
-                    send(peerId, ProtocolBody.AckSequence(snapshot?.sequence ?: 0))
-                } else if (
-                    peerId == snapshot?.term?.coordinatorPeerId &&
-                        body.lastAppliedSequence > snapshot.sequence
-                ) {
-                    sendToCoordinator(ProtocolBody.SnapshotRequest(snapshot.sequence))
-                }
-            }
-
-            is ProtocolBody.AckSequence -> {
-                val snapshot = engine?.snapshot()
-                if (
-                    !isCoordinator() &&
-                        peerId == snapshot?.term?.coordinatorPeerId &&
-                        body.sequence > snapshot.sequence
-                ) {
-                    sendToCoordinator(ProtocolBody.SnapshotRequest(snapshot.sequence))
-                }
-            }
-
-            is ProtocolBody.ClockPing ->
-                if (isCoordinator()) {
-                    val receive = clock.nowNs()
-                    send(
-                        peerId,
-                        ProtocolBody.ClockPong(
-                            body.pingId,
-                            body.guestSendNs,
-                            receive,
-                            clock.nowNs(),
-                        ),
-                    )
-                }
-
-            is ProtocolBody.ClockPong -> {
-                if (isCoordinator() || peerId != coordinatorPeerId) return
-                val wasSynchronized = clockSync.synchronized
-                clockSync.recordPong(
-                    body.pingId,
-                    body.guestSendNs,
-                    body.coordinatorReceiveNs,
-                    body.coordinatorSendNs,
-                    clock.nowNs(),
-                )
-                reportLocalClockReadiness()
-                if (!wasSynchronized && clockSync.synchronized) {
-                    container.roomStore.update {
-                        it.copy(status = UserFacingStatus.READY, statusMessage = "Ready")
-                    }
-                }
-            }
-
-            is ProtocolBody.ClockReady -> {
-                if (!isCoordinator()) return
-                val roundTrip = body.roundTripNs?.takeIf { it in 0..MAX_REPORTED_CLOCK_RTT_NS }
-                val uncertainty =
-                    body.uncertaintyNs?.takeIf { it in 0..MAX_REPORTED_CLOCK_UNCERTAINTY_NS }
-                val validClockQuality = roundTrip != null && uncertainty != null
-                val ready = body.synchronized && validClockQuality
-                if (body.synchronized && !validClockQuality) {
-                    diagnostics.warn(
-                        "sync.clock_quality.rejected",
-                        null,
-                        "peer.id" to peerId.value.take(12),
-                    )
-                }
-                val nowNs = clock.nowNs()
-                val wasClockReady = peerPlaybackHealth.isClockReady(peerId, nowNs)
-                val readinessChanged =
-                    peerPlaybackHealth.updateClock(
-                        peerId = peerId,
-                        synchronized = ready,
-                        roundTripNs = roundTrip.takeIf { ready },
-                        uncertaintyNs = uncertainty.takeIf { ready },
-                        nowNs = nowNs,
-                    )
-                if (readinessChanged) reevaluateAllPreparation()
-                if (ready && !wasClockReady) {
-                    val snapshot = engine?.snapshot()
-                    if (snapshot != null) {
-                        send(
-                            peerId,
-                            playbackSession.playbackStateSync(snapshot, nowNs, recovery = true),
-                        )
-                    }
-                }
-            }
-
+            is ProtocolBody.Heartbeat -> onHeartbeat(peerId, body)
+            is ProtocolBody.AckSequence -> onAckSequence(peerId, body)
+            is ProtocolBody.ClockPing -> onClockPing(peerId, body)
+            is ProtocolBody.ClockPong -> onClockPong(peerId, body)
+            is ProtocolBody.ClockReady -> onClockReady(peerId, body)
             is ProtocolBody.PlaybackStateSync ->
-                if (peerId == coordinatorPeerId) {
-                    val generation = sessionJobs.generation
-                    launchSessionJob {
-                        if (sessionJobs.isCurrent(generation))
-                            canonicalPlayback.applyRemoteSync(body)
-                    }
-                }
-            is ProtocolBody.PlaybackStatusReport ->
-                if (isCoordinator()) {
-                    val readinessChanged =
-                        peerPlaybackHealth.updateParticipation(
-                            peerId = peerId,
-                            participation = body.participation,
-                            nowNs = clock.nowNs(),
-                        )
-                    if (readinessChanged) reevaluateAllPreparation()
-                    val generation = sessionJobs.generation
-                    launchSessionJob {
-                        if (sessionJobs.isCurrent(generation)) {
-                            canonicalPlayback.handleStatusReport(
-                                peerId,
-                                body,
-                                playbackExecutable = peerPlaybackHealth.isContentReady(peerId),
-                            )
-                        }
-                    }
-                }
+                if (peerId == coordinatorPeerId) canonicalPlayback.applyRemoteSync(body)
+            is ProtocolBody.PlaybackStatusReport -> onPlaybackStatusReport(peerId, body)
             is ProtocolBody.TrackHave -> if (isCoordinator()) onTrackHave(peerId, body.trackId)
+            is ProtocolBody.TrackReady -> if (isCoordinator()) onTrackHave(peerId, body.trackId)
             is ProtocolBody.TrackNeed ->
                 if (isCoordinator()) {
                     onTrackNeed(
@@ -3008,77 +2748,385 @@ class RoomRuntime(
                 }
             is ProtocolBody.TrackSourceAssigned ->
                 if (!isCoordinator() && peerId == coordinatorPeerId) onTrackSourceAssigned(body)
-
             is ProtocolBody.TrackSourceAuthorized ->
                 if (isCoordinator()) onTrackSourceAuthorized(peerId, body)
-            is ProtocolBody.TrackReady -> if (isCoordinator()) onTrackHave(peerId, body.trackId)
             is ProtocolBody.TrackFailed ->
                 if (isCoordinator()) {
                     onTrackFailed(peerId, body)
                 } else if (peerId == coordinatorPeerId && !body.retryable) {
                     onCoordinatorTransferBlocked(body)
                 }
-            is ProtocolBody.LeaveRoom -> {
-                if (!isCoordinator() && peerId == coordinatorPeerId) {
-                    setRoomEnded(
-                        body.reason?.takeIf { it.isNotBlank() } ?: "The room host ended the room"
-                    )
-                    return
-                }
-                if (isCoordinator()) {
-                    peerDisconnectGraceJobs.remove(peerId)?.cancel()
-                    val snapshot = engine?.snapshot()
-                    if (snapshot?.members?.any { it.peerId == peerId } == true) {
-                        emitCanonical(ProtocolBody.PeerLeft(peerId))
-                    }
-                    peers.removePeer(peerId)
-                    transferCoordinator.removePeer(peerId)
-                    cancelTransferRetriesForPeer(peerId)
-                    assignEligibleTransfers()
-                    publishMemberRuntime()
-                    broadcast(ProtocolBody.PeerDirectory(peerDirectory.values.toList()))
-                }
-                connections[peerId]?.close()
-            }
-            is ProtocolBody.RejoinRequest ->
-                if (isCoordinator()) {
-                    val snapshot = engine?.snapshot() ?: return
-                    send(peerId, ProtocolBody.Snapshot(snapshot))
-                    onTracksHaveInActor(peerId, body.cachedTrackIds.take(MAX_REJOIN_CACHE_IDS))
-                    val latest = engine?.snapshot() ?: return
-                    send(
-                        peerId,
-                        ProtocolBody.PlaybackReadinessChanged(
-                            queueRevision = latest.queueRevision,
-                            preparedQueueItemIds = preparedQueueItemIds,
-                        ),
-                    )
-                    explicitPreparationQueueItemIds.forEach { queueItemId ->
-                        send(peerId, ProtocolBody.QueueItemPreparationRequested(queueItemId))
-                    }
-                }
-
+            is ProtocolBody.LeaveRoom -> onLeaveRoom(peerId, body)
+            is ProtocolBody.RejoinRequest -> onRejoinRequest(peerId, body)
             is ProtocolBody.TrackDescriptorMessage ->
                 if (!isCoordinator() && peerId == coordinatorPeerId) {
                     scheduleLocalAvailabilityProbe(body.descriptor.trackId)
                 }
+            is ProtocolBody.TransferCancelled -> onTransferCancelled(peerId, body)
+        }
+    }
 
-            is ProtocolBody.TransferCancelled -> {
-                if (isCoordinator()) {
-                    transferCoordinator.removeDemand(body.trackId, peerId)
-                    cancelTransferRetry(body.trackId, peerId)
-                    waitingForSource[body.trackId]?.remove(peerId)
-                    assignNextForDestination(peerId)
-                } else if (peerId == coordinatorPeerId) {
-                    // Coordinator cancellation is reserved for lifecycle/explicit teardown. Normal
-                    // demand-window changes no longer send this message in 1.2.0.
-                    transferManager?.cancel(
-                        body.trackId,
-                        body.reason ?: "Coordinator cancelled transfer",
+    /**
+     * Applies replay, term and sequence admission. Duplicates, gaps and rejections are fully
+     * handled here; only an accepted envelope reaches the body handlers.
+     */
+    private suspend fun admitEnvelope(
+        peerId: PeerId,
+        envelope: Envelope,
+        current: RoomSnapshot?,
+    ): Boolean {
+        val coordinatorNow =
+            when {
+                isCoordinator() -> clock.nowNs()
+                clockSync.synchronized -> clockSync.coordinatorNowNs()
+                else -> null
+            }
+        return when (
+            val acceptance =
+                envelopeReplayProtector.evaluate(
+                    socketPeerId = peerId,
+                    envelope = envelope,
+                    acceptedTerm = current?.term?.number,
+                    lastAppliedSequence = current?.sequence,
+                    coordinatorNowNs = coordinatorNow,
+                )
+        ) {
+            EnvelopeAcceptance.Accepted -> true
+            EnvelopeAcceptance.Duplicate -> false
+            is EnvelopeAcceptance.SequenceGap -> {
+                diagnostics.warn(
+                    "network.envelope.sequence_gap",
+                    null,
+                    "sequence.expected" to acceptance.expected,
+                    "sequence.actual" to acceptance.actual,
+                    "peer.id" to peerId.value.take(12),
+                )
+                if (!isCoordinator() && current != null) {
+                    sendToCoordinator(ProtocolBody.SnapshotRequest(current.sequence))
+                }
+                false
+            }
+            is EnvelopeAcceptance.Rejected -> {
+                diagnostics.warn(
+                    "network.envelope.rejected",
+                    null,
+                    "peer.id" to peerId.value.take(12),
+                    "reason" to acceptance.reason,
+                )
+                false
+            }
+        }
+    }
+
+    /** Forgets what this device told the room it has prepared; the next publish starts clean. */
+    private fun resetPreparationState() {
+        preparedQueueItemIds = emptySet()
+        explicitPreparationQueueItemIds = emptySet()
+        playbackReadinessQueueRevision = -1L
+    }
+
+    private suspend fun onJoinAccepted(
+        peerId: PeerId,
+        envelope: Envelope,
+        body: ProtocolBody.JoinAccepted,
+        current: RoomSnapshot?,
+    ) {
+        if (isCoordinator() || peerId != coordinatorPeerId) return
+        if (
+            body.snapshot.term.number != envelope.term ||
+                !validateIncomingSnapshot(
+                    snapshot = body.snapshot,
+                    expectedRoomId = envelope.roomId,
+                    expectedCoordinatorPeerId = peerId,
+                    minimumTerm = current?.term?.number,
+                    minimumSequence = current?.sequence,
+                ) ||
+                !validatePeerDirectory(body.peerDirectory, body.snapshot)
+        ) {
+            throw IllegalStateException("Invalid join acceptance")
+        }
+        joinTimeoutJob?.cancel()
+        joinTimeoutJob = null
+        joinAttemptJob?.cancel()
+        joinAttemptJob = null
+        pendingJoin = null
+        resetClockSynchronization()
+        engine = RoomEngine(body.snapshot)
+        coordinatorPeerId = body.snapshot.term.coordinatorPeerId
+        body.peerDirectory.forEach { peerDirectory[it.peerId] = it }
+        lastSeenElapsedMs[body.snapshot.term.coordinatorPeerId] = clock.elapsedMs()
+        announcedTrackIds.clear()
+        resetPreparationState()
+        recoveryJob?.cancel()
+        recoveryJob = null
+
+        // Publish the authenticated room and start liveness work before touching local files.
+        // Playback preparation is recoverable and must never hold the serialized room actor or
+        // make an otherwise valid join appear to time out.
+        updateSnapshot(body.snapshot, RoomLifecycleState.CONNECTED, "Connected")
+        startSessionJobs()
+        launchSnapshotPreparation(body.snapshot, initialJoin = true)
+    }
+
+    private suspend fun onUserCommandRequest(
+        peerId: PeerId,
+        body: ProtocolBody.UserCommandRequest,
+    ) {
+        if (!isCoordinator()) return
+        when {
+            body.command.requestedBy != peerId ->
+                send(
+                    peerId,
+                    ProtocolBody.CommandRejected(
+                        body.command.commandId,
+                        "Invalid command identity",
+                    ),
+                )
+            body.command.transportActionOrNull() != null ->
+                queueRemoteTransportCommand(body.command)
+            else -> applyCoordinatorCommand(body.command)
+        }
+    }
+
+    private fun onCommandStatus(peerId: PeerId, body: ProtocolBody.CommandStatus) {
+        if (peerId != coordinatorPeerId || body.commandId.isBlank()) return
+        if (body.commandId !in localTransportCommandIds) return
+        updateLocalTransportPhase(
+            commandId = body.commandId,
+            phase = body.phase,
+            message = body.message,
+            queueItemId = body.queueItemId,
+            requestedPositionMs = body.requestedPositionMs,
+            action = body.action,
+        )
+    }
+
+    private fun onCommandRejected(peerId: PeerId, body: ProtocolBody.CommandRejected) {
+        if (peerId != coordinatorPeerId || body.commandId.isBlank()) return
+        if (roomStore.structure.value.transportStatus?.commandId == body.commandId) {
+            updateLocalTransportPhase(body.commandId, TransportCommandPhase.REJECTED, body.reason)
+        } else {
+            setError(body.reason)
+        }
+    }
+
+    private suspend fun onQueueItemPreparationRequested(
+        peerId: PeerId,
+        body: ProtocolBody.QueueItemPreparationRequested,
+    ) {
+        val snapshot = engine?.snapshot() ?: return
+        when {
+            isCoordinator() -> {
+                if (snapshot.members.any { it.peerId == peerId }) {
+                    requestQueueItemPreparation(
+                        queueItemId = body.queueItemId,
+                        requestId = body.commandId,
+                        requestingPeerId = peerId,
                     )
                 }
             }
+            peerId == coordinatorPeerId -> {
+                if (snapshot.queue.any { it.queueItemId == body.queueItemId }) {
+                    explicitPreparationQueueItemIds += body.queueItemId
+                    publishMediaReadiness(snapshot)
+                    prepareWindow(snapshot, priorityQueueItemId = body.queueItemId)
+                }
+            }
         }
+    }
+
+    private suspend fun onSnapshot(
+        peerId: PeerId,
+        envelope: Envelope,
+        body: ProtocolBody.Snapshot,
+    ) {
+        val before = engine?.snapshot()
+        val expectedCoordinator = before?.term?.coordinatorPeerId ?: coordinatorPeerId ?: return
+        if (isCoordinator() || peerId != expectedCoordinator) return
+        if (
+            !validateIncomingSnapshot(
+                snapshot = body.snapshot,
+                expectedRoomId = envelope.roomId,
+                expectedCoordinatorPeerId = peerId,
+                minimumTerm = before?.term?.number,
+                minimumSequence = before?.sequence,
+            )
+        ) {
+            return
+        }
+        if (before != null && body.snapshot.term.number > before.term.number) {
+            resetClockSynchronization()
+            localPlaybackSync.resetRuntime(preserveLearnedBaseline = true)
+            playbackSession.clearCanonical()
+        }
+        val replaced =
+            engine?.replace(body.snapshot) ?: body.snapshot.also { engine = RoomEngine(it) }
+        resetPreparationState()
+        updateSnapshot(replaced)
+        launchSnapshotPreparation(replaced, initialJoin = false)
+    }
+
+    private suspend fun onSnapshotRequest(peerId: PeerId) {
+        if (!isCoordinator()) return
+        send(peerId, ProtocolBody.Snapshot(engine?.snapshot() ?: return))
+    }
+
+    private fun onPeerDirectory(peerId: PeerId, body: ProtocolBody.PeerDirectory) {
+        if (isCoordinator() || peerId != coordinatorPeerId) return
+        val snapshot = engine?.snapshot() ?: return
+        if (!validatePeerDirectory(body.peers, snapshot)) {
+            diagnostics.warn("room.peer_directory.rejected")
+            return
+        }
+        peerDirectory.keys.retainAll(body.peers.map { it.peerId }.toSet())
+        body.peers.forEach { peerDirectory[it.peerId] = it }
+    }
+
+    private suspend fun onHeartbeat(peerId: PeerId, body: ProtocolBody.Heartbeat) {
+        val snapshot = engine?.snapshot()
+        if (isCoordinator()) {
+            send(peerId, ProtocolBody.AckSequence(snapshot?.sequence ?: 0))
+        } else if (
+            peerId == snapshot?.term?.coordinatorPeerId &&
+                body.lastAppliedSequence > snapshot.sequence
+        ) {
+            sendToCoordinator(ProtocolBody.SnapshotRequest(snapshot.sequence))
+        }
+    }
+
+    private suspend fun onAckSequence(peerId: PeerId, body: ProtocolBody.AckSequence) {
+        val snapshot = engine?.snapshot()
+        if (
+            !isCoordinator() &&
+                peerId == snapshot?.term?.coordinatorPeerId &&
+                body.sequence > snapshot.sequence
+        ) {
+            sendToCoordinator(ProtocolBody.SnapshotRequest(snapshot.sequence))
+        }
+    }
+
+    private suspend fun onClockPing(peerId: PeerId, body: ProtocolBody.ClockPing) {
+        if (!isCoordinator()) return
+        val receive = clock.nowNs()
+        send(
+            peerId,
+            ProtocolBody.ClockPong(body.pingId, body.guestSendNs, receive, clock.nowNs()),
+        )
+    }
+
+    private suspend fun onClockPong(peerId: PeerId, body: ProtocolBody.ClockPong) {
+        if (isCoordinator() || peerId != coordinatorPeerId) return
+        val wasSynchronized = clockSync.synchronized
+        clockSync.recordPong(
+            body.pingId,
+            body.guestSendNs,
+            body.coordinatorReceiveNs,
+            body.coordinatorSendNs,
+            clock.nowNs(),
+        )
+        reportLocalClockReadiness()
+        if (!wasSynchronized && clockSync.synchronized) {
+            roomStore.updateStructure {
+                it.copy(status = UserFacingStatus.READY, statusMessage = "Ready")
+            }
+        }
+    }
+
+    private suspend fun onClockReady(peerId: PeerId, body: ProtocolBody.ClockReady) {
+        if (!isCoordinator()) return
+        val roundTrip = body.roundTripNs?.takeIf { it in 0..MAX_REPORTED_CLOCK_RTT_NS }
+        val uncertainty = body.uncertaintyNs?.takeIf { it in 0..MAX_REPORTED_CLOCK_UNCERTAINTY_NS }
+        val validClockQuality = roundTrip != null && uncertainty != null
+        val ready = body.synchronized && validClockQuality
+        if (body.synchronized && !validClockQuality) {
+            diagnostics.warn(
+                "sync.clock_quality.rejected",
+                null,
+                "peer.id" to peerId.value.take(12),
+            )
+        }
+        val nowNs = clock.nowNs()
+        val wasClockReady = peerPlaybackHealth.isClockReady(peerId, nowNs)
+        val readinessChanged =
+            peerPlaybackHealth.updateClock(
+                peerId = peerId,
+                synchronized = ready,
+                roundTripNs = roundTrip.takeIf { ready },
+                uncertaintyNs = uncertainty.takeIf { ready },
+                nowNs = nowNs,
+            )
+        if (readinessChanged) reevaluateAllPreparation()
+        if (ready && !wasClockReady) {
+            val snapshot = engine?.snapshot() ?: return
+            send(peerId, playbackSession.playbackStateSync(snapshot, nowNs, recovery = true))
+        }
+    }
+
+    private suspend fun onPlaybackStatusReport(
+        peerId: PeerId,
+        body: ProtocolBody.PlaybackStatusReport,
+    ) {
+        if (!isCoordinator()) return
+        val readinessChanged =
+            peerPlaybackHealth.updateParticipation(
+                peerId = peerId,
+                participation = body.participation,
+                nowNs = clock.nowNs(),
+            )
+        if (readinessChanged) reevaluateAllPreparation()
+        canonicalPlayback.handleStatusReport(
+            peerId,
+            body,
+            playbackExecutable = peerPlaybackHealth.isContentReady(peerId),
+        )
+    }
+
+    private suspend fun onLeaveRoom(peerId: PeerId, body: ProtocolBody.LeaveRoom) {
+        if (!isCoordinator() && peerId == coordinatorPeerId) {
+            setRoomEnded(body.reason?.takeIf { it.isNotBlank() } ?: "The room host ended the room")
+            return
+        }
+        if (isCoordinator()) {
+            peerDisconnectGraceJobs.remove(peerId)?.cancel()
+            val snapshot = engine?.snapshot()
+            if (snapshot?.members?.any { it.peerId == peerId } == true) {
+                applyCanonicalMutation(ProtocolBody.PeerLeft(peerId))
+            }
+            peers.removePeer(peerId)
+            transferCoordinator.removePeer(peerId)
+            cancelTransferRetriesForPeer(peerId)
+            assignEligibleTransfers()
+            publishMemberRuntime()
+            broadcast(ProtocolBody.PeerDirectory(peerDirectory.values.toList()))
+        }
+        connections[peerId]?.close()
+    }
+
+    private suspend fun onRejoinRequest(peerId: PeerId, body: ProtocolBody.RejoinRequest) {
+        if (!isCoordinator()) return
+        val snapshot = engine?.snapshot() ?: return
+        send(peerId, ProtocolBody.Snapshot(snapshot))
+        onTracksHaveInActor(peerId, body.cachedTrackIds.take(MAX_REJOIN_CACHE_IDS))
+        val latest = engine?.snapshot() ?: return
+        send(
+            peerId,
+            ProtocolBody.PlaybackReadinessChanged(
+                queueRevision = latest.queueRevision,
+                preparedQueueItemIds = preparedQueueItemIds,
+            ),
+        )
+        explicitPreparationQueueItemIds.forEach { queueItemId ->
+            send(peerId, ProtocolBody.QueueItemPreparationRequested(queueItemId))
+        }
+    }
+
+    // Only a destination withdraws its own demand; the coordinator never sends this.
+    private suspend fun onTransferCancelled(peerId: PeerId, body: ProtocolBody.TransferCancelled) {
+        if (!isCoordinator()) return
+        transferCoordinator.removeDemand(body.trackId, peerId)
+        cancelTransferRetry(body.trackId, peerId)
+        waitingForSource[body.trackId]?.remove(peerId)
+        assignNextForDestination(peerId)
     }
 
     private suspend fun applyCanonicalEnvelope(envelope: Envelope, body: ProtocolBody) {
@@ -3109,16 +3157,17 @@ class RoomRuntime(
                 }
         updateSnapshot(updated)
         applyCanonicalRuntimeBookkeeping(body, updated)
-        playbackDispatcher.submit(body, updated)
+        prepareCanonicalPlayback(body, updated)
+        playbackEffects.submit(body, updated, exactContext(body))
     }
 
     private fun scheduleLocalAvailabilityProbe(trackId: TrackId) {
         if (!announcedTrackIds.add(trackId)) return
         val generation = sessionJobs.generation
         launchSessionJob {
-            val hasFile =
-                withContext(Dispatchers.IO) {
-                    suspendResult { container.trackRepository.requireReadableFile(trackId) != null }
+            val file =
+                withContext(ports.ioDispatcher) {
+                    suspendResult { ports.tracks.requireReadableFile(trackId) }
                         .onFailure { error ->
                             diagnostics.warn(
                                 "storage.track.read_failed",
@@ -3126,13 +3175,13 @@ class RoomRuntime(
                                 "track.id" to trackId.value.take(12),
                             )
                         }
-                        .getOrDefault(false)
+                        .getOrNull()
                 }
             roomEvents.submit(
                 RoomEvent.LocalTrackAvailabilityProbed(
                     generation = generation,
                     trackId = trackId,
-                    available = hasFile,
+                    file = file,
                 )
             )
         }
@@ -3142,15 +3191,18 @@ class RoomRuntime(
         event: RoomEvent.LocalTrackAvailabilityProbed
     ) {
         if (!sessionJobs.isCurrent(event.generation) || engine == null) return
-        localTrackAvailability[event.trackId] = event.available
+        val available = event.file != null
+        val newlyAvailable = available && !localMedia.isAvailable(event.trackId)
+        if (event.file != null) localMedia.markAvailable(event.trackId, event.file)
+        else localMedia.markUnavailable(event.trackId)
         val snapshot = engine?.snapshot()
         if (snapshot != null) publishMediaReadiness(snapshot)
         if (isCoordinator()) {
-            if (event.available) {
-                onTrackHaveInActor(identity.peerId, event.trackId)
+            if (available) {
+                onTrackHave(identity.peerId, event.trackId)
             } else {
                 val demand = desiredTransferDemands[event.trackId]
-                onTrackNeedInActor(
+                onTrackNeed(
                     peerId = identity.peerId,
                     trackId = event.trackId,
                     priority = demand?.priority ?: TransferPriority.BACKGROUND,
@@ -3160,7 +3212,7 @@ class RoomRuntime(
         } else {
             val demand = desiredTransferDemands[event.trackId]
             sendToCoordinator(
-                if (event.available) {
+                if (available) {
                     ProtocolBody.TrackHave(event.trackId)
                 } else {
                     ProtocolBody.TrackNeed(
@@ -3171,29 +3223,13 @@ class RoomRuntime(
                 }
             )
         }
-        if (event.available && snapshot != null) {
+        if (newlyAvailable && snapshot != null) requestTimelineRefresh(snapshot)
+        if (available && snapshot != null) {
             requestLocalPlaybackRecoveryIfCurrent(event.trackId, snapshot)
         }
     }
 
     private suspend fun onTrackHave(peerId: PeerId, trackId: TrackId) {
-        if (roomEvents.isCurrentContext()) {
-            onTrackHaveInActor(peerId, trackId)
-            return
-        }
-        val completion = CompletableDeferred<Unit>()
-        roomEvents.submit(
-            RoomEvent.TrackAvailabilityObserved(
-                peerId = peerId,
-                trackId = trackId,
-                available = true,
-                completion = completion,
-            )
-        )
-        completion.await()
-    }
-
-    private suspend fun onTrackHaveInActor(peerId: PeerId, trackId: TrackId) {
         recordTrackAvailability(peerId, trackId)
         transferCoordinator.finish(trackId, peerId)
         clearTransferBlockedIssue(peerId, trackId)
@@ -3223,8 +3259,7 @@ class RoomRuntime(
     }
 
     private fun recordTrackAvailability(peerId: PeerId, trackId: TrackId): Boolean {
-        val changed =
-            availability.computeIfAbsent(trackId) { ConcurrentHashMap.newKeySet() }.add(peerId)
+        val changed = availability.getOrPut(trackId) { mutableSetOf() }.add(peerId)
         waitingForSource[trackId]?.remove(peerId)
         return changed
     }
@@ -3258,32 +3293,8 @@ class RoomRuntime(
         priority: TransferPriority = TransferPriority.BACKGROUND,
         neededByCoordinatorNs: Long? = null,
     ) {
-        if (roomEvents.isCurrentContext()) {
-            onTrackNeedInActor(peerId, trackId, priority, neededByCoordinatorNs)
-            return
-        }
-        val completion = CompletableDeferred<Unit>()
-        roomEvents.submit(
-            RoomEvent.TrackAvailabilityObserved(
-                peerId = peerId,
-                trackId = trackId,
-                available = false,
-                priority = priority,
-                neededByCoordinatorNs = neededByCoordinatorNs,
-                completion = completion,
-            )
-        )
-        completion.await()
-    }
-
-    private suspend fun onTrackNeedInActor(
-        peerId: PeerId,
-        trackId: TrackId,
-        priority: TransferPriority = TransferPriority.BACKGROUND,
-        neededByCoordinatorNs: Long? = null,
-    ) {
         availability[trackId]?.remove(peerId)
-        waitingForSource.computeIfAbsent(trackId) { ConcurrentHashMap.newKeySet() }.add(peerId)
+        waitingForSource.getOrPut(trackId) { mutableSetOf() }.add(peerId)
         val nowNs = clock.nowNs()
         val sanitizedDeadline = neededByCoordinatorNs?.takeIf {
             it in nowNs..(nowNs + MAX_TRANSFER_DEADLINE_NS)
@@ -3354,7 +3365,7 @@ class RoomRuntime(
                 "transfer.priority" to demand.priority.name,
                 "transfer.needed_by_coordinator_ns" to demand.neededByCoordinatorNs,
             )
-            val expiresAt = SystemClock.elapsedRealtime() + TRANSFER_TOKEN_LIFETIME_MS
+            val expiresAt = clock.elapsedMs() + TRANSFER_TOKEN_LIFETIME_MS
 
             if (sourceId == identity.peerId) {
                 transferManager?.authorize(
@@ -3404,7 +3415,7 @@ class RoomRuntime(
         )
         val decision = transferCoordinator.recordRouteFailure(route, clock.nowNs())
         waitingForSource
-            .computeIfAbsent(expired.track.trackId) { ConcurrentHashMap.newKeySet() }
+            .getOrPut(expired.track.trackId) { mutableSetOf() }
             .add(expired.destinationPeerId)
         decision.retryAtCoordinatorNs?.let { retryAt ->
             scheduleTransferRetry(expired.track.trackId, expired.destinationPeerId, retryAt)
@@ -3451,11 +3462,11 @@ class RoomRuntime(
         when (identity.peerId) {
             assignment.source.peerId -> {
                 transferManager?.authorize(
-                    container.roomStore.structure.value.snapshot?.roomId ?: return,
+                    roomStore.structure.value.snapshot?.roomId ?: return,
                     assignment.track.trackId,
                     assignment.destinationPeerId,
                     assignment.authorizationToken,
-                    SystemClock.elapsedRealtime() + TRANSFER_TOKEN_LIFETIME_MS,
+                    clock.elapsedMs() + TRANSFER_TOKEN_LIFETIME_MS,
                 )
                 launchSessionJob {
                     sendToCoordinator(
@@ -3470,7 +3481,7 @@ class RoomRuntime(
 
             assignment.destinationPeerId ->
                 transferManager?.download(
-                    roomId = container.roomStore.structure.value.snapshot?.roomId ?: return,
+                    roomId = roomStore.structure.value.snapshot?.roomId ?: return,
                     track = assignment.track,
                     source = assignment.source,
                     authorizationToken = assignment.authorizationToken,
@@ -3551,9 +3562,7 @@ class RoomRuntime(
             )
             notifyTransferBlockedPeer(peerId, failure)
         } else if (demandStillWanted) {
-            waitingForSource
-                .computeIfAbsent(failure.trackId) { ConcurrentHashMap.newKeySet() }
-                .add(peerId)
+            waitingForSource.getOrPut(failure.trackId) { mutableSetOf() }.add(peerId)
         } else {
             waitingForSource[failure.trackId]?.remove(peerId)
             cancelTransferRetry(failure.trackId, peerId)
@@ -3690,7 +3699,7 @@ class RoomRuntime(
         val snapshot = engine?.snapshot() ?: return
         val queueItemId =
             snapshot.queue.firstOrNull { it.track.trackId == trackId }?.queueItemId ?: return
-        container.roomStore.update { state ->
+        roomStore.updateStructure { state ->
             val issue = state.issue
             if (
                 issue?.code == RoomIssueCode.TRANSFER_BLOCKED &&
@@ -3778,12 +3787,14 @@ class RoomRuntime(
         return next.queueItemId.takeIf { remainingMs <= SHUFFLE_RUNWAY_PRESERVE_THRESHOLD_MS }
     }
 
-    private fun canApplyScheduledCommand(): Boolean =
-        roleEngine().canApplyScheduledCommand(clockSync.estimate(clock.nowNs()))
+    private fun canApplyScheduledCommand(coordinator: Boolean): Boolean =
+        (if (coordinator) CoordinatorEngine else ParticipantEngine).canApplyScheduledCommand(
+            clockSync.estimate(clock.nowNs())
+        )
 
-    private suspend fun onLocalTrackReady(descriptor: TrackDescriptor) {
+    private suspend fun onLocalTrackReady(descriptor: TrackDescriptor, file: File) {
         announcedTrackIds.add(descriptor.trackId)
-        localTrackAvailability[descriptor.trackId] = true
+        localMedia.markAvailable(descriptor.trackId, file)
         clearTransferBlockedIssue(identity.peerId, descriptor.trackId)
         val snapshot = engine?.snapshot() ?: return
         publishMediaReadiness(snapshot)
@@ -3791,29 +3802,27 @@ class RoomRuntime(
         if (isCoordinator()) onTrackHave(identity.peerId, descriptor.trackId)
         else sendToCoordinator(ProtocolBody.TrackReady(descriptor.trackId))
         requestLocalPlaybackRecoveryIfCurrent(descriptor.trackId, snapshot)
-        launchSessionJob { localPlaybackParticipation.tryPendingRejoin() }
+        localPlaybackParticipation.tryPendingRejoin()
     }
 
-    private fun launchSnapshotPreparation(snapshot: RoomSnapshot, initialJoin: Boolean) {
+    private suspend fun launchSnapshotPreparation(snapshot: RoomSnapshot, initialJoin: Boolean) {
         timelineRefreshJob?.cancel()
-        timelineRefreshJob = launchSessionJob {
-            try {
-                reconcileSnapshotQueue(snapshot)
-                prepareWindow(snapshot)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                val phase = if (initialJoin) "Initial" else "Snapshot"
-                diagnostics.warn(
-                    "playback.preparation.failed",
-                    error,
-                    "preparation.phase" to phase.lowercase(),
-                )
-                setError(
-                    if (initialJoin) "Connected; some music may need to be prepared again"
-                    else "Room restored; some music may need to be prepared again"
-                )
-            }
+        try {
+            reconcileSnapshotQueue(snapshot)
+            prepareWindow(snapshot)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            val phase = if (initialJoin) "Initial" else "Snapshot"
+            diagnostics.warn(
+                "playback.preparation.failed",
+                error,
+                "preparation.phase" to phase.lowercase(),
+            )
+            setError(
+                if (initialJoin) "Connected; some music may need to be prepared again"
+                else "Room restored; some music may need to be prepared again"
+            )
         }
     }
 
@@ -3835,37 +3844,23 @@ class RoomRuntime(
         )
     }
 
+    private fun playerWindowQueue(snapshot: RoomSnapshot): List<QueueItem> =
+        PlaybackQueuePolicy.playerWindow(
+            snapshot = snapshot,
+            historyCount = PLAYER_HISTORY_ITEMS,
+            upcomingCount =
+                maxOf(TrackPrefetchPolicy.DEFAULT_UPCOMING_COUNT + 2, PLAYER_UPCOMING_ITEMS),
+        )
+
     private suspend fun refreshPlayerQueue(
         snapshot: RoomSnapshot,
         preferredCurrentQueueItemId: QueueItemId? = null,
         preferredPositionMs: Long? = null,
         allowDeferredRetry: Boolean = true,
     ) {
-        val windowQueue =
-            PlaybackQueuePolicy.playerWindow(
-                snapshot = snapshot,
-                historyCount = PLAYER_HISTORY_ITEMS,
-                upcomingCount =
-                    maxOf(TrackPrefetchPolicy.DEFAULT_UPCOMING_COUNT + 2, PLAYER_UPCOMING_ITEMS),
-            )
+        val windowQueue = playerWindowQueue(snapshot)
         val readable =
-            withContext(Dispatchers.IO) {
-                windowQueue
-                    .asSequence()
-                    .map { it.track.trackId }
-                    .distinct()
-                    .associateWith { trackId ->
-                        suspendResult { container.trackRepository.requireReadableFile(trackId) }
-                            .onFailure { error ->
-                                diagnostics.warn(
-                                    "storage.track.load_failed",
-                                    error,
-                                    "track.id" to trackId.value.take(12),
-                                )
-                            }
-                            .getOrNull()
-                    }
-            }
+            windowQueue.map { it.track.trackId }.distinct().associateWith(localMedia::file)
         val allowedByRoom =
             PlaybackQueuePolicy.playableItems(
                 snapshot = snapshot.copy(queue = windowQueue),
@@ -3916,17 +3911,9 @@ class RoomRuntime(
         val generation = sessionJobs.generation
         playerMaintenanceRetryJob = launchSessionJob {
             try {
-                while (
-                    isActive &&
-                        sessionJobs.isCurrent(generation) &&
-                        playerExecutor.hasPendingTransport
-                ) {
-                    delay(PLAYER_MAINTENANCE_RETRY_INTERVAL_MS)
-                }
+                playerExecutor.awaitTransportIdle()
                 if (!sessionJobs.isCurrent(generation)) return@launchSessionJob
-                engine?.snapshot()?.let { snapshot ->
-                    refreshPlayerQueue(snapshot, allowDeferredRetry = false)
-                }
+                roomEvents.trySubmit(RoomEvent.PlayerMaintenanceRetryDue(generation))
             } finally {
                 playerMaintenanceRetryJob = null
             }
@@ -3939,7 +3926,7 @@ class RoomRuntime(
             ?.track
             ?.trackId
             ?.let { trackId ->
-                suspendResult { container.trackRepository.markPlayed(trackId) }
+                suspendResult { ports.tracks.markPlayed(trackId) }
                     .onFailure { error -> diagnostics.warn("storage.recent_update.failed", error) }
             }
     }
@@ -3951,18 +3938,16 @@ class RoomRuntime(
      */
     private fun requestTimelineRefresh(fallbackSnapshot: RoomSnapshot) {
         timelineRefreshJob?.cancel()
+        val generation = sessionJobs.generation
         timelineRefreshJob = launchSessionJob {
             delay(TIMELINE_REFRESH_DEBOUNCE_MS)
-            val snapshot =
-                engine?.snapshot()?.takeIf { it.roomId == fallbackSnapshot.roomId }
-                    ?: fallbackSnapshot
-            refreshPlayerQueue(snapshot)
-            prepareWindow(snapshot)
+            roomEvents.trySubmit(RoomEvent.TimelineRefreshDue(generation, fallbackSnapshot.roomId))
         }
     }
 
     private fun scheduleQueueRefresh(executeAtCoordinatorNs: Long) {
         queueRefreshJob?.cancel()
+        val generation = sessionJobs.generation
         queueRefreshJob = launchSessionJob {
             while (isActive) {
                 if (!isCoordinator() && !clockSync.synchronized) {
@@ -3985,7 +3970,7 @@ class RoomRuntime(
                 )
             }
             delay(TRANSITION_RECONCILE_DELAY_MS)
-            engine?.snapshot()?.let { refreshPlayerQueue(it) }
+            roomEvents.trySubmit(RoomEvent.QueueRefreshDue(generation))
         }
     }
 
@@ -4008,7 +3993,7 @@ class RoomRuntime(
                     return
                 }
         if (requestId != null) {
-            container.roomStore.update { state ->
+            roomStore.updateStructure { state ->
                 val issue = state.issue
                 if (
                     issue?.code == RoomIssueCode.TRANSFER_BLOCKED &&
@@ -4075,8 +4060,7 @@ class RoomRuntime(
     private fun publishMediaReadiness(snapshot: RoomSnapshot) {
         val validIds = snapshot.queue.mapTo(hashSetOf()) { it.queueItemId }
         explicitPreparationQueueItemIds = explicitPreparationQueueItemIds.intersect(validIds)
-        val locallyAvailable =
-            localTrackAvailability.asSequence().filter { it.value }.mapTo(hashSetOf()) { it.key }
+        val locallyAvailable = localMedia.availableTrackIds()
         val readiness =
             RoomMediaReadinessPolicy.derive(
                 snapshot = snapshot,
@@ -4084,7 +4068,7 @@ class RoomRuntime(
                 explicitPreparationQueueItemIds = explicitPreparationQueueItemIds,
                 locallyAvailableTrackIds = locallyAvailable,
             )
-        container.roomStore.updateStructure { state ->
+        roomStore.updateStructure { state ->
             if (state.mediaReadiness == readiness) state else state.copy(mediaReadiness = readiness)
         }
     }
@@ -4094,7 +4078,7 @@ class RoomRuntime(
         val trackId =
             snapshot.queue.firstOrNull { it.queueItemId == queueItemId }?.track?.trackId
                 ?: return false
-        return localTrackAvailability[trackId] == true
+        return localMedia.isAvailable(trackId)
     }
 
     private suspend fun isCanonicalCurrentLocallyExecutable(): Boolean {
@@ -4102,19 +4086,17 @@ class RoomRuntime(
         return isQueueItemLocallyExecutable(queueItemId)
     }
 
-    private fun requestLocalPlaybackRecoveryIfCurrent(trackId: TrackId, snapshot: RoomSnapshot) {
+    private suspend fun requestLocalPlaybackRecoveryIfCurrent(
+        trackId: TrackId,
+        snapshot: RoomSnapshot,
+    ) {
         val currentTrackId =
             snapshot.playback.queueItemId
                 ?.let { currentId -> snapshot.queue.firstOrNull { it.queueItemId == currentId } }
                 ?.track
                 ?.trackId ?: return
         if (currentTrackId != trackId) return
-        val generation = sessionJobs.generation
-        launchSessionJob {
-            if (sessionJobs.isCurrent(generation)) {
-                canonicalPlayback.reconcileLocalExecution("MEDIA_READY")
-            }
-        }
+        canonicalPlayback.reconcileLocalExecution("MEDIA_READY")
     }
 
     private suspend fun prepareWindow(
@@ -4158,11 +4140,11 @@ class RoomRuntime(
         }
         desiredTransferDemands = nextDemandMap
         demands.forEach { demand ->
-            when (localTrackAvailability[demand.trackId]) {
-                true -> Unit
-                false -> {
+            when {
+                localMedia.isAvailable(demand.trackId) -> Unit
+                localMedia.isProbed(demand.trackId) -> {
                     if (isCoordinator()) {
-                        onTrackNeedInActor(
+                        onTrackNeed(
                             identity.peerId,
                             demand.trackId,
                             demand.priority,
@@ -4178,16 +4160,21 @@ class RoomRuntime(
                         )
                     }
                 }
-                null -> scheduleLocalAvailabilityProbe(demand.trackId)
+                else -> scheduleLocalAvailabilityProbe(demand.trackId)
+            }
+        }
+        playerWindowQueue(snapshot).forEach { item ->
+            if (!localMedia.isProbed(item.track.trackId)) {
+                scheduleLocalAvailabilityProbe(item.track.trackId)
             }
         }
         launchSessionJob {
-            withContext(Dispatchers.IO) {
+            withContext(ports.ioDispatcher) {
                 demands
                     .map { it.trackId }
                     .distinct()
                     .forEach { trackId ->
-                        suspendResult { container.trackRepository.touchTemporary(trackId) }
+                        suspendResult { ports.tracks.touchTemporary(trackId) }
                             .onFailure { error ->
                                 diagnostics.warn(
                                     "storage.retention_touch.failed",
@@ -4303,9 +4290,10 @@ class RoomRuntime(
         preparedQueueItemIds = valid
         playbackReadinessQueueRevision = snapshot.queueRevision
         publishMediaReadiness(snapshot)
-        playbackDispatcher.reconcile(
+        requestTimelineRefresh(snapshot)
+        playbackEffects.reconcile(
             snapshot,
-            CanonicalPlaybackDispatcher.Trigger.PREPARATION_CHANGED,
+            PlaybackEffectQueue.Trigger.PREPARATION_CHANGED,
         )
         if (isCoordinator()) {
             broadcast(
@@ -4329,9 +4317,10 @@ class RoomRuntime(
         preparedQueueItemIds = valid
         playbackReadinessQueueRevision = body.queueRevision
         publishMediaReadiness(snapshot)
-        playbackDispatcher.reconcile(
+        requestTimelineRefresh(snapshot)
+        playbackEffects.reconcile(
             snapshot,
-            CanonicalPlaybackDispatcher.Trigger.PREPARATION_CHANGED,
+            PlaybackEffectQueue.Trigger.PREPARATION_CHANGED,
         )
     }
 
@@ -4347,14 +4336,22 @@ class RoomRuntime(
             else -> false
         }
 
-    private suspend fun emitCanonical(body: ProtocolBody) {
-        if (roomEvents.isCurrentContext()) {
-            applyCanonicalMutation(body)
-            return
-        }
-        val completion = CompletableDeferred<Unit>()
-        roomEvents.submit(RoomEvent.CanonicalMutationRequested(body, completion))
-        completion.await()
+    /** Reports a pending Next to the member who asked for it; natural ends have no requester. */
+    private suspend fun publishSuccessorStatus(
+        pending: PendingSuccessor,
+        phase: TransportCommandPhase,
+        message: String,
+    ) {
+        val commandId = pending.commandId ?: return
+        val requestedBy = pending.requestedBy ?: return
+        publishTransportStatus(
+            requestedBy = requestedBy,
+            commandId = commandId,
+            action = TransportAction.NEXT,
+            phase = phase,
+            queueItemId = pending.targetQueueItemId,
+            message = message,
+        )
     }
 
     private suspend fun cancelPendingSuccessor(
@@ -4363,19 +4360,8 @@ class RoomRuntime(
     ) {
         val pending = pendingSuccessor ?: return
         pendingSuccessor = null
-        container.roomStore.updateStructure { it.copy(pendingSuccessorQueueItemId = null) }
-        val commandId = pending.commandId
-        val requestedBy = pending.requestedBy
-        if (commandId != null && requestedBy != null) {
-            publishTransportStatus(
-                requestedBy = requestedBy,
-                commandId = commandId,
-                action = TransportAction.NEXT,
-                phase = phase,
-                queueItemId = pending.targetQueueItemId,
-                message = message,
-            )
-        }
+        roomStore.updateStructure { it.copy(pendingSuccessorQueueItemId = null) }
+        publishSuccessorStatus(pending, phase, message)
         diagnostics.info(
             "playback.successor.cancelled",
             "queue.item_id" to pending.targetQueueItemId.value.take(12),
@@ -4386,24 +4372,15 @@ class RoomRuntime(
 
     private suspend fun replacePendingSuccessor(next: PendingSuccessor) {
         val previous = pendingSuccessor
-        val previousCommandId = previous?.commandId
-        val previousRequestedBy = previous?.requestedBy
-        if (
-            previousCommandId != null &&
-                previousCommandId != next.commandId &&
-                previousRequestedBy != null
-        ) {
-            publishTransportStatus(
-                requestedBy = previousRequestedBy,
-                commandId = previousCommandId,
-                action = TransportAction.NEXT,
-                phase = TransportCommandPhase.SUPERSEDED,
-                queueItemId = previous.targetQueueItemId,
-                message = "Replaced by a newer Next request",
+        if (previous != null && previous.commandId != next.commandId) {
+            publishSuccessorStatus(
+                previous,
+                TransportCommandPhase.SUPERSEDED,
+                "Replaced by a newer Next request",
             )
         }
         pendingSuccessor = next
-        container.roomStore.updateStructure {
+        roomStore.updateStructure {
             it.copy(pendingSuccessorQueueItemId = next.targetQueueItemId)
         }
         diagnostics.info(
@@ -4444,18 +4421,7 @@ class RoomRuntime(
 
     private suspend fun beginPendingSuccessor(pending: PendingSuccessor) {
         replacePendingSuccessor(pending)
-        val commandId = pending.commandId
-        val requestedBy = pending.requestedBy
-        if (commandId != null && requestedBy != null) {
-            publishTransportStatus(
-                requestedBy = requestedBy,
-                commandId = commandId,
-                action = TransportAction.NEXT,
-                phase = TransportCommandPhase.ACCEPTED,
-                queueItemId = pending.targetQueueItemId,
-                message = "Preparing next song",
-            )
-        }
+        publishSuccessorStatus(pending, TransportCommandPhase.ACCEPTED, "Preparing next song")
         requestQueueItemPreparation(
             queueItemId = pending.targetQueueItemId,
             requestId = pending.commandId,
@@ -4473,31 +4439,20 @@ class RoomRuntime(
         if (pending.targetQueueItemId !in preparedQueueItemIds) return
 
         pendingSuccessor = null
-        container.roomStore.updateStructure { it.copy(pendingSuccessorQueueItemId = null) }
-        val commandId = pending.commandId
-        val requestedBy = pending.requestedBy
-        if (commandId != null && requestedBy != null) {
-            publishTransportStatus(
-                requestedBy = requestedBy,
-                commandId = commandId,
-                action = TransportAction.NEXT,
-                phase = TransportCommandPhase.ACCEPTED,
-                queueItemId = pending.targetQueueItemId,
-                message = "Next song is ready",
-            )
-        }
+        roomStore.updateStructure { it.copy(pendingSuccessorQueueItemId = null) }
+        publishSuccessorStatus(pending, TransportCommandPhase.ACCEPTED, "Next song is ready")
         diagnostics.info(
             "playback.successor.ready",
             "queue.item_id" to pending.targetQueueItemId.value.take(12),
             "playback.successor_reason" to pending.reason.name,
         )
-        emitCanonical(
+        applyCanonicalMutation(
             ProtocolBody.CurrentItemChanged(
                 queueItemId = pending.targetQueueItemId,
                 positionMs = 0,
                 executeAtCoordinatorNs = clock.nowNs() + transportLeadNs(latest),
                 resumePlayback = pending.resumeWhenReady,
-                commandId = commandId,
+                commandId = pending.commandId,
             )
         )
     }
@@ -4536,7 +4491,8 @@ class RoomRuntime(
         updateSnapshot(updated)
         applyCanonicalRuntimeBookkeeping(body, updated)
         broadcastCanonical(sequence, body)
-        playbackDispatcher.submit(body, updated)
+        prepareCanonicalPlayback(body, updated)
+        playbackEffects.submit(body, updated, exactContext(body))
         if (body.changesPlaybackReadinessInputs()) reevaluateAllPreparation()
     }
 
@@ -4575,7 +4531,7 @@ class RoomRuntime(
                 )
             }
             // Canonical time must stop at the physical boundary before preparation can complete.
-            emitCanonical(plan.mutation)
+            applyCanonicalMutation(plan.mutation)
             val pending = pendingSuccessor
             if (pending != null && pending.targetQueueItemId == waitTarget) {
                 requestQueueItemPreparation(waitTarget, pending.commandId)
@@ -4597,7 +4553,7 @@ class RoomRuntime(
             if (pendingSuccessor == null) return
         }
         cancelPendingSuccessor("Natural playback moved to a different successor")
-        emitCanonical(plan.mutation)
+        applyCanonicalMutation(plan.mutation)
         if (plan.mutation is ProtocolBody.PauseScheduled && immediateTarget == null) {
             val pausedSnapshot = engine?.snapshot() ?: return
             terminalNaturalPause = TerminalReplayPolicy.capture(pausedSnapshot, queueItemId)
@@ -4631,7 +4587,7 @@ class RoomRuntime(
             )
         if (soloModeChanged) {
             syncDiagnostics.clear()
-            container.roomStore.updatePlayback { it.copy(localDriftMs = null) }
+            roomStore.updatePlayback { it.copy(localDriftMs = null) }
             diagnostics.info(
                 if (soloCoordinator) "sync.solo_coordinator.quiet"
                 else "sync.solo_coordinator.reacquire",
@@ -4643,13 +4599,13 @@ class RoomRuntime(
         when (val result = localPlaybackSync.tick(snapshot, coordinator, connected)) {
             is LocalPlaybackSyncController.TickResult.Reacquiring -> {
                 syncDiagnostics.clear()
-                container.roomStore.updatePlayback { it.copy(localDriftMs = null) }
+                roomStore.updatePlayback { it.copy(localDriftMs = null) }
                 diagnostics.info("sync.reacquire.required", "reason" to result.reason)
                 return
             }
 
             is LocalPlaybackSyncController.TickResult.Evaluated -> {
-                container.roomStore.updatePlayback { state ->
+                roomStore.updatePlayback { state ->
                     state.copy(localDriftMs = result.decision.rawDriftMs)
                 }
                 syncDiagnostics.record(
@@ -4691,16 +4647,11 @@ class RoomRuntime(
         val value = player.state.value
         val report = localPlaybackParticipation.statusReport(value, snapshot)
         if (isCoordinator()) {
-            val generation = sessionJobs.generation
-            launchSessionJob {
-                if (sessionJobs.isCurrent(generation)) {
-                    canonicalPlayback.handleStatusReport(
-                        identity.peerId,
-                        report,
-                        playbackExecutable = isCanonicalCurrentLocallyExecutable(),
-                    )
-                }
-            }
+            canonicalPlayback.handleStatusReport(
+                identity.peerId,
+                report,
+                playbackExecutable = isCanonicalCurrentLocallyExecutable(),
+            )
         } else {
             sendToCoordinator(report)
         }
@@ -4714,27 +4665,20 @@ class RoomRuntime(
 
     private suspend fun publishLocalPlaybackStatus(report: ProtocolBody.PlaybackStatusReport) {
         if (isCoordinator()) {
-            val generation = sessionJobs.generation
-            launchSessionJob {
-                if (sessionJobs.isCurrent(generation)) {
-                    canonicalPlayback.handleStatusReport(
-                        identity.peerId,
-                        report,
-                        playbackExecutable = isCanonicalCurrentLocallyExecutable(),
-                    )
-                }
-            }
+            canonicalPlayback.handleStatusReport(
+                identity.peerId,
+                report,
+                playbackExecutable = isCanonicalCurrentLocallyExecutable(),
+            )
         } else if (coordinatorConnection != null) {
             sendToCoordinator(report)
         }
     }
 
     private fun refreshPowerLocks() {
-        val structure = container.roomStore.structure.value
+        val structure = roomStore.structure.value
         val demand = RoomPowerPolicy.evaluate(sessionActive = structure.sessionActive)
-        if (demand.wifi) wifiLocks.acquireWifi() else wifiLocks.releaseWifi()
-        wifiLocks.setCpuRequired(demand.cpu)
-        wifiLocks.refresh()
+        power.apply(demand)
     }
 
     private fun startSessionJobs() {
@@ -4775,38 +4719,16 @@ class RoomRuntime(
         // low-frequency status/reference publication is returned to the actor as a due event.
         syncJob = launchSessionJob {
             while (isActive) {
-                val snapshot = sessionEngine.snapshot()
-                val snapshotCoordinator = snapshot.term.coordinatorPeerId == localPeerId
-                val soloCoordinator =
-                    snapshotCoordinator &&
-                        !hasOtherActivePlaybackListener(snapshot, localPeerId, clock.nowNs())
-                val intervalMs =
-                    if (soloCoordinator) {
-                        localPlaybackSync.tuning.suspendedRecheckIntervalMs
-                    } else {
-                        localPlaybackSync.intervalMs(snapshot, player.state.value)
-                            ?: localPlaybackSync.tuning.suspendedRecheckIntervalMs
-                    }
-                delay(intervalMs)
+                delay(nextPlaybackSyncIntervalMs)
                 if (!sessionJobs.isCurrent(generation)) continue
-                val current = sessionEngine.snapshot()
-                val coordinator = current.term.coordinatorPeerId == localPeerId
-                val connected =
-                    container.roomStore.structure.value.lifecycle == RoomLifecycleState.CONNECTED
-                runPlaybackSynchronizationTick(
-                    snapshot = current,
-                    coordinator = coordinator,
-                    connected = connected,
-                    generation = generation,
-                    localPeerId = localPeerId,
-                )
+                roomEvents.trySubmit(RoomEvent.PlaybackSynchronizationTickDue(generation))
             }
         }
     }
 
     private suspend fun processHeartbeatTick() {
         val snapshot = engine?.snapshot() ?: return
-        val nowMs = SystemClock.elapsedRealtime()
+        val nowMs = clock.elapsedMs()
         refreshPowerLocks()
         val enforceTimeouts = heartbeatLiveness.onTick(nowMs)
         if (isCoordinator()) {
@@ -4862,7 +4784,7 @@ class RoomRuntime(
     override suspend fun admitControl(
         hello: HandshakeMessage.ControlHello,
         remoteAddress: String,
-    ): PeerServer.ControlAdmission = admission.admit(hello, remoteAddress)
+    ): PeerNetwork.ControlAdmission = admission.admit(hello, remoteAddress)
 
     override suspend fun onControlConnected(
         connection: ControlConnection,
@@ -4909,7 +4831,7 @@ class RoomRuntime(
         }
         peerDisconnectGraceJobs.remove(connection.peerId)?.cancel()
         connections.put(connection.peerId, connection)?.close()
-        lastSeenElapsedMs[connection.peerId] = SystemClock.elapsedRealtime()
+        lastSeenElapsedMs[connection.peerId] = clock.elapsedMs()
         publishMemberRuntime()
         if (!isCoordinator()) return
         peerDirectory[connection.peerId] = connection.endpoint
@@ -4995,7 +4917,6 @@ class RoomRuntime(
                 joinTimeoutJob = null
                 connections.remove(peerId, connection)
                 coordinatorPeerId = null
-                roomSecret?.fill(0)
                 roomSecret = null
                 roomPin = null
                 val pending = pendingJoin
@@ -5013,7 +4934,7 @@ class RoomRuntime(
                 }
                 return
             }
-            container.roomStore.update {
+            roomStore.updateStructure {
                 it.copy(
                     lifecycle = RoomLifecycleState.RECONNECTING,
                     status = UserFacingStatus.RECONNECTING,
@@ -5069,18 +4990,17 @@ class RoomRuntime(
                     return
                 }
         try {
-            val networkDeadline =
-                SystemClock.elapsedRealtime() + RoomReconnectPolicy.NETWORK_GRACE_MS
+            val networkDeadline = clock.elapsedMs() + RoomReconnectPolicy.NETWORK_GRACE_MS
             var waitingMessageShown = false
             while (
                 sessionJobs.isCurrent(generation) &&
                     selectedLocalAddress() == null &&
-                    SystemClock.elapsedRealtime() < networkDeadline
+                    clock.elapsedMs() < networkDeadline
             ) {
                 if (!waitingMessageShown) {
                     waitingMessageShown = true
                     sessionJobs.runIfCurrent(generation) {
-                        container.roomStore.update {
+                        roomStore.updateStructure {
                             it.copy(
                                 lifecycle = RoomLifecycleState.RECONNECTING,
                                 status = UserFacingStatus.RECONNECTING,
@@ -5099,7 +5019,7 @@ class RoomRuntime(
                 if (!sessionJobs.isCurrent(generation)) return
                 if (
                     !sessionJobs.runIfCurrent(generation) {
-                        container.roomStore.update {
+                        roomStore.updateStructure {
                             it.copy(
                                 lifecycle = RoomLifecycleState.RECONNECTING,
                                 status = UserFacingStatus.RECONNECTING,
@@ -5110,16 +5030,16 @@ class RoomRuntime(
                     }
                 )
                     return
-                val attemptStartedAtMs = SystemClock.elapsedRealtime()
+                val attemptStartedAtMs = clock.elapsedMs()
                 val reconnectResult = suspendResult {
-                    controlClient.reconnectWithRoomSecret(
+                    network.reconnectWithRoomSecret(
                         identity = identity,
                         roomId = snapshot.roomId,
                         host = endpoint.hostAddress,
                         port = endpoint.port,
-                        listeningPort = server.port,
+                        listeningPort = network.port,
                         roomSecret = secret,
-                        appVersion = BuildConfig.VERSION_NAME,
+                        appVersion = ports.device.appVersion,
                         onEnvelope = ::enqueueEnvelope,
                         onClosed = ::enqueueControlClosed,
                     )
@@ -5133,8 +5053,7 @@ class RoomRuntime(
                         "network.reconnect.failed",
                         error,
                         "reconnect.attempt" to attempt,
-                        "operation.duration_ms" to
-                            SystemClock.elapsedRealtime() - attemptStartedAtMs,
+                        "operation.duration_ms" to clock.elapsedMs() - attemptStartedAtMs,
                     )
                     if (!endpointRediscoveryAttempted && attempt >= 2) {
                         endpointRediscoveryAttempted = true
@@ -5143,7 +5062,7 @@ class RoomRuntime(
                                 endpoint.copy(
                                     hostAddress = rediscovered.hostAddress,
                                     port = rediscovered.port,
-                                    lastSeenElapsedMs = SystemClock.elapsedRealtime(),
+                                    lastSeenElapsedMs = clock.elapsedMs(),
                                 )
                             peerDirectory[lostCoordinator] = endpoint
                             diagnostics.info(
@@ -5157,12 +5076,12 @@ class RoomRuntime(
                 diagnostics.info(
                     "network.reconnect.restored",
                     "reconnect.attempt" to attempt,
-                    "operation.duration_ms" to SystemClock.elapsedRealtime() - attemptStartedAtMs,
+                    "operation.duration_ms" to clock.elapsedMs() - attemptStartedAtMs,
                 )
 
                 val cached = buildList {
                     for (trackId in snapshot.queue.map { it.track.trackId }.distinct()) {
-                        if (container.trackRepository.hasVerifiedSource(trackId)) add(trackId)
+                        if (ports.tracks.hasVerifiedSource(trackId)) add(trackId)
                         if (size == MAX_REJOIN_CACHE_IDS) break
                     }
                 }
@@ -5212,15 +5131,13 @@ class RoomRuntime(
             setFailure("The room host changed while reconnecting")
             return
         }
-        val previousSecret = roomSecret
         coordinatorPeerId = event.connected.coordinatorPeerId
         coordinatorConnection = event.connected.connection
         roomSecret = event.connected.roomSecret
-        if (previousSecret !== event.connected.roomSecret) previousSecret?.fill(0)
         connections[event.connected.coordinatorPeerId] = event.connected.connection
         event.connected.connection.start()
-        lastSeenElapsedMs[event.connected.coordinatorPeerId] = SystemClock.elapsedRealtime()
-        container.roomStore.update {
+        lastSeenElapsedMs[event.connected.coordinatorPeerId] = clock.elapsedMs()
+        roomStore.updateStructure {
             it.copy(
                 lifecycle = RoomLifecycleState.RECONNECTING,
                 status = UserFacingStatus.RECONNECTING,
@@ -5235,7 +5152,7 @@ class RoomRuntime(
                 ProtocolBody.RejoinRequest(
                     lastAppliedSequence = event.lastSequence,
                     cachedTrackIds = event.cachedTrackIds,
-                    listeningPort = server.port,
+                    listeningPort = network.port,
                 )
             )
         if (!event.connected.connection.trySend(request)) {
@@ -5255,7 +5172,7 @@ class RoomRuntime(
     }
 
     private suspend fun leaveRoom(reason: String = "The room host ended the room") {
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 lifecycle = RoomLifecycleState.ENDING,
                 status = UserFacingStatus.PREPARING,
@@ -5267,9 +5184,11 @@ class RoomRuntime(
         if (isCoordinator()) {
             // Protocol 1 already has LeaveRoom. From the coordinator it is a terminal room signal,
             // so healthy participants do not waste a reconnect window after an intentional exit.
-            suspendResult { broadcast(ProtocolBody.LeaveRoom(reason)) }
+            suspendResult { messageRouter.broadcastAndAwaitWrite(ProtocolBody.LeaveRoom(reason)) }
         } else {
-            suspendResult { sendToCoordinator(ProtocolBody.LeaveRoom(reason)) }
+            suspendResult {
+                messageRouter.sendToCoordinatorAndAwaitWrite(ProtocolBody.LeaveRoom(reason))
+            }
         }
         hotspot.stop()
         playerExecutor.invalidateTransport()
@@ -5279,7 +5198,7 @@ class RoomRuntime(
             setQueue(emptyList(), null, 0)
         }
         resetSession(keepDiscovery = false)
-        container.roomStore.reset(preserveHotspot = false)
+        roomStore.reset(preserveHotspot = false)
     }
 
     private suspend fun resetSession(keepDiscovery: Boolean) {
@@ -5287,10 +5206,10 @@ class RoomRuntime(
         // No command may disappear merely because the session is ending. Publish terminal phases
         // before sockets and actor-owned preparation jobs are torn down.
         supersedeAllTransportCommands("Room session ended")
-        val startedAtMs = SystemClock.elapsedRealtime()
+        val startedAtMs = clock.elapsedMs()
         val closingTransferManager = transferManager
         val transferCountBeforeShutdown = closingTransferManager?.activeTransferCount ?: 0
-        val playbackMetrics = playbackDispatcher.metrics()
+        val playbackMetrics = playbackEffects.metrics()
         val closingConnections =
             (connections.values + listOfNotNull(coordinatorConnection)).distinct()
         closingConnections.forEach(ControlConnection::closeSilently)
@@ -5304,13 +5223,13 @@ class RoomRuntime(
         localPlaybackParticipation.resetForSessionBoundary()
         diagnostics.end(
             closingDiagnosticSessionId,
-            SystemClock.elapsedRealtime() - startedAtMs,
+            clock.elapsedMs() - startedAtMs,
             closingConnections.size,
             transferCountBeforeShutdown,
             sessionJobs.activeJobCount,
             playbackMetrics,
         )
-        playbackDispatcher.resetMetrics()
+        playbackEffects.resetMetrics()
     }
 
     private suspend fun supersedeAllTransportCommands(message: String) {
@@ -5356,7 +5275,7 @@ class RoomRuntime(
             .forEach(ControlConnection::closeSilently)
         resetSessionState(keepDiscovery)
         diagnostics.endNow(closingDiagnosticSessionId)
-        playbackDispatcher.resetMetrics()
+        playbackEffects.resetMetrics()
     }
 
     private fun resetSessionState(keepDiscovery: Boolean) {
@@ -5391,11 +5310,9 @@ class RoomRuntime(
         coordinatorPeerId = null
         roomQueueLeases.values.forEach(ManagedFileLease::close)
         roomQueueLeases.clear()
-        preparedQueueItemIds = emptySet()
-        explicitPreparationQueueItemIds = emptySet()
-        playbackReadinessQueueRevision = -1L
+        resetPreparationState()
         desiredTransferDemands = emptyMap()
-        localTrackAvailability.clear()
+        localMedia.clear()
         admission.reset()
         recentCommandIds.clear()
         envelopeReplayProtector.reset()
@@ -5411,18 +5328,16 @@ class RoomRuntime(
         transportStatusClearJob?.cancel()
         transportStatusClearJob = null
         playerExecutor.invalidateTransport()
-        container.roomStore.updateStructure {
+        roomStore.updateStructure {
             it.copy(transportStatus = null, pendingSuccessorQueueItemId = null)
         }
         engine = null
-        roomSecret?.fill(0)
         roomSecret = null
         roomPin = null
-        container.roomStore.update { it.copy(localRoomPin = null) }
+        roomStore.updateStructure { it.copy(localRoomPin = null) }
         resetClockSynchronization()
         discovery.stopAdvertising()
-        wifiLocks.setCpuRequired(false)
-        wifiLocks.releaseWifi()
+        power.apply(PowerDemand.NONE)
         if (!keepDiscovery) stopDiscovery()
     }
 
@@ -5440,9 +5355,7 @@ class RoomRuntime(
         }
     }
 
-    private fun publishMemberRuntime(
-        snapshot: RoomSnapshot? = container.roomStore.structure.value.snapshot
-    ) {
+    private fun publishMemberRuntime(snapshot: RoomSnapshot? = roomStore.structure.value.snapshot) {
         val room = snapshot ?: return
         val runtime =
             room.members.associate { member ->
@@ -5451,7 +5364,7 @@ class RoomRuntime(
                         connected = isPeerConnected(member.peerId)
                     )
             }
-        container.roomStore.updateStructure { it.copy(memberRuntime = runtime) }
+        roomStore.updateStructure { it.copy(memberRuntime = runtime) }
     }
 
     private fun roleEngine(): RoomRoleEngine =
@@ -5460,6 +5373,7 @@ class RoomRuntime(
     private fun ControlConnection.asSendTarget(): RoomSendTarget =
         RoomSendTarget(
             send = ::trySend,
+            sendAndAwaitWrite = ::sendAndAwaitWrite,
             close = ::close,
         )
 
@@ -5520,7 +5434,7 @@ class RoomRuntime(
                 peerId = peerId,
                 authenticatedHostAddress = sourceConnection.authenticatedRemoteHostAddress,
                 announced = announced,
-                lastSeenElapsedMs = SystemClock.elapsedRealtime(),
+                lastSeenElapsedMs = clock.elapsedMs(),
             ) ?: return
         if (!update.announcedHostMatchesAuthenticatedHost) {
             diagnostics.warn(
@@ -5543,7 +5457,7 @@ class RoomRuntime(
         }
         val member = engine?.snapshot()?.members?.firstOrNull { it.peerId == peerId } ?: return
         if (member.displayName != normalized.displayName) {
-            emitCanonical(
+            applyCanonicalMutation(
                 ProtocolBody.PeerUpdated(member.copy(displayName = normalized.displayName))
             )
         }
@@ -5558,13 +5472,15 @@ class RoomRuntime(
         peerDirectory[identity.peerId] = endpoint
         val member = snapshot.members.firstOrNull { it.peerId == identity.peerId }
         if (member != null && member.displayName != identity.displayName) {
-            emitCanonical(ProtocolBody.PeerUpdated(member.copy(displayName = identity.displayName)))
+            applyCanonicalMutation(
+                ProtocolBody.PeerUpdated(member.copy(displayName = identity.displayName))
+            )
         }
         val current = engine?.snapshot() ?: snapshot
         discovery.advertise(
             current.roomId,
             current.roomName,
-            server.port,
+            network.port,
             current.term.number,
             onError = ::setError,
         )
@@ -5577,9 +5493,9 @@ class RoomRuntime(
             peerId = identity.peerId,
             displayName = identity.displayName,
             hostAddress = hostAddress,
-            port = server.port,
-            appVersion = BuildConfig.VERSION_NAME,
-            lastSeenElapsedMs = SystemClock.elapsedRealtime(),
+            port = network.port,
+            appVersion = ports.device.appVersion,
+            lastSeenElapsedMs = clock.elapsedMs(),
         )
     }
 
@@ -5593,7 +5509,7 @@ class RoomRuntime(
         lifecycle: RoomLifecycleState = RoomLifecycleState.CONNECTED,
         message: String? = null,
     ) {
-        val previousQueueRevision = container.roomStore.structure.value.snapshot?.queueRevision
+        val previousQueueRevision = roomStore.structure.value.snapshot?.queueRevision
         if (previousQueueRevision != null && previousQueueRevision != snapshot.queueRevision) {
             val validIds = snapshot.queue.mapTo(hashSetOf()) { it.queueItemId }
             preparedQueueItemIds =
@@ -5609,7 +5525,7 @@ class RoomRuntime(
             refreshRoomQueueLeases(snapshot)
         }
         playbackSession.seedCanonical(snapshot.playback)
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 lifecycle = lifecycle,
                 snapshot = snapshot,
@@ -5619,7 +5535,7 @@ class RoomRuntime(
                 errorMessage = null,
                 issue = null,
                 roomAddress = selectedLocalAddress(),
-                roomPort = server.port,
+                roomPort = network.port,
                 memberRuntime =
                     snapshot.members.associate { member ->
                         member.peerId to
@@ -5642,7 +5558,7 @@ class RoomRuntime(
             }
         required.filterNot(roomQueueLeases::containsKey).forEach { trackId ->
             roomQueueLeases[trackId] =
-                container.fileStore.acquireLease(
+                ports.fileStore.acquireLease(
                     trackId,
                     ManagedFileLeaseReason.ROOM_QUEUE,
                 )
@@ -5708,9 +5624,9 @@ class RoomRuntime(
     }
 
     private fun setIssue(issue: RoomIssue) {
-        val current = container.roomStore.structure.value.issue
+        val current = roomStore.structure.value.issue
         if (current?.deduplicationKey == issue.deduplicationKey) return
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(issue = issue, errorMessage = issue.message, statusMessage = null)
         }
     }
@@ -5739,13 +5655,13 @@ class RoomRuntime(
             }
         }
         resetSession(keepDiscovery = false)
-        container.roomStore.reset(preserveHotspot = false)
+        roomStore.reset(preserveHotspot = false)
     }
 
     private suspend fun setRoomEnded(message: String) {
         diagnostics.warn("room.ended", null, "reason" to message)
         teardownTerminalSession()
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 lifecycle = RoomLifecycleState.FAILED,
                 status = UserFacingStatus.UNAVAILABLE,
@@ -5767,7 +5683,7 @@ class RoomRuntime(
         code: RoomIssueCode = RoomIssueCode.CONNECTION_FAILED,
     ) {
         teardownTerminalSession()
-        container.roomStore.update {
+        roomStore.updateStructure {
             it.copy(
                 lifecycle = RoomLifecycleState.FAILED,
                 status = UserFacingStatus.UNAVAILABLE,
@@ -5789,9 +5705,15 @@ class RoomRuntime(
         // The service is allowed to stop after a failed precondition. Retain that terminal error
         // so the activity can explain what happened instead of silently returning to the lobby.
         val retainedFailure =
-            container.roomStore.structure.value.takeIf {
+            roomStore.structure.value.takeIf {
                 it.lifecycle == RoomLifecycleState.FAILED && it.issue != null
             }
+        // Stop every execution context before tearing state down. The actor must not be able to
+        // run a turn against a half-cleared session.
+        transportIntents.close()
+        playbackEffects.close()
+        roomEvents.close()
+        syncDiagnostics.close()
         addressMonitorJob?.cancel()
         addressMonitorJob = null
         hotspotStateJob?.cancel()
@@ -5799,9 +5721,9 @@ class RoomRuntime(
         playerStateJob?.cancel()
         playerStateJob = null
         resetSessionNow(keepDiscovery = false)
-        container.roomStore.reset(preserveHotspot = false)
+        roomStore.reset(preserveHotspot = false)
         retainedFailure?.let { failure ->
-            container.roomStore.updateStructure { state ->
+            roomStore.updateStructure { state ->
                 state.copy(
                     lifecycle = failure.lifecycle,
                     status = failure.status,
@@ -5811,13 +5733,9 @@ class RoomRuntime(
                 )
             }
         }
-        transportIntents.close()
-        playbackDispatcher.close()
-        roomEvents.close()
-        syncDiagnostics.close()
         hotspot.stop()
-        server.stop()
-        wifiLocks.close()
+        network.stop()
+        power.close()
     }
 
     companion object {
@@ -5827,7 +5745,7 @@ class RoomRuntime(
         private const val ROOM_EVENT_CAPACITY = 256
         private const val SLOW_ROOM_EVENT_NS = 100_000_000L
         private const val SLOW_ROOM_EVENT_QUEUE_NS = 100_000_000L
-        private const val SLOW_PLAYBACK_DISPATCH_NS = 100_000_000L
+        private const val SLOW_PLAYBACK_EFFECT_NS = 100_000_000L
         private const val SESSION_SHUTDOWN_TIMEOUT_MS = 2_500L
         private const val HEARTBEAT_INTERVAL_MS = 5_000L
         private const val CLOCK_SYNC_WARMUP_INTERVAL_MS = 250L
@@ -5844,6 +5762,7 @@ class RoomRuntime(
         private const val TRANSPORT_RECONCILIATION_GRACE_MS = 2_000L
         private const val TRANSPORT_PAUSED_POSITION_TOLERANCE_MS = 250L
         private const val TRANSPORT_PLAYING_POSITION_TOLERANCE_MS = 750L
+        private const val PLAYBACK_SYNC_INITIAL_INTERVAL_MS = 1_000L
         private const val PLAYBACK_STATUS_REPORT_INTERVAL_NS = 1_000_000_000L
         private const val MANUAL_DISCOVERY_WINDOW_MS = 8_000L
         private const val TRANSFER_TOKEN_LIFETIME_MS = 60_000L
@@ -5857,7 +5776,6 @@ class RoomRuntime(
         private const val TRANSITION_RECONCILE_DELAY_MS = 80L
         private const val CLOCK_MAPPING_RECHECK_INTERVAL_MS = 25L
         private const val TIMELINE_REFRESH_DEBOUNCE_MS = 60L
-        private const val PLAYER_MAINTENANCE_RETRY_INTERVAL_MS = 40L
         private const val CURRENT_ITEM_POSITION_TOLERANCE_MS = 250L
         private const val RECENT_COMMAND_ID_LIMIT = 256
         private const val PLAYER_HISTORY_ITEMS = 2

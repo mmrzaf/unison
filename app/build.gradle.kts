@@ -25,6 +25,7 @@ val standaloneKotlinCheckClasspath =
 android {
     namespace = "com.darius.unison"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    buildToolsVersion = libs.versions.buildTools.get()
 
     defaultConfig {
         applicationId = "com.darius.unison"
@@ -86,6 +87,13 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // Lets the release gate widen the seeded soak: -Dunison.soak.seeds=1,2,3
+        // -Dunison.soak.minutes=10
+        unitTests.all { test ->
+            System.getProperties()
+                .filter { (key, _) -> key.toString().startsWith("unison.") }
+                .forEach { (key, value) -> test.systemProperty(key.toString(), value.toString()) }
+        }
     }
 
     lint {

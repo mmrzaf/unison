@@ -1,6 +1,8 @@
 package com.darius.unison.sync
 
 import com.darius.unison.util.DiagnosticLog
+import com.darius.unison.util.MonotonicClock
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -18,7 +20,11 @@ class SynchronizationDiagnosticsTest {
 
     @Before
     fun setUp() {
-        log = DiagnosticLog(temporaryFolder.newFile("diagnostics.log"))
+        log =
+            DiagnosticLog(
+                temporaryFolder.newFile("diagnostics.log"),
+                MonotonicClock(System::nanoTime),
+            )
     }
 
     @After
@@ -28,7 +34,7 @@ class SynchronizationDiagnosticsTest {
 
     @Test
     fun clearAllowsImmediateRoutineSampleForTheNextRoom() = runBlocking {
-        val diagnostics = SynchronizationDiagnostics(this, log)
+        val diagnostics = SynchronizationDiagnostics(this, Dispatchers.IO, log)
         diagnostics.record(routineEvent(1_000_000_000L))
         awaitLogSize(1)
         diagnostics.clear()
@@ -42,7 +48,7 @@ class SynchronizationDiagnosticsTest {
 
     @Test
     fun closeAndJoinDrainsAcceptedEvents() = runBlocking {
-        val diagnostics = SynchronizationDiagnostics(this, log)
+        val diagnostics = SynchronizationDiagnostics(this, Dispatchers.IO, log)
         diagnostics.record(routineEvent(1L).copy(action = "SEEK"))
 
         assertTrue(diagnostics.closeAndJoin())
@@ -52,7 +58,7 @@ class SynchronizationDiagnosticsTest {
 
     @Test
     fun stablePausedStateLogsTransitionThenUsesRoutineSampling() = runBlocking {
-        val diagnostics = SynchronizationDiagnostics(this, log)
+        val diagnostics = SynchronizationDiagnostics(this, Dispatchers.IO, log)
         val paused =
             routineEvent(1L)
                 .copy(
@@ -73,7 +79,7 @@ class SynchronizationDiagnosticsTest {
 
     @Test
     fun continuousSoftCorrectionIsRateLimitedButStateChangesRemainImmediate() = runBlocking {
-        val diagnostics = SynchronizationDiagnostics(this, log)
+        val diagnostics = SynchronizationDiagnostics(this, Dispatchers.IO, log)
         val correcting =
             routineEvent(1L)
                 .copy(
@@ -102,7 +108,7 @@ class SynchronizationDiagnosticsTest {
 
     @Test
     fun sixHourPausedRoomRemainsBounded() = runBlocking {
-        val diagnostics = SynchronizationDiagnostics(this, log)
+        val diagnostics = SynchronizationDiagnostics(this, Dispatchers.IO, log)
         val paused =
             routineEvent(0L)
                 .copy(

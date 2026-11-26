@@ -4,8 +4,8 @@ import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import com.darius.unison.util.DiagnosticLogger
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.BufferOverflow
@@ -49,6 +49,7 @@ data class SynchronizationEvent(
  */
 class SynchronizationDiagnostics(
     scope: CoroutineScope,
+    private val dispatcher: CoroutineDispatcher,
     log: DiagnosticLog,
 ) : AutoCloseable {
     private val logger: DiagnosticLogger = log.scoped(TAG, DiagnosticCategory.SYNC)
@@ -63,7 +64,7 @@ class SynchronizationDiagnostics(
     private var lastStateSignature: String? = null
     private var lastHardSeekCount = 0
     private val writer: Job =
-        scope.launch(Dispatchers.IO) {
+        scope.launch(dispatcher) {
             for (event in channel) {
                 val attributes = event.toDiagnosticAttributes()
                 when {

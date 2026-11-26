@@ -98,12 +98,6 @@ enum class RetentionPolicy {
 }
 
 @Serializable
-enum class TrackSourceType {
-    PERSISTED_DOCUMENT_URI,
-    APP_MANAGED_FILE,
-}
-
-@Serializable
 enum class MemberTrackState {
     UNKNOWN,
     CHECKING,
@@ -324,30 +318,7 @@ data class RoomUiState(
     val mediaReadiness: Map<QueueItemId, RoomMediaReadiness> = emptyMap(),
     /** Ephemeral UI projection of the exact successor currently waiting for preparation. */
     val pendingSuccessorQueueItemId: QueueItemId? = null,
-) {
-    /** Any finite room operation that needs the service to remain alive. */
-    val operationActive: Boolean
-        get() = lifecycle != RoomLifecycleState.IDLE && lifecycle != RoomLifecycleState.FAILED
-
-    /**
-     * A joined/creating room session that needs foreground networking and media controls. Manual
-     * discovery is intentionally excluded so an eight-second scan does not behave like a room.
-     */
-    val sessionActive: Boolean
-        get() =
-            when (lifecycle) {
-                RoomLifecycleState.PREPARING,
-                RoomLifecycleState.CONNECTING,
-                RoomLifecycleState.JOINING,
-                RoomLifecycleState.CONNECTED,
-                RoomLifecycleState.RECONNECTING,
-                RoomLifecycleState.ENDING -> true
-
-                RoomLifecycleState.IDLE,
-                RoomLifecycleState.DISCOVERING,
-                RoomLifecycleState.FAILED -> false
-            }
-}
+)
 
 @Serializable
 data class HotspotInfo(

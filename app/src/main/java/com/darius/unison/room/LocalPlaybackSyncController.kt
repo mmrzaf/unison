@@ -25,7 +25,8 @@ import kotlin.math.abs
  * storage operation must not delay sampling enough to manufacture a synchronization failure. The
  * controller reads immutable canonical snapshots and thread-safe clock/session estimates, then
  * submits every Media3 correction through [PlayerExecutor]. Room/network side effects remain with
- * RoomRuntime and are triggered separately at a much lower cadence.
+ * RoomRuntime and are triggered separately at a much lower cadence. The controller is driven from a
+ * room actor turn; the synchronization timer only publishes the next due event.
  */
 internal class LocalPlaybackSyncController(
     private val player: PlayerPort,

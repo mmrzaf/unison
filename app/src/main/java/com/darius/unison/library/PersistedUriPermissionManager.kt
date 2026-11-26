@@ -10,7 +10,8 @@ import kotlinx.coroutines.withContext
 /**
  * Unison copies imported audio into app-owned storage, so SAF grants are operation-scoped. This
  * manager reference-counts concurrent readers and releases the persisted grant after the final
- * reader completes. It also removes grants leaked by older builds at startup.
+ * reader completes. At startup it releases any grant left behind by an import that the process did
+ * not survive.
  */
 class PersistedUriPermissionManager(
     private val resolver: ContentResolver,

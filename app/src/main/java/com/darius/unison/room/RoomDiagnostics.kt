@@ -1,6 +1,6 @@
 package com.darius.unison.room
 
-import com.darius.unison.playback.CanonicalPlaybackDispatcher
+import com.darius.unison.playback.PlaybackEffectQueue
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 
@@ -80,7 +80,7 @@ internal class RoomDiagnostics(private val log: DiagnosticLog) {
         connectionCount: Int,
         transferCount: Int,
         remainingJobs: Int,
-        playback: CanonicalPlaybackDispatcher.Metrics,
+        playback: PlaybackEffectQueue.Metrics,
     ) {
         if (sessionId == null) return
         logger.info(

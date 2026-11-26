@@ -89,22 +89,28 @@ internal class RoomSessionActions(
         }
     }
 
+    /** Free slots in the current room's queue, or null after telling the user why none exist. */
+    fun availableQueueSlots(): Int? {
+        val queueSize = container.roomStore.structure.value.snapshot?.queue?.size
+        if (queueSize == null) {
+            message.value = "Join or create a room first"
+            return null
+        }
+        val availableSlots = (RoomReducer.MAX_QUEUE_ITEMS - queueSize).coerceAtLeast(0)
+        if (availableSlots == 0) {
+            message.value = "The room queue is full"
+            return null
+        }
+        return availableSlots
+    }
+
     fun addTracksToRoom(trackIds: List<TrackId>, insertAfterCurrent: Boolean = false) {
         if (trackIds.isEmpty()) {
             message.value = "Select at least one song"
             return
         }
-        val queueSize = container.roomStore.structure.value.snapshot?.queue?.size
-        if (queueSize == null) {
-            message.value = "Join or create a room first"
-            return
-        }
-        val availableSlots = (RoomReducer.MAX_QUEUE_ITEMS - queueSize).coerceAtLeast(0)
+        val availableSlots = availableQueueSlots() ?: return
         val selectedTracks = trackIds.take(availableSlots)
-        if (selectedTracks.isEmpty()) {
-            message.value = "The room queue is full"
-            return
-        }
         command(
             AppCommand.AddTracks(selectedTracks, insertAfterCurrent),
             feedback =
@@ -128,16 +134,7 @@ internal class RoomSessionActions(
     }
 
     fun loadRoomTrackIds(query: String, onLoaded: (Set<TrackId>) -> Unit) {
-        val queueSize = container.roomStore.structure.value.snapshot?.queue?.size
-        if (queueSize == null) {
-            message.value = "Join or create a room first"
-            return
-        }
-        val availableSlots = (RoomReducer.MAX_QUEUE_ITEMS - queueSize).coerceAtLeast(0)
-        if (availableSlots == 0) {
-            message.value = "The room queue is full"
-            return
-        }
+        val availableSlots = availableQueueSlots() ?: return
         scope.launch {
             userResult { container.trackRepository.libraryTrackIds(query, availableSlots) }
                 .onSuccess(onLoaded)

@@ -9,7 +9,7 @@ Gradle development may work on macOS or Windows, but release scripts assume GNU/
 - Bash
 - JDK 21 for running Gradle
 - Android SDK Platform 36
-- Android Build Tools 36.0.0
+- Android Build Tools at the version pinned as `buildTools` in `gradle/libs.versions.toml`
 - Android Platform Tools (`adb`)
 - Python 3
 - GNU coreutils/findutils, `grep`, `tar`, `gzip`, `curl`
@@ -52,7 +52,7 @@ prerelease/stable tags such as `v1.2.0-beta.<N>` or `v1.2.0`.
 Fast checks:
 
 ```bash
-./scripts/check-static.sh
+python3 ./scripts/check-source-tree.py
 ./scripts/check-data.sh
 ```
 
@@ -61,16 +61,6 @@ Full repository-quality gate:
 ```bash
 ./scripts/check-release-quality.sh
 ```
-
-On an offline developer machine that cannot access the trusted repositories and does not yet have
-the reviewed metadata, run the non-dependency portions explicitly:
-
-```bash
-UNISON_SKIP_LOCAL_DEPENDENCY_VERIFICATION=true ./scripts/check-release-quality.sh
-```
-
-This is a local development escape hatch only. GitHub Actions and release publication always require
-`gradle/verification-metadata.xml`; it must be generated and reviewed on a trusted resolution path.
 
 Android unit/lint/build checks:
 

@@ -3,14 +3,14 @@ package com.darius.unison.network
 import com.darius.unison.model.PeerEndpoint
 import com.darius.unison.model.PeerId
 import com.darius.unison.protocol.Envelope
-import com.darius.unison.protocol.FrameCodec
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
-import java.net.Socket
+import com.darius.unison.util.MonotonicClock
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -25,16 +25,16 @@ import kotlinx.coroutines.withTimeoutOrNull
 class ControlConnection(
     val peerId: PeerId,
     val endpoint: PeerEndpoint,
-    private val socket: Socket,
-    private val codec: FrameCodec,
+    private val channel: EnvelopeChannel,
     parentScope: CoroutineScope,
+    private val dispatcher: CoroutineDispatcher,
+    private val clock: MonotonicClock,
     private val log: DiagnosticLog,
     private val onEnvelope: suspend (ControlConnection, Envelope) -> Unit,
     private val onClosed: suspend (ControlConnection, Throwable?) -> Unit,
 ) {
     /** Remote host observed on the authenticated control socket; never participant-announced. */
-    val authenticatedRemoteHostAddress: String =
-        requireNotNull(socket.inetAddress?.hostAddress) { "Control socket is not connected" }
+    val authenticatedRemoteHostAddress: String = channel.remoteHostAddress
 
     private val callbackScope = parentScope
     private val supervisorJob = SupervisorJob(parentScope.coroutineContext[Job])
@@ -43,34 +43,44 @@ class ControlConnection(
     /**
      * Ordered state and commands. Saturation is fatal because dropping one creates a history gap.
      */
-    private val guaranteed = Channel<Envelope>(capacity = GUARANTEED_CAPACITY)
+    private data class Outgoing(
+        val envelope: Envelope,
+        val written: CompletableDeferred<Boolean>? = null,
+    )
+
+    private val guaranteed = Channel<Outgoing>(capacity = GUARANTEED_CAPACITY)
 
     /** Pings, pongs, heartbeats, and ACKs. Old timing samples are less useful than current ones. */
-    private val clock =
-        Channel<Envelope>(
+    private val clockTraffic =
+        Channel<Outgoing>(
             capacity = CLOCK_CAPACITY,
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
         )
 
     /** Only the latest canonical playback reference matters to a lagging peer. */
-    private val playbackReference = Channel<Envelope>(capacity = Channel.CONFLATED)
+    private val playbackReference = Channel<Outgoing>(capacity = Channel.CONFLATED)
 
     /** UI-only status is explicitly replaceable. */
-    private val telemetry = Channel<Envelope>(capacity = Channel.CONFLATED)
+    private val telemetry = Channel<Outgoing>(capacity = Channel.CONFLATED)
 
     /** Transfer coordination is bounded independently from room state and timing traffic. */
-    private val transfer = Channel<Envelope>(capacity = TRANSFER_CAPACITY)
+    private val transfer = Channel<Outgoing>(capacity = TRANSFER_CAPACITY)
 
     private val started = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
+    private val pendingWrites = mutableSetOf<CompletableDeferred<Boolean>>()
 
     fun start() {
         if (!started.compareAndSet(false, true) || closed.get()) return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(dispatcher) {
             try {
-                while (isActive && !socket.isClosed) {
-                    val envelope = nextOutgoing() ?: break
-                    codec.write(socket.getOutputStream(), envelope)
+                while (isActive) {
+                    val outgoing = nextOutgoing() ?: break
+                    channel.send(outgoing.envelope)
+                    outgoing.written?.let { ack ->
+                        synchronized(pendingWrites) { pendingWrites.remove(ack) }
+                        ack.complete(true)
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 close(cancelled)
@@ -79,16 +89,16 @@ class ControlConnection(
                 close(error)
             }
         }
-        scope.launch(Dispatchers.IO) {
+        scope.launch(dispatcher) {
             try {
-                while (isActive && !socket.isClosed) {
-                    val envelope = codec.read(socket.getInputStream())
-                    val dispatchStartedNs = System.nanoTime()
+                while (isActive) {
+                    val envelope = channel.receive() ?: break
+                    val dispatchStartedNs = clock.nowNs()
                     try {
                         onEnvelope(this@ControlConnection, envelope)
                     } finally {
                         val dispatchDurationNs =
-                            (System.nanoTime() - dispatchStartedNs).coerceAtLeast(0L)
+                            (clock.nowNs() - dispatchStartedNs).coerceAtLeast(0L)
                         if (dispatchDurationNs >= SLOW_INGRESS_DISPATCH_NS) {
                             log.warn(
                                 TAG,
@@ -122,13 +132,13 @@ class ControlConnection(
             try {
                 when (trafficClass) {
                     ControlTrafficClass.GUARANTEED ->
-                        timedSend(guaranteed, envelope, GUARANTEED_SEND_TIMEOUT_MS)
-                    ControlTrafficClass.CLOCK -> clock.trySend(envelope).isSuccess
+                        timedSend(guaranteed, Outgoing(envelope), GUARANTEED_SEND_TIMEOUT_MS)
+                    ControlTrafficClass.CLOCK -> clockTraffic.trySend(Outgoing(envelope)).isSuccess
                     ControlTrafficClass.PLAYBACK_REFERENCE ->
-                        playbackReference.trySend(envelope).isSuccess
-                    ControlTrafficClass.TELEMETRY -> telemetry.trySend(envelope).isSuccess
+                        playbackReference.trySend(Outgoing(envelope)).isSuccess
+                    ControlTrafficClass.TELEMETRY -> telemetry.trySend(Outgoing(envelope)).isSuccess
                     ControlTrafficClass.TRANSFER ->
-                        timedSend(transfer, envelope, TRANSFER_SEND_TIMEOUT_MS)
+                        timedSend(transfer, Outgoing(envelope), TRANSFER_SEND_TIMEOUT_MS)
                 }
             } catch (_: ClosedSendChannelException) {
                 false
@@ -152,36 +162,57 @@ class ControlConnection(
     fun trySend(envelope: Envelope): Boolean {
         if (closed.get()) return false
         return when (ControlTrafficClassifier.classify(envelope)) {
-            ControlTrafficClass.GUARANTEED -> guaranteed.trySend(envelope).isSuccess
-            ControlTrafficClass.CLOCK -> clock.trySend(envelope).isSuccess
-            ControlTrafficClass.PLAYBACK_REFERENCE -> playbackReference.trySend(envelope).isSuccess
-            ControlTrafficClass.TELEMETRY -> telemetry.trySend(envelope).isSuccess
-            ControlTrafficClass.TRANSFER -> transfer.trySend(envelope).isSuccess
+            ControlTrafficClass.GUARANTEED -> guaranteed.trySend(Outgoing(envelope)).isSuccess
+            ControlTrafficClass.CLOCK -> clockTraffic.trySend(Outgoing(envelope)).isSuccess
+            ControlTrafficClass.PLAYBACK_REFERENCE ->
+                playbackReference.trySend(Outgoing(envelope)).isSuccess
+            ControlTrafficClass.TELEMETRY -> telemetry.trySend(Outgoing(envelope)).isSuccess
+            ControlTrafficClass.TRANSFER -> transfer.trySend(Outgoing(envelope)).isSuccess
         }
     }
 
     private suspend fun timedSend(
-        channel: Channel<Envelope>,
-        envelope: Envelope,
+        target: Channel<Outgoing>,
+        outgoing: Outgoing,
         timeoutMs: Long,
     ): Boolean =
         withTimeoutOrNull(timeoutMs) {
-            channel.send(envelope)
+            target.send(outgoing)
             true
         } ?: false
+
+    /**
+     * Enqueues a guaranteed envelope and suspends until the transport has written it. Used for
+     * terminal messages that must be flushed before the connection is closed.
+     */
+    suspend fun sendAndAwaitWrite(envelope: Envelope): Boolean {
+        if (closed.get()) return false
+        val ack = CompletableDeferred<Boolean>()
+        synchronized(pendingWrites) { pendingWrites += ack }
+        val queued =
+            withTimeoutOrNull(GUARANTEED_SEND_TIMEOUT_MS) {
+                guaranteed.send(Outgoing(envelope, ack))
+                true
+            } ?: false
+        if (!queued) {
+            synchronized(pendingWrites) { pendingWrites.remove(ack) }
+            return false
+        }
+        return withTimeoutOrNull(GUARANTEED_SEND_TIMEOUT_MS) { ack.await() } ?: false
+    }
 
     /**
      * Drain ready high-priority queues before suspending. Canonical ordering is preserved because
      * every ordered envelope uses the same single-consumer [guaranteed] channel.
      */
-    /** Test seam for exercising queue arbitration without starting socket reader/writer jobs. */
-    internal suspend fun nextOutgoingForTest(): Envelope? = nextOutgoing()
+    /** Test seam for exercising queue arbitration without starting reader/writer jobs. */
+    internal suspend fun nextOutgoingForTest(): Envelope? = nextOutgoing()?.envelope
 
-    private suspend fun nextOutgoing(): Envelope? {
+    private suspend fun nextOutgoing(): Outgoing? {
         guaranteed.tryReceive().getOrNull()?.let {
             return it
         }
-        clock.tryReceive().getOrNull()?.let {
+        clockTraffic.tryReceive().getOrNull()?.let {
             return it
         }
         playbackReference.tryReceive().getOrNull()?.let {
@@ -196,7 +227,7 @@ class ControlConnection(
 
         return select {
             guaranteed.onReceiveCatching { it.getOrNull() }
-            clock.onReceiveCatching { it.getOrNull() }
+            clockTraffic.onReceiveCatching { it.getOrNull() }
             playbackReference.onReceiveCatching { it.getOrNull() }
             transfer.onReceiveCatching { it.getOrNull() }
             telemetry.onReceiveCatching { it.getOrNull() }
@@ -219,13 +250,16 @@ class ControlConnection(
     private fun shutdown(cause: Throwable?, notifyClosed: Boolean) {
         if (!closed.compareAndSet(false, true)) return
         guaranteed.close()
-        clock.close()
+        clockTraffic.close()
         playbackReference.close()
         telemetry.close()
         transfer.close()
-        runCatching { socket.close() }
+        runCatching { channel.close(cause) }
         scope.cancel()
-        codec.close()
+        synchronized(pendingWrites) {
+            pendingWrites.forEach { it.complete(false) }
+            pendingWrites.clear()
+        }
         when (cause) {
             null,
             is CancellationException ->
@@ -246,7 +280,7 @@ class ControlConnection(
                 )
         }
         if (notifyClosed) {
-            callbackScope.launch(Dispatchers.Default) { onClosed(this@ControlConnection, cause) }
+            callbackScope.launch(dispatcher) { onClosed(this@ControlConnection, cause) }
         }
     }
 

@@ -86,8 +86,6 @@ published release must use the exact GitHub-produced APK.
 
 ## Source packages
 
-`scripts/archive.sh` is a working-tree backup helper and is not a public release source artifact.
-
 Tagged releases use `scripts/package-source.sh`, which packages the exact tagged Git commit and validates
 the archive before publication.
 

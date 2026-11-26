@@ -9,16 +9,17 @@ import com.darius.unison.util.DiagnosticLog
 import com.darius.unison.util.MonotonicClock
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.yield
 
 /**
  * The single Media3 mutation authority for one room runtime.
@@ -33,6 +34,7 @@ class PlayerExecutor(
     private val clock: MonotonicClock,
     private val clockSync: ClockSyncEngine,
     private val scope: CoroutineScope,
+    private val dispatcher: CoroutineDispatcher,
     private val log: DiagnosticLog,
     private val onError: (PlaybackFailure) -> Unit,
     private val onCommandPhase: (String, TransportCommandPhase, String?) -> Unit = { _, _, _ -> },
@@ -55,13 +57,24 @@ class PlayerExecutor(
     private val mutationMutex = Mutex()
     private val stateLock = Any()
     private var transportGeneration = 0L
+    private val transportPending = MutableStateFlow(false)
     private var pendingTicket: Ticket? = null
+        set(value) {
+            field = value
+            transportPending.value = value != null
+        }
+
     private var scheduled: Job? = null
     private var scheduledCommandId: String? = null
     private var scheduledGeneration = 0L
 
     val hasPendingTransport: Boolean
-        get() = synchronized(stateLock) { pendingTicket != null }
+        get() = transportPending.value
+
+    /** Suspends until no exact transport owns the player. Returns immediately when none does. */
+    suspend fun awaitTransportIdle() {
+        transportPending.first { !it }
+    }
 
     suspend fun executeImmediateTransport(
         commandId: String,
@@ -404,7 +417,7 @@ class PlayerExecutor(
         var failureLateMs: Long? = null
         var failureExecutorLateMs: Long? = null
         val replacement =
-            scope.launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
+            scope.launch(dispatcher, start = CoroutineStart.LAZY) {
                 try {
                     var latestLocalTarget = localTargetNs(executeAtCoordinatorNs)
                     var clockWaitedMs = 0L
@@ -425,21 +438,18 @@ class PlayerExecutor(
                         latestLocalTarget = localTargetNs(executeAtCoordinatorNs)
                         val remainingNs = latestLocalTarget - clock.nowNs()
                         if (remainingNs <= 0) break
-                        if (remainingNs > 2_000_000L) {
-                            // Coordinator→local mapping is an estimate that can move while the
-                            // command waits (STALE → ACQUIRING → LOCKED, route changes, new RTT
-                            // samples). Never sleep almost the whole remaining interval using one
-                            // mapping; periodically recompute exactly like RoomRuntime's queue
-                            // timer.
-                            delay(
-                                minOf(
-                                    CLOCK_RECHECK_INTERVAL_MS,
-                                    ((remainingNs - 1_000_000L) / 1_000_000L).coerceAtLeast(1L),
-                                )
+                        // Coordinator→local mapping is an estimate that can move while the
+                        // command waits (STALE → ACQUIRING → LOCKED, route changes, new RTT
+                        // samples). Never sleep the whole remaining interval using one mapping;
+                        // recompute periodically, exactly like RoomRuntime's queue timer. The
+                        // final approach rounds up to a millisecond instead of spinning, so a
+                        // command starts at most 1 ms late and never burns CPU waiting.
+                        delay(
+                            minOf(
+                                CLOCK_RECHECK_INTERVAL_MS,
+                                ((remainingNs + 999_999L) / 1_000_000L).coerceAtLeast(1L),
                             )
-                        } else {
-                            yield()
-                        }
+                        )
                     }
                     val executingAtNs = clock.nowNs()
                     val totalLateMs =

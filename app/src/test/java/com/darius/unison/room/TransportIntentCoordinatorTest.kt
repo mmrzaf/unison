@@ -110,6 +110,7 @@ class TransportIntentCoordinatorTest {
         val coordinator =
             TransportIntentCoordinator(
                 scope = scope,
+                nowMs = { System.nanoTime() / 1_000_000L },
                 capacity = 1,
                 onAccepted = { intent ->
                     if (intent.commandId == "first") {
@@ -145,6 +146,7 @@ class TransportIntentCoordinatorTest {
         val coordinator =
             TransportIntentCoordinator(
                 scope = scope,
+                nowMs = { System.nanoTime() / 1_000_000L },
                 playPauseDebounceMs = playPauseDebounceMs,
                 seekDebounceMs = seekDebounceMs,
                 onAccepted = { intent ->

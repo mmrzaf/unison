@@ -12,8 +12,9 @@ Every tag-triggered beta, RC, and stable release must pass:
 
 - repository static/data/tooling checks, dependency verification, diagnostic analyzers, the 100,000-track
   library benchmark, and the network-lifecycle seam harness;
-- Gradle formatting, JVM unit tests, debug/release lint, debug/release APK compilation, and Android-test
-  compilation against the real dependencies;
+- Gradle formatting, JVM unit tests (including the multi-peer room harness and its invariants),
+  debug/release lint, debug/release APK compilation, and Android-test compilation against the real
+  dependencies;
 - Android instrumentation on API 30, 33, and 36;
 - immutable tag/version/commit validation;
 - pre-build keystore certificate verification against the pinned release SHA-256 identity;
@@ -57,7 +58,11 @@ Never claim an exact-artifact test using a debug, local, or different release bu
 ## Physical-device qualification
 
 The detailed scenario catalog lives in
-[`PHYSICAL_DEVICE_QUALIFICATION.md`](PHYSICAL_DEVICE_QUALIFICATION.md). It remains the reference for
+[`PHYSICAL_DEVICE_QUALIFICATION.md`](PHYSICAL_DEVICE_QUALIFICATION.md). For 1.2.0 the maintainer
+qualifies on emulators only; the release evidence must say exactly that, and must not claim that
+hotspot, real-LAN, VPN, or Bluetooth paths were exercised on physical hardware.
+
+It remains the reference for
 manual device testing and investigation.
 
 For a beta or RC, record the physical scenarios actually exercised and any known limitations. For the
@@ -76,9 +81,7 @@ For the 1.2 line:
 
 - wire protocol remains Protocol 1;
 - Room database schema remains schema 1 and local-data format remains v1;
-- Beta 10 qualification starts from a clean install/app-data state; earlier development-build data is unsupported.
-- Beta 10 is the first supported local-data v1 baseline; Beta 10-and-later data must survive later 1.2
-  candidate upgrades unchanged;
+- 1.2.0 is the local-data v1 baseline; later 1.2.x releases must keep its data unchanged;
 - local transfer policy/access denial must be bounded and visible rather than entering an automatic
   retry storm;
 - a blocked current/pending successor must not remain presented as `Preparing` after preparation has

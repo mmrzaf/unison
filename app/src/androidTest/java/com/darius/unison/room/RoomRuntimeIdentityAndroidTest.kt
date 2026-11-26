@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.darius.unison.app.normalizeDisplayName
+import com.darius.unison.app.roomPorts
 import com.darius.unison.app.unisonContainer
 import com.darius.unison.model.AppCommand
 import com.darius.unison.model.QueueItemId
@@ -33,7 +34,7 @@ class RoomRuntimeIdentityAndroidTest {
         val container = context.unisonContainer
         val original = container.settings.ensureIdentity()
         val runtimeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val runtime = RoomRuntime(context, container, FakePlayer(), runtimeScope)
+        val runtime = RoomRuntime(container.roomPorts(runtimeScope), FakePlayer(), runtimeScope)
         val rawName = "\u0000  Beta Seven ${"X".repeat(80)}  "
         val expectedName = normalizeDisplayName(rawName)
 
@@ -52,7 +53,7 @@ class RoomRuntimeIdentityAndroidTest {
             runtimeScope.cancel()
             container.settings.saveDisplayName(original.displayName)
             val restored = container.settings.ensureIdentity()
-            container.roomStore.update { it.copy(localIdentity = restored) }
+            container.roomStore.updateStructure { it.copy(localIdentity = restored) }
         }
     }
 

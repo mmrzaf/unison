@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.darius.unison.model.HotspotInfo
+import com.darius.unison.room.port.HotspotPort
 import com.darius.unison.util.DiagnosticCategory
 import com.darius.unison.util.DiagnosticLog
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,17 +16,17 @@ import kotlinx.coroutines.flow.asStateFlow
 class LocalHotspotController(
     context: Context,
     private val log: DiagnosticLog,
-) {
+) : HotspotPort {
     private val wifi = context.applicationContext.getSystemService(WifiManager::class.java)
     private val stateLock = Any()
     private var reservation: WifiManager.LocalOnlyHotspotReservation? = null
     private var starting = false
     private var generation = 0L
     private val _state = MutableStateFlow<HotspotInfo?>(null)
-    val state: StateFlow<HotspotInfo?> = _state.asStateFlow()
+    override val state: StateFlow<HotspotInfo?> = _state.asStateFlow()
 
     @Suppress("MissingPermission")
-    fun start(onError: (String) -> Unit = {}) {
+    override fun start(onError: (String) -> Unit) {
         val requestGeneration =
             synchronized(stateLock) {
                 if (reservation != null || starting) return
@@ -132,7 +133,7 @@ class LocalHotspotController(
         }
     }
 
-    fun stop() {
+    override fun stop() {
         val toClose =
             synchronized(stateLock) {
                 generation++
