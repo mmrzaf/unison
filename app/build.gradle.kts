@@ -25,6 +25,7 @@ val standaloneKotlinCheckClasspath =
 android {
     namespace = "com.darius.unison"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    buildToolsVersion = libs.versions.buildTools.get()
 
     defaultConfig {
         applicationId = "com.darius.unison"
