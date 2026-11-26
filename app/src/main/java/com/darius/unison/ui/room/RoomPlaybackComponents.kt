@@ -2,7 +2,6 @@ package com.darius.unison.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,7 +22,6 @@ import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -577,22 +575,12 @@ internal fun QueueRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (canReorder) {
-            Icon(
-                Icons.Default.DragHandle,
-                "Hold and drag to reorder",
-                modifier =
-                    Modifier.size(40.dp).padding(10.dp).pointerInput(index, lastIndex) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { onDragStart() },
-                            onDragCancel = onDragCancel,
-                            onDragEnd = onDragEnd,
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                onDragDelta(dragAmount.y)
-                            },
-                        )
-                    },
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            DragHandleIcon(
+                size = 40.dp,
+                onDragStart = onDragStart,
+                onDragDelta = onDragDelta,
+                onDragCancel = onDragCancel,
+                onDragEnd = onDragEnd,
             )
         }
         Box {

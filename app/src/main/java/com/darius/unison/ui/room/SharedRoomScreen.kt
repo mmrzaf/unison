@@ -1,6 +1,5 @@
 package com.darius.unison.ui
 
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,15 +27,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,11 +49,9 @@ import com.darius.unison.model.RoomUiState
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
 import com.darius.unison.model.TransportAction
-import com.darius.unison.room.QueueDragPolicy
 import com.darius.unison.room.QueueSearchIndex
 import com.darius.unison.room.QueueShufflePolicy
 import com.darius.unison.storage.PlaylistSummary
-import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -294,99 +288,29 @@ internal fun SharedRoomScreen(
     }
 
     var reorderMode by rememberSaveable(snapshot.roomId) { mutableStateOf(false) }
-    var draggedQueueIndex by remember { mutableStateOf<Int?>(null) }
-    var dragTargetIndex by remember { mutableStateOf<Int?>(null) }
-    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
-    var dragPointerCenterPx by remember { mutableStateOf<Float?>(null) }
-    var dragAutoScrollPx by remember { mutableFloatStateOf(0f) }
     val queueIndexByLazyKey =
         remember(snapshot.queue) {
             snapshot.queue
                 .mapIndexed { index, item -> "queue:${item.queueItemId.value}" to index }
                 .toMap()
         }
-    val dragEdgePx = with(LocalDensity.current) { 72.dp.toPx() }
-    val maxDragScrollPx = with(LocalDensity.current) { 28.dp.toPx() }
-
-    fun recalculateQueueDrag() {
-        if (snapshot.queue.isEmpty()) return
-        val origin = draggedQueueIndex ?: return
-        val pointerCenter = dragPointerCenterPx ?: return
-        val layout = listState.layoutInfo
-        val visibleQueueItems =
-            layout.visibleItemsInfo.mapNotNull { item ->
-                val queueIndex = queueIndexByLazyKey[item.key] ?: return@mapNotNull null
-                QueueDragPolicy.VisibleItem(
-                    queueIndex = queueIndex,
-                    offsetPx = item.offset.toFloat(),
-                    sizePx = item.size.toFloat(),
-                )
-            }
-        dragTargetIndex =
-            QueueDragPolicy.targetIndex(pointerCenter, visibleQueueItems, origin)
-                .coerceIn(0, snapshot.queue.lastIndex)
-        dragAutoScrollPx =
-            QueueDragPolicy.autoScrollPerFrame(
-                pointerCenterPx = pointerCenter,
-                viewportStartPx = layout.viewportStartOffset.toFloat(),
-                viewportEndPx = layout.viewportEndOffset.toFloat(),
-                edgeSizePx = dragEdgePx,
-                maxScrollPx = maxDragScrollPx,
-            )
-    }
-
-    fun startQueueDrag(index: Int) {
-        val key = "queue:${snapshot.queue[index].queueItemId.value}"
-        val visibleItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == key }
-        draggedQueueIndex = index
-        dragTargetIndex = index
-        dragOffsetPx = 0f
-        dragPointerCenterPx = visibleItem?.let { it.offset + it.size / 2f }
-        dragAutoScrollPx = 0f
-        recalculateQueueDrag()
-    }
-
-    fun updateQueueDrag(deltaY: Float) {
-        dragOffsetPx += deltaY
-        dragPointerCenterPx = (dragPointerCenterPx ?: 0f) + deltaY
-        recalculateQueueDrag()
-    }
-
-    fun resetQueueDrag() {
-        draggedQueueIndex = null
-        dragTargetIndex = null
-        dragOffsetPx = 0f
-        dragPointerCenterPx = null
-        dragAutoScrollPx = 0f
-    }
+    val drag =
+        rememberDragReorderState(listState, snapshot.queue.size) { item ->
+            queueIndexByLazyKey[item.key]
+        }
 
     LaunchedEffect(snapshot.queueRevision) {
-        if (draggedQueueIndex != null) resetQueueDrag()
+        if (drag.draggedIndex != null) drag.reset()
     }
     LaunchedEffect(queueQuery) {
         if (queueQuery.isNotBlank()) {
-            resetQueueDrag()
+            drag.reset()
             reorderMode = false
         }
     }
     LaunchedEffect(snapshot.queue.isEmpty()) {
         if (snapshot.queue.isEmpty() && queueQuery.isNotEmpty()) queueQuery = ""
     }
-    LaunchedEffect(draggedQueueIndex) {
-        while (draggedQueueIndex != null) {
-            withFrameNanos {}
-            val requested = dragAutoScrollPx
-            if (abs(requested) < 0.5f) continue
-            val consumed = listState.scrollBy(requested)
-            if (abs(consumed) < 0.5f) {
-                dragAutoScrollPx = 0f
-                continue
-            }
-            dragOffsetPx += consumed
-            recalculateQueueDrag()
-        }
-    }
-
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
@@ -614,7 +538,7 @@ internal fun SharedRoomScreen(
                         reorderMode = reorderMode,
                         onQueryChange = { queueQuery = it },
                         onToggleReorder = {
-                            resetQueueDrag()
+                            drag.reset()
                             reorderMode = !reorderMode
                         },
                         onShuffle = actions.queue.shuffle,
@@ -665,17 +589,16 @@ internal fun SharedRoomScreen(
                                     ?: RoomMediaReadiness.NEEDS_PREPARATION,
                             blocked = item.queueItemId == blockedQueueItemId,
                             canReorder = reorderMode,
-                            draggedIndex = draggedQueueIndex,
-                            dragTargetIndex = dragTargetIndex,
-                            dragOffsetPx = if (draggedQueueIndex == index) dragOffsetPx else 0f,
-                            onDragStart = { startQueueDrag(index) },
-                            onDragDelta = ::updateQueueDrag,
-                            onDragCancel = ::resetQueueDrag,
+                            draggedIndex = drag.draggedIndex,
+                            dragTargetIndex = drag.targetIndex,
+                            dragOffsetPx = if (drag.draggedIndex == index) drag.offsetPx else 0f,
+                            onDragStart = { drag.start(index) },
+                            onDragDelta = drag::update,
+                            onDragCancel = drag::reset,
                             onDragEnd = {
-                                val target = dragTargetIndex ?: index
-                                resetQueueDrag()
-                                if (target != index)
+                                drag.finish()?.let { target ->
                                     actions.queue.moveQueueItem(item.queueItemId, target)
+                                }
                             },
                             onMove = { actions.queue.moveQueueItem(item.queueItemId, it) },
                             playEnabled =

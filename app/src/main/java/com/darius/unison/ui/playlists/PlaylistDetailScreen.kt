@@ -2,8 +2,6 @@ package com.darius.unison.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,16 +42,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -65,9 +60,7 @@ import androidx.paging.compose.LazyPagingItems
 import com.darius.unison.library.PlaylistDetail
 import com.darius.unison.model.TrackDescriptor
 import com.darius.unison.model.TrackId
-import com.darius.unison.room.QueueDragPolicy
 import com.darius.unison.storage.PlaylistSummary
-import kotlin.math.abs
 
 @Composable
 internal fun PlaylistDetailScreen(
@@ -106,89 +99,11 @@ internal fun PlaylistDetailScreen(
     }
 
     val listState = rememberLazyListState()
-    var draggedIndex by remember { mutableStateOf<Int?>(null) }
-    var dragTargetIndex by remember { mutableStateOf<Int?>(null) }
-    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
-    var dragPointerCenterPx by remember { mutableStateOf<Float?>(null) }
-    var dragAutoScrollPx by remember { mutableFloatStateOf(0f) }
-    val dragEdgePx = with(LocalDensity.current) { 72.dp.toPx() }
-    val maxDragScrollPx = with(LocalDensity.current) { 28.dp.toPx() }
-
-    fun recalculateDrag() {
-        if (detail.tracks.isEmpty()) return
-        val origin = draggedIndex ?: return
-        val pointerCenter = dragPointerCenterPx ?: return
-        val layout = listState.layoutInfo
-        val visible =
-            layout.visibleItemsInfo.map { item ->
-                QueueDragPolicy.VisibleItem(
-                    queueIndex = item.index,
-                    offsetPx = item.offset.toFloat(),
-                    sizePx = item.size.toFloat(),
-                )
-            }
-        dragTargetIndex =
-            QueueDragPolicy.targetIndex(pointerCenter, visible, origin)
-                .coerceIn(0, detail.tracks.lastIndex)
-        dragAutoScrollPx =
-            QueueDragPolicy.autoScrollPerFrame(
-                pointerCenterPx = pointerCenter,
-                viewportStartPx = layout.viewportStartOffset.toFloat(),
-                viewportEndPx = layout.viewportEndOffset.toFloat(),
-                edgeSizePx = dragEdgePx,
-                maxScrollPx = maxDragScrollPx,
-            )
-    }
-
-    fun startDrag(index: Int) {
-        val visibleItem = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == index }
-        draggedIndex = index
-        dragTargetIndex = index
-        dragOffsetPx = 0f
-        dragPointerCenterPx = visibleItem?.let { it.offset + it.size / 2f }
-        dragAutoScrollPx = 0f
-        recalculateDrag()
-    }
-
-    fun updateDrag(deltaY: Float) {
-        dragOffsetPx += deltaY
-        dragPointerCenterPx = (dragPointerCenterPx ?: 0f) + deltaY
-        recalculateDrag()
-    }
-
-    fun resetDrag() {
-        draggedIndex = null
-        dragTargetIndex = null
-        dragOffsetPx = 0f
-        dragPointerCenterPx = null
-        dragAutoScrollPx = 0f
-    }
-
-    fun finishDrag() {
-        val origin = draggedIndex
-        val target = dragTargetIndex
-        resetDrag()
-        if (origin != null && target != null && origin != target) onMoveTrack(origin, target)
-    }
+    val drag = rememberDragReorderState(listState, detail.tracks.size) { it.index }
 
     LaunchedEffect(detail.tracks.map { it.trackId }) {
-        if (draggedIndex != null) resetDrag()
+        if (drag.draggedIndex != null) drag.reset()
     }
-    LaunchedEffect(draggedIndex) {
-        while (draggedIndex != null) {
-            withFrameNanos {}
-            val requested = dragAutoScrollPx
-            if (abs(requested) < 0.5f) continue
-            val consumed = listState.scrollBy(requested)
-            if (abs(consumed) < 0.5f) {
-                dragAutoScrollPx = 0f
-                continue
-            }
-            dragOffsetPx += consumed
-            recalculateDrag()
-        }
-    }
-
     Column(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxWidth().padding(start = 16.dp, top = 4.dp, end = 16.dp, bottom = 10.dp),
@@ -398,18 +313,18 @@ internal fun PlaylistDetailScreen(
                         selected = index in selectedIndices,
                         selecting = selectingPlaylist,
                         reordering = reordering,
-                        draggedIndex = draggedIndex,
-                        dragTargetIndex = dragTargetIndex,
-                        dragOffsetPx = if (draggedIndex == index) dragOffsetPx else 0f,
+                        draggedIndex = drag.draggedIndex,
+                        dragTargetIndex = drag.targetIndex,
+                        dragOffsetPx = if (drag.draggedIndex == index) drag.offsetPx else 0f,
                         onToggleSelected = {
                             selectedIndices =
                                 if (index in selectedIndices) selectedIndices - index
                                 else selectedIndices + index
                         },
-                        onDragStart = { startDrag(index) },
-                        onDragDelta = ::updateDrag,
-                        onDragCancel = ::resetDrag,
-                        onDragEnd = ::finishDrag,
+                        onDragStart = { drag.start(index) },
+                        onDragDelta = drag::update,
+                        onDragCancel = drag::reset,
+                        onDragEnd = { drag.finish()?.let { target -> onMoveTrack(index, target) } },
                         onMove = { onMoveTrack(index, it) },
                         onRemove = { onRemoveTracks(listOf(index)) },
                     )
@@ -589,22 +504,12 @@ private fun PlaylistTrackRow(
         trailingContent = {
             when {
                 reordering ->
-                    Icon(
-                        Icons.Default.DragHandle,
-                        "Hold and drag to reorder",
-                        modifier =
-                            Modifier.size(44.dp).padding(10.dp).pointerInput(index, lastIndex) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { onDragStart() },
-                                    onDragCancel = onDragCancel,
-                                    onDragEnd = onDragEnd,
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        onDragDelta(dragAmount.y)
-                                    },
-                                )
-                            },
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    DragHandleIcon(
+                        size = 44.dp,
+                        onDragStart = onDragStart,
+                        onDragDelta = onDragDelta,
+                        onDragCancel = onDragCancel,
+                        onDragEnd = onDragEnd,
                     )
                 !selecting ->
                     Box {

@@ -7,7 +7,6 @@ import com.darius.unison.library.M3uCodec
 import com.darius.unison.library.M3uEntry
 import com.darius.unison.library.PlaylistDetail
 import com.darius.unison.model.TrackId
-import com.darius.unison.room.RoomReducer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +21,7 @@ internal class PlaylistActions(
     private val scope: CoroutineScope,
     private val activeOperationCount: MutableStateFlow<Int>,
     private val message: MutableStateFlow<String?>,
+    private val availableQueueSlots: () -> Int?,
     private val addTracksToRoom: (List<TrackId>, Boolean) -> Unit,
 ) {
     private val _selectedPlaylist = MutableStateFlow<PlaylistDetail?>(null)
@@ -188,16 +188,7 @@ internal class PlaylistActions(
             message.value = "Choose music to add"
             return
         }
-        val queueSize = container.roomStore.structure.value.snapshot?.queue?.size
-        if (queueSize == null) {
-            message.value = "Join or create a room first"
-            return
-        }
-        val availableSlots = (RoomReducer.MAX_QUEUE_ITEMS - queueSize).coerceAtLeast(0)
-        if (availableSlots == 0) {
-            message.value = "The room queue is full"
-            return
-        }
+        val availableSlots = availableQueueSlots() ?: return
         scope.launch {
             withBusyOperation {
                     userResult {
@@ -234,9 +225,11 @@ internal class PlaylistActions(
                             M3uCodec.encode(
                                 detail.tracks.map { track ->
                                     M3uEntry(
+                                        // Managed audio lives in app-private storage that no
+                                        // other app can read, so the portable reference is the
+                                        // original filename relative to the exported playlist.
                                         reference =
-                                            container.trackRepository.exportReference(track.trackId)
-                                                ?: track.originalFileName
+                                            track.originalFileName
                                                 ?: "unison-${track.trackId.value}.audio",
                                         durationSeconds =
                                             track.durationMs.takeIf { it > 0 }?.div(1000),
