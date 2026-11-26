@@ -1,6 +1,6 @@
 # ADR-001: One canonical room actor
 
-**Status:** Accepted
+**Status:** Accepted; amended by [ADR-007](ADR-007-playback-effect-ownership.md)
 
 Canonical room/session mutations are serialized through one `RoomRuntime` actor. Async work may
 prepare results elsewhere, but any work that can mutate current room state must carry immutable

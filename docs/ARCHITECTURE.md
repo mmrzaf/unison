@@ -18,9 +18,21 @@ transfer efficiency. It is rejected when it creates split ownership or repeated 
 
 ## State ownership
 
-`RoomRuntime` is the Android/session composition root. It wires network, storage, playback, clock,
-and room components together and owns one bounded `SerializedEventLoop<RoomEvent>`. The room actor
-is the only writer of canonical room state.
+`RoomRuntime` is the session composition root. It wires host ports, playback, clock, and room
+components together and owns one bounded `SerializedEventLoop<RoomEvent>`. The room actor is the only
+writer of canonical room state and of the session state derived from it.
+
+Execution contexts are deliberately few:
+
+- **Room actor** — canonical mutations, playback preparation (media window, readiness, transfer
+  demands, retention touches), synchronization decisions, membership, and shutdown. Edges into the
+  actor may suspend; effects never run on a second state owner.
+- **Playback queue** — player effects only. It receives a snapshot and performs Media3 work; it never
+  reads or writes room state.
+- **Timers** — session jobs that only wait and then submit an event. They never run room or playback
+  work themselves.
+- **Published projections** — values that other threads read without a lock: the immutable
+  `ClockEstimate` mapping, the `async`-free `RoomStore` flows, and the actor-published sync cadence.
 
 Focused components own decisions that need independent reasoning:
 
@@ -34,12 +46,16 @@ Focused components own decisions that need independent reasoning:
 - `TransferCapacityPolicy` — one capacity model shared by coordinator policy and transport guards;
 - `TransferManager` — authenticated resumable upload/download execution and verified commit;
 - `PlayerExecutor` — the only Media3 mutation authority;
-- `PlaybackSynchronizationRuntime` — local drift/correction policy outside the room actor;
+- `PlaybackSynchronizationRuntime` — local drift/correction policy applied from actor turns;
+- `ClockSyncEngine` — actor-owned estimator that publishes an immutable mapping for readers;
 - `RoomReconnectPolicy` — bounded coordinator/network/peer recovery windows;
+- `PeerNetwork` — host port for peer transport; `ControlHandshake` is the protocol transcript;
 - `DiagnosticLog` — one bounded structured observability sink.
 
 The rule is simple: policy owners decide; effect executors execute; effects report typed outcomes back.
-No subsystem should reach sideways and manipulate another subsystem's internal lifecycle.
+No subsystem should reach sideways and manipulate another subsystem's internal lifecycle. A terminal
+control message that must be seen (leaving a room) is written before its connection closes, and that
+is a transport acknowledgement rather than a sleep.
 
 ### Async provenance at the actor boundary
 
@@ -144,8 +160,8 @@ actual `RoomStore` mutation, while completion/failure events carry the manager g
 actor and are rejected there if the room has advanced. Reconnect status text uses the same atomic
 generation fence so an obsolete recovery coroutine cannot repopulate a newer lobby/room UI.
 
-Uploads do not acquire `TRANSFER_UPLOAD` before repository repair. `TrackRepository` first resolves and
-cryptographically repairs the content-addressed file as needed; `ManagedFileStore.acquireExistingFileLease`
+Uploads resolve before they lease. `TrackRepository` first resolves the verified content-addressed file
+(an unverifiable file drops its source reference instead of being served); `ManagedFileStore.acquireExistingFileLease`
 then proves that exact final file still exists and acquires the upload lease under the per-track commit
 lock. If deletion wins the handoff gap, resolution is retried once instead of opening a stale path.
 

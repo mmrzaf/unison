@@ -46,7 +46,7 @@ On a new Linux workstation, begin with:
 Before opening a pull request, run at least:
 
 ```bash
-./scripts/check-static.sh
+python3 ./scripts/check-source-tree.py
 ./scripts/check-data.sh
 python3 ./scripts/analyze-playback-log.py --self-test
 python3 ./scripts/analyze-stability-log.py --self-test

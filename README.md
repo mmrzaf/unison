@@ -132,8 +132,6 @@ Bootstrap a development environment:
 Run repository checks:
 
 ```bash
-./scripts/check-static.sh
-./scripts/check-data.sh
 ./scripts/check-release-quality.sh
 ```
 

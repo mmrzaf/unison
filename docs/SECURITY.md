@@ -24,6 +24,12 @@ after successful proof verification. Final admission also captures the active ro
 session generation; the room actor rejects the connection before any peer-state mutation if either is
 stale when the accepted socket reaches canonical state.
 
+The room secret lives for exactly one room session. It is replaced, never overwritten in place: an
+admission may still be reading the current array when a session ends or reconnects, and zeroing it
+under that reader would let a valid transcript authenticate against an empty key. Replaced arrays
+become unreachable and are reclaimed by the runtime; they are never written to disk, logs, or
+diagnostics.
+
 ## Control traffic
 
 - Protocol 1 uses strict decoding and exact version equality.
@@ -44,7 +50,7 @@ stale when the accepted socket reaches canonical state.
 - Files remain staged and invisible until complete verification and atomic commit.
 - Active playback, queue, import, cleanup, and transfer work use leases or operation locks.
 - Upload authorization never opens a repository path that can disappear before streaming: readability
-  is resolved/repaired first, then `TRANSFER_UPLOAD` is acquired atomically against managed deletion.
+  is verified and resolved first, then `TRANSFER_UPLOAD` is acquired atomically against managed deletion.
 - Transfer progress/completion/failure are session-generation fenced at their actual state-mutation
   boundary; callbacks from a dead room cannot publish readiness or failure into its successor.
 
@@ -85,10 +91,10 @@ only and are cleared when the session ends.
 ## Build and supply-chain controls
 
 The repository resolves only through Google's Maven repository, Maven Central, and the Gradle Plugin
-Portal. Local repository-owned Gradle entry points use an isolated ignored Gradle user home so a
-developer's global `~/.gradle/init.d` scripts cannot silently rewrite that resolution path. Release
-dependency artifacts are protected by committed Gradle dependency-verification metadata generated from
-a trusted resolution path and reviewed whenever dependencies change.
+Portal. Every resolved artifact, including plugins, is checked against committed Gradle
+dependency-verification metadata (SHA-256) generated from a trusted resolution path and reviewed
+whenever dependencies change, so a mirror or `~/.gradle/init.d` rewrite that substitutes different
+bytes fails the build instead of silently changing what is compiled.
 
 Privileged GitHub release automation pins third-party Actions to full commit SHAs, builds only from an
 immutable version tag that is proven to resolve to the workflow commit, separates signing secrets from

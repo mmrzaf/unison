@@ -48,7 +48,7 @@ protocol code should preserve them or explicitly change the product contract.
 18. A file becomes complete/READY only after final SHA-256 verification and atomic commit.
 19. Transfer progress, completion, and failure may affect current room state only while they belong to
     the active session generation at the actual mutation boundary.
-20. An upload streams only from a managed file whose readability was resolved/repaired first and whose
+20. An upload streams only from a managed file whose verified readability was resolved first and whose
     exact final path was then leased atomically against deletion.
 21. Logical managed-file deletion either removes bytes immediately or creates a durable pending-delete
     obligation that completes when the final lease is released.
@@ -98,6 +98,11 @@ protocol code should preserve them or explicitly change the product contract.
 44. The room-code SRP arithmetic remains covered by a published SRP-6a conformance vector. JVM
     modular exponentiation is not claimed to be constant-time; that residual limitation is explicit in the
     1.2 security review and must not be "fixed" with unaudited custom cryptography.
+
+## Transport
+
+45. A terminal control message (leaving a room) is written to the transport before its connection is
+    closed; no sleep or retry window substitutes for that acknowledgement.
 
 ## Engineering rule
 

@@ -4,31 +4,20 @@ This roadmap describes direction, not promises or deadlines. Current candidate e
 [`release-evidence/`](release-evidence/README.md); completed implementation work belongs in the
 changelog rather than remaining as future roadmap work.
 
-## 1.2.0-beta.10 qualification
+## 1.2.0 stabilization
 
-The Beta 10 implementation baseline is feature-frozen. Remaining work is release qualification:
+1.2.0 is the first release anyone installs, so it is the baseline rather than an upgrade target.
+The remaining work is stabilization, not features:
 
-- run the authoritative GitHub verification workflow, including JVM/lint/build checks and API 33
-  instrumentation;
-- run the tag-triggered API 30/33/36 release instrumentation matrix;
-- verify the approved release signing identity and exact signed release APK through the production
-  release gate;
-- exercise the required router Wi-Fi, LocalOnlyHotspot, private/no-Internet Wi-Fi, VPN allow/block,
-  transfer-recovery, Bluetooth/audio-route, background/screen-off, and coordinator-loss scenarios on
-  physical devices;
-- run an exact-artifact smoke test and the selected soak scenarios against the GitHub-produced APK;
-- record accepted known issues, reviewer/date, and final disposition in
-  `docs/release-evidence/1.2.0-beta.10.md`.
+- keep the JVM multi-peer harness as the release gate and extend it with every field report;
+- run the API 33 emulator suite locally and the API 30/33/36 matrix through the tag workflow;
+- record the accepted limitation that hotspot, real-LAN, VPN, and Bluetooth paths are qualified on
+  emulators only.
 
-No new product feature or broad architecture refactor should enter Beta 10 while those gates are open.
-
-## 1.2 stable
-
-- No open correctness, security, state-authority, storage-integrity, or release-signing blockers.
-- Beta 10-and-later supported local data survives upgrades to the stable build.
-- Full automated and physical qualification is attached to the exact candidate APK/source commit.
-- Stable release is built from an immutable `v1.2.0` tag through the same production workflow used by
-  prereleases.
+After 1.2.0, in order of value: qualify the radio paths on physical devices; move the player-facing
+flows (rejoin, synchronization, queue refresh) into a playback director so the room actor can become
+non-suspending (see ADR-007 for why this is not needed for stability today); then a `:core` JVM
+module and a `RoomSession` decomposition.
 
 ## After 1.2
 

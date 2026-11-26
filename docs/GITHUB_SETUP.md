@@ -1,7 +1,7 @@
 # GitHub repository setup
 
 These settings cannot be enforced solely by files in the source tree. Apply them before actively
-promoting the public beta and review them whenever repository ownership changes.
+promoting the public release and review them whenever repository ownership changes.
 
 ## Repository metadata
 
@@ -23,7 +23,7 @@ Suggested topics:
 - `synchronization`
 
 Add a genuine social-preview image and real product screenshots/demo media before broad promotion.
-Do not use mockups that imply behavior not demonstrated by the current beta.
+Do not use mockups that imply behavior not demonstrated by the current release.
 
 ## Discussions and issue flow
 
@@ -46,8 +46,8 @@ Enable where available:
 - secret scanning/push protection;
 - CodeQL/default security reporting.
 
-The repository contains `.github/SECURITY.md`, CodeQL, and Dependabot configuration, but GitHub account
-features still need to be enabled in repository settings.
+The repository contains `.github/SECURITY.md` and a CodeQL workflow; the GitHub account features above
+still need to be enabled in repository settings.
 
 ## Branch and tag protection
 
@@ -56,7 +56,7 @@ Android CI checks before merge and disable force pushes/deletion on the protecte
 A solo maintainer does not need an artificial approval requirement for their own work.
 
 Create a ruleset for release tags matching `v*` that prevents force updates and deletion. Tags identify
-immutable source/artifact releases; a broken beta gets a new tag rather than replaced assets.
+immutable source/artifact releases; a broken release gets a new tag rather than replaced assets.
 
 ## Labels
 
@@ -100,11 +100,11 @@ the first public artifact and keep it stable across releases.
 
 ## Promotion checklist
 
-Before sharing the beta broadly:
+Before sharing the release broadly:
 
 - README download/status text matches the actual public release;
 - the exact GitHub-produced APK has been installed and smoke-tested;
-- beta release evidence is updated from real results;
+- release evidence is updated from real results;
 - known issues are explicit and current;
 - screenshots/demo media show real devices/current UI;
 - Discussions and issue/security paths are active.
