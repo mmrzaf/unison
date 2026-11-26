@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.darius.unison.BuildConfig
@@ -49,11 +50,11 @@ internal fun AboutUnisonDialog(onDismiss: () -> Unit) {
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text("Protocol $PROTOCOL_VERSION")
-                    Text("Android 11+ · release-tested on 11, 13, and 16")
+                    Text("Requires Android 11 or newer")
                 }
                 Row(
                     modifier =
-                        Modifier.fillMaxWidth().clickable {
+                        Modifier.fillMaxWidth().clickable(role = Role.Button) {
                             runCatching { uriHandler.openUri(sourceUrl) }
                         },
                     verticalAlignment = Alignment.CenterVertically,

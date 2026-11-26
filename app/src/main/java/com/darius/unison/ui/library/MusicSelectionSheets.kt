@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -37,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -106,16 +108,15 @@ internal fun MusicDestinationSheet(
                     )
                 },
                 leadingContent = {
-                    Checkbox(
-                        checked = effectiveSaveToLibrary,
-                        onCheckedChange =
-                            if (playlistRequiresLibrary) null
-                            else ({ checked -> saveToLibrary = checked }),
-                    )
+                    Checkbox(checked = effectiveSaveToLibrary, onCheckedChange = null)
                 },
                 modifier =
-                    if (playlistRequiresLibrary) Modifier
-                    else Modifier.clickable { saveToLibrary = !saveToLibrary },
+                    Modifier.toggleable(
+                        value = effectiveSaveToLibrary,
+                        enabled = !playlistRequiresLibrary,
+                        role = Role.Checkbox,
+                        onValueChange = { saveToLibrary = it },
+                    ),
             )
 
             if (roomActive) {
@@ -125,9 +126,14 @@ internal fun MusicDestinationSheet(
                         Text("Make these songs available to everyone in the room.")
                     },
                     leadingContent = {
-                        Checkbox(checked = addToRoom, onCheckedChange = { addToRoom = it })
+                        Checkbox(checked = addToRoom, onCheckedChange = null)
                     },
-                    modifier = Modifier.clickable { addToRoom = !addToRoom },
+                    modifier =
+                        Modifier.toggleable(
+                            value = addToRoom,
+                            role = Role.Checkbox,
+                            onValueChange = { addToRoom = it },
+                        ),
                 )
             }
 

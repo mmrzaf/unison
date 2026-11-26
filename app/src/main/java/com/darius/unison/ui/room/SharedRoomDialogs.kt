@@ -15,7 +15,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -95,11 +94,12 @@ internal fun SaveQueueDialog(
         onDismissRequest = onDismiss,
         title = { Text("Save queue") },
         text = {
-            OutlinedTextField(
+            DialogTextField(
                 value = name,
                 onValueChange = { name = it.take(60) },
-                label = { Text("Playlist name") },
-                singleLine = true,
+                label = "Playlist name",
+                canSubmit = name.isNotBlank(),
+                onSubmit = { onSave(name.trim()) },
             )
         },
         confirmButton = {

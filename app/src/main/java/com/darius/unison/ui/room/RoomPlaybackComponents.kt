@@ -576,7 +576,7 @@ internal fun QueueRow(
         )
         if (canReorder) {
             DragHandleIcon(
-                size = 40.dp,
+                size = 48.dp,
                 onDragStart = onDragStart,
                 onDragDelta = onDragDelta,
                 onDragCancel = onDragCancel,

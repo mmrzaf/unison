@@ -35,7 +35,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -337,13 +336,25 @@ internal fun PlaylistDetailScreen(
         AlertDialog(
             onDismissRequest = { rename = false },
             title = { Text("Rename playlist") },
-            text = { OutlinedTextField(name, { name = it.take(60) }, singleLine = true) },
+            text = {
+                DialogTextField(
+                    value = name,
+                    onValueChange = { name = it.take(60) },
+                    label = "Name",
+                    canSubmit = name.isNotBlank(),
+                    onSubmit = {
+                        onRename(name.trim())
+                        rename = false
+                    },
+                )
+            },
             confirmButton = {
                 Button(
+                    enabled = name.isNotBlank(),
                     onClick = {
-                        onRename(name)
+                        onRename(name.trim())
                         rename = false
-                    }
+                    },
                 ) {
                     Text("Save")
                 }
@@ -505,7 +516,7 @@ private fun PlaylistTrackRow(
             when {
                 reordering ->
                     DragHandleIcon(
-                        size = 44.dp,
+                        size = 48.dp,
                         onDragStart = onDragStart,
                         onDragDelta = onDragDelta,
                         onDragCancel = onDragCancel,

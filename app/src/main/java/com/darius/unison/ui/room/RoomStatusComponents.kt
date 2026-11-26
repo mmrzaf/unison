@@ -40,12 +40,20 @@ internal fun PersistentRoomIssueCard(
     issue: RoomIssue,
     transportStatus: TransportCommandStatus?,
     onDismiss: () -> Unit,
-    onRetryTransport: () -> Unit,
+    onRetryTransport: (() -> Unit)?,
     onChooseFiles: () -> Unit,
-    onLeaveRoom: () -> Unit,
+    onLeaveRoom: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    val action = RoomPlaybackUiPolicy.issueAction(issue, transportStatus)
+    val action =
+        RoomPlaybackUiPolicy.issueAction(issue, transportStatus)?.takeUnless {
+            when (it) {
+                RoomPlaybackUiPolicy.IssueAction.RETRY_TRANSPORT,
+                RoomPlaybackUiPolicy.IssueAction.RETRY_PREPARATION -> onRetryTransport == null
+                RoomPlaybackUiPolicy.IssueAction.LEAVE_ROOM -> onLeaveRoom == null
+                RoomPlaybackUiPolicy.IssueAction.CHOOSE_FILES -> false
+            }
+        }
     val presentation = RoomPlaybackUiPolicy.issuePresentation(issue)
     val icon =
         when (issue.severity) {
@@ -96,7 +104,7 @@ internal fun PersistentRoomIssueCard(
                 when (action) {
                     RoomPlaybackUiPolicy.IssueAction.RETRY_TRANSPORT,
                     RoomPlaybackUiPolicy.IssueAction.RETRY_PREPARATION ->
-                        TextButton(onClick = onRetryTransport) {
+                        TextButton(onClick = { onRetryTransport?.invoke() }) {
                             Icon(
                                 Icons.Default.Refresh,
                                 contentDescription = null,
@@ -116,7 +124,7 @@ internal fun PersistentRoomIssueCard(
                         }
 
                     RoomPlaybackUiPolicy.IssueAction.LEAVE_ROOM ->
-                        TextButton(onClick = onLeaveRoom) {
+                        TextButton(onClick = { onLeaveRoom?.invoke() }) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ExitToApp,
                                 contentDescription = null,

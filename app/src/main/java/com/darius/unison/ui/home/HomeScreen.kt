@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
@@ -44,7 +43,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,7 +55,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -144,9 +144,9 @@ internal fun HomeScreen(
                         issue = issue,
                         transportStatus = state.room.transportStatus,
                         onDismiss = { onDismissRoomIssue(issue.message) },
-                        onRetryTransport = {},
+                        onRetryTransport = null,
                         onChooseFiles = onChooseFiles,
-                        onLeaveRoom = { onDismissRoomIssue(issue.message) },
+                        onLeaveRoom = null,
                     )
                     if (
                         issue.code == RoomIssueCode.LOCAL_NETWORK_UNAVAILABLE &&
@@ -165,7 +165,7 @@ internal fun HomeScreen(
         item(key = "create-room") {
             Surface(
                 modifier =
-                    Modifier.fillMaxWidth().clickable(enabled = !connecting) {
+                    Modifier.fillMaxWidth().clickable(enabled = !connecting, role = Role.Button) {
                         createRoomOpen = true
                     },
                 shape = MaterialTheme.shapes.large,
@@ -246,7 +246,6 @@ internal fun HomeScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     },
-                    supportingContent = { Text("Nearby") },
                     leadingContent = { Icon(Icons.Default.Groups, null) },
                     trailingContent = {
                         FilledTonalButton(
@@ -390,7 +389,7 @@ internal fun HomeScreen(
                 },
                 leadingContent = { Icon(Icons.Default.Person, null) },
                 modifier =
-                    Modifier.clickable {
+                    Modifier.clickable(role = Role.Button) {
                         settingsOpen = false
                         onEditName()
                     },
@@ -400,7 +399,7 @@ internal fun HomeScreen(
                 supportingContent = { Text(formatBytes(state.storageSummary.totalBytes)) },
                 leadingContent = { Icon(Icons.Default.Storage, null) },
                 modifier =
-                    Modifier.clickable {
+                    Modifier.clickable(role = Role.Button) {
                         settingsOpen = false
                         storageOpen = true
                     },
@@ -409,7 +408,7 @@ internal fun HomeScreen(
                 headlineContent = { Text("Connection help") },
                 leadingContent = { Icon(Icons.Default.WifiTethering, null) },
                 modifier =
-                    Modifier.clickable {
+                    Modifier.clickable(role = Role.Button) {
                         settingsOpen = false
                         connectionHelpOpen = true
                     },
@@ -418,7 +417,7 @@ internal fun HomeScreen(
                 headlineContent = { Text("About Unison") },
                 leadingContent = { Icon(Icons.Default.Code, null) },
                 modifier =
-                    Modifier.clickable {
+                    Modifier.clickable(role = Role.Button) {
                         settingsOpen = false
                         onShowAbout()
                     },
@@ -432,12 +431,17 @@ internal fun HomeScreen(
             onDismissRequest = { createRoomOpen = false },
             title = { Text("Create room") },
             text = {
-                OutlinedTextField(
+                DialogTextField(
                     value = roomName,
                     onValueChange = { roomName = it.take(60) },
-                    label = { Text("Room name") },
-                    placeholder = { Text("Optional") },
-                    singleLine = true,
+                    label = "Room name",
+                    placeholder = "Optional",
+                    canSubmit = true,
+                    onSubmit = {
+                        createRoomOpen = false
+                        onCreateRoom(roomName.trim().takeIf(String::isNotEmpty))
+                    },
+                    capitalization = KeyboardCapitalization.Words,
                 )
             },
             confirmButton = {
@@ -459,12 +463,16 @@ internal fun HomeScreen(
             onDismissRequest = { joiningRoom = null },
             title = { Text(room.roomName) },
             text = {
-                OutlinedTextField(
+                DialogTextField(
                     value = joinPin,
                     onValueChange = { value -> joinPin = value.filter(Char::isDigit).take(4) },
-                    label = { Text("4-digit room code") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    singleLine = true,
+                    label = "4-digit room code",
+                    canSubmit = joinPin.length == 4,
+                    onSubmit = {
+                        joiningRoom = null
+                        onJoinRoom(room, joinPin)
+                    },
+                    keyboardType = KeyboardType.NumberPassword,
                 )
             },
             confirmButton = {
@@ -487,11 +495,15 @@ internal fun HomeScreen(
             onDismissRequest = { createPlaylistOpen = false },
             title = { Text("New playlist") },
             text = {
-                OutlinedTextField(
+                DialogTextField(
                     value = playlistName,
                     onValueChange = { playlistName = it.take(60) },
-                    label = { Text("Name") },
-                    singleLine = true,
+                    label = "Name",
+                    canSubmit = playlistName.isNotBlank(),
+                    onSubmit = {
+                        onCreatePlaylist(playlistName.trim(), emptyList())
+                        createPlaylistOpen = false
+                    },
                 )
             },
             confirmButton = {
@@ -611,7 +623,7 @@ internal fun HomeScreen(
 private fun PlaylistShelfRow(name: String, count: Int, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
